@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Secrets and environment
+.env
+.env.*
+secrets.yaml
+config/secrets.yaml
+
+# Home Assistant runtime
+.storage/
+home-assistant.log*
+home-assistant_v2.db
+home-assistant_v2.db-shm
+home-assistant_v2.db-wal
+*.log
+
+# Claude Code local settings (user-specific permissions)
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
