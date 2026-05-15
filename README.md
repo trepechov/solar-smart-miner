@@ -1,5 +1,34 @@
 # Solar Smart Miner
 
+```
+           .   .   *   .   .
+         .   *           *   .
+       .      \  \ * /  /      .
+      .    *---  ( ☀ )  ---*    .
+       .      /  / * \  \      .
+         .   *           *   .
+           .   .   *   .   .
+
+   ┌────────┐  ┌────────┐  ┌────────┐
+   │▓▓│░░│▓▓│  │▓▓│░░│▓▓│  │▓▓│░░│▓▓│
+   │░░│▓▓│░░│  │░░│▓▓│░░│  │░░│▓▓│░░│
+   │▓▓│░░│▓▓│  │▓▓│░░│▓▓│  │▓▓│░░│▓▓│
+   └────────┘  └────────┘  └────────┘
+        \          |          /
+         \         |         /
+          `--------+--------'
+                   |
+    ╔══════════════╧═════════════╗
+    ║  ╔──────────────────────╗  ║
+    ║  │   ◉              ◉   │  ║
+    ║  │       ╰──────╯       │  ║
+    ║  ╚──────────────────────╝  ║
+    ║    ♯ ♯ ♯  B T C  ♯ ♯ ♯     ║
+    ║   █████████████████████    ║
+    ╚════════════════════════════╝
+           ⚡ clean energy ⚡
+```
+
 A Home Assistant custom integration that uses an AI agent to dynamically control ASIC miner power limits based on real-time solar production, household consumption, and battery state — with hard safety rails, dry-run mode, and Telegram notifications.
 
 ## What it does
