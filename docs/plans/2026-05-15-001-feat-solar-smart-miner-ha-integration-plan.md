@@ -14,6 +14,21 @@ Build a greenfield Home Assistant custom integration using `integration_blueprin
 
 ---
 
+## Progress
+
+Check off each unit after it is implemented, tested, and merged.
+
+- [ ] **U1** — Project scaffold: devcontainer, manifest.json, const.py (with profile definitions), HACS, and pytest setup
+- [ ] **U2** — Configuration flow: setup wizard, OptionsFlow (runtime settings), and miner subentries
+- [ ] **U3** — DataUpdateCoordinator: energy + miner state ingestion and full decision orchestration loop
+- [ ] **U4** — Safety layer: deterministic temperature / battery SOC / solar fault overrides
+- [ ] **U5** — AI decision engine: OpenRouter agent with profile-aware reasoning and decision log
+- [ ] **U6** — Miner control: apply power limit decisions via hass-miner service calls with dry-run gate
+- [ ] **U7** — HA entity platform files: sensors, profile selector, dry-run switch, last-decision display
+- [ ] **U8** — Telegram notifier: optional action and safety override notifications
+
+---
+
 ## Problem Frame
 
 Solar-powered ASIC miners waste opportunity by running at a fixed wattage regardless of actual solar production, battery state, or household consumption. Home Assistant already has mature solar and miner integrations; this plan connects them with an AI-driven controller. See [origin document](docs/brainstorms/solar-smart-miner-requirements.md) for the full problem frame, actors, and flows.
@@ -86,7 +101,7 @@ Solar-powered ASIC miners waste opportunity by running at a fixed wattage regard
 - [DataUpdateCoordinator docs](https://developers.home-assistant.io/docs/integration_fetching_data/)
 - [Config flow handler](https://developers.home-assistant.io/docs/config_entries_config_flow_handler/)
 - [Number entity](https://developers.home-assistant.io/docs/core/entity/number/) / [Select entity](https://developers.home-assistant.io/docs/core/entity/select/) / [Sensor entity](https://developers.home-assistant.io/docs/core/entity/sensor/)
-- [OpenRouter quickstart](https://openrouter.ai/docs/quickstart) — `openai` SDK with `base_url="https://openrouter.ai/api/v1"`
+- [OpenRouter Chat Completions API](https://openrouter.ai/docs/api-reference/chat-completions) — direct HTTP POST; `Authorization: Bearer <key>`; same JSON body shape as OpenAI `/v1/chat/completions`
 - [pytest-homeassistant-custom-component](https://github.com/MatthewFlamm/pytest-homeassistant-custom-component)
 - [HACS publish requirements](https://www.hacs.xyz/docs/publish/integration/)
 
@@ -120,6 +135,8 @@ Solar-powered ASIC miners waste opportunity by running at a fixed wattage regard
 - **Exact OpenRouter prompt template wording:** Iterative tuning needed after running dry-run on real hardware; cannot be finalized in planning.
 - **Min/max power limit source per miner:** hass-miner exposes these as entity attributes; implementation should read them dynamically rather than hardcoding. Verify attribute names during coding against a live hass-miner instance.
 - **Profile parameter values (thresholds):** Default threshold values for each profile (e.g., battery-focused "reduce at 60%, stop at 20%") need real-world tuning. Defaults in `const.py` should be conservative and user-overridable via OptionsFlow.
+- **[Affects R9 / dev-env] CGMiner mock server:** No existing tool is specified for mocking the CGMiner RPC protocol that `pyasic` speaks — needed for hardware-free integration testing (dev-env requirements R9, R10). Options to evaluate during U1: a lightweight Python stub server, an existing open-source CGMiner simulator, or a `pyasic` test fixture exposed as a network endpoint at `host.docker.internal:<port>`.
+- **[Affects Key Technical Decisions] [Design]** Protocol interfaces (`AgentProtocol`, `NotifierProtocol`, `SafetyProtocol`) each currently have a single concrete implementation. Decide explicitly before starting U3 implementation: keep the Protocol abstraction for future swap-in extensibility (as designed), or remove Protocols and use concrete types directly to reduce indirection. The user has expressed a preference for modular, swappable components, but the scope-guardian flagged this as potential YAGNI if no second implementation is planned for v1.
 
 ---
 
@@ -225,11 +242,11 @@ graph TD
 
 ## Implementation Units
 
-### U1. Project scaffold
+### U1. Project scaffold and dev environment
 
-**Goal:** Initialize the repository with correct HA custom integration structure, tooling, and distribution files. Provides the foundation every other unit builds on.
+**Goal:** Initialize the repository with the correct HA custom integration structure, a working local dev environment, tooling, and distribution files. At the end of this unit a developer can boot HA at `localhost:8123` with the integration pre-installed, run the full test suite without hardware, and distribute via HACS.
 
-**Requirements:** R26, R27, R28, R29, R30, R31
+**Requirements:** R26, R27, R28, R29, R30, R31 *(see also: [dev-environment-setup requirements](docs/brainstorms/2026-05-15-dev-environment-setup-requirements.md) R1–R8, R11, R12)*
 
 **Dependencies:** None
 
@@ -238,6 +255,7 @@ graph TD
 - Create: `pyproject.toml`
 - Create: `requirements.txt`
 - Create: `.devcontainer.json`
+- Create: `README.md` (installation, prerequisites, dev env setup, dry-run recommendation)
 - Create: `custom_components/solar_smart_miner/__init__.py`
 - Create: `custom_components/solar_smart_miner/manifest.json`
 - Create: `custom_components/solar_smart_miner/const.py`
@@ -251,20 +269,25 @@ graph TD
 - `const.py`: define `DOMAIN`, default polling interval, default safety thresholds, and profile definitions as structured data (name, description, parameter schema) — profiles defined here, not in the prompt
 - `__init__.py`: stub `async_setup_entry` and `async_unload_entry` with `PLATFORMS` list; use `entry.runtime_data` for coordinator storage
 - `hacs.json`: `name`, `homeassistant` minimum version
-- `pyproject.toml`: pytest config with `asyncio_mode = auto`; `requirements.txt` lists `openai`, `pytest-homeassistant-custom-component`, pinned to current HA stable
+- `pyproject.toml`: pytest config with `asyncio_mode = auto`; `requirements.txt` lists `pytest-homeassistant-custom-component` pinned to current HA stable; no `openai` package needed (using direct aiohttp calls)
 - `conftest.py`: `auto_enable_custom_integrations` fixture; `MockConfigEntry` helpers; `hass` fixture usage
+- **Dev environment (macOS):** `.devcontainer.json` is scaffolded from `integration_blueprint`; recommended container runtime is **OrbStack** (not Docker Desktop) — OrbStack supports `--network=host` and native filesystem mount speeds; `scripts/develop` (provided by `integration_blueprint`) boots HA inside the container at `localhost:8123`; code edits on the host reflect immediately via volume mount; HA must be restarted inside the container to pick up Python changes
+- **Miner connectivity in dev:** configure the dev integration with the miner's explicit LAN IP address; **do not use UDP miner discovery** — `pyasic` UDP broadcast does not traverse Docker bridge NAT and will silently fail; outbound TCP to the miner (port 4028 for CGMiner RPC, port 80 for HTTP) works through bridge networking when an explicit IP is provided
+- **venv alternative:** `pip install homeassistant`, run with `hass -c ./config` using Python 3.12 (HA's current constraint) — document in README for developers who prefer faster iteration without container overhead
+- **SCP sync to real HA:** final validation against a real HA + real miner instance is done by copying `custom_components/solar_smart_miner/` to the production HA config directory via `scp -r ...`; document the command in README
 
 **Patterns to follow:**
-- `ludeeus/integration_blueprint` for file structure and devcontainer config
+- `ludeeus/integration_blueprint` for file structure, devcontainer config, and `scripts/develop`
 - `entry.runtime_data` (not `hass.data[DOMAIN]`)
 
 **Test scenarios:**
-- Test expectation: none — pure scaffolding with no behavioral logic
+- Test expectation: none — pure scaffolding with no behavioral logic; the verification steps below are the acceptance criteria
 
 **Verification:**
-- `pytest tests/` runs and collects without import errors
-- Dev container starts and HA is accessible on port 8123
-- `custom_components/solar_smart_miner/` is recognized by HA (appears in integration list)
+- `pytest tests/` runs and collects without import errors, with no running HA instance and no hardware connected (dev-env R8)
+- Dev container starts and HA is accessible on `http://localhost:8123` with the integration appearing in the integrations list (dev-env R3)
+- A `.py` file edit on the host + HA restart inside the container is reflected at `localhost:8123` without rebuilding the container (dev-env R4)
+- Profile list in `const.py` contains all 4 profiles (battery-focused, solar-max, grid-agnostic, grid-independent) each with `name`, `description`, and `parameters` schema
 
 ---
 
@@ -272,7 +295,7 @@ graph TD
 
 **Goal:** Implement the full setup wizard (config flow), runtime settings editor (options flow), and per-miner subentry flow so operators can configure the integration end-to-end from the HA UI.
 
-**Requirements:** R1, R2, R3, R8, R9, R22, R25, R26, R27
+**Requirements:** R1, R2, R3, R4, R8, R9, R22, R25, R26, R27
 
 **Dependencies:** U1
 
@@ -286,12 +309,13 @@ graph TD
 - **Step 1 (required):** solar production entity selector, grid consumption entity selector, OpenRouter API key (text, masked), OpenRouter model name (text with default)
 - **Step 2 (optional sensors):** battery SOC entity selector (marked optional; skipped if left blank)
 - **Step 3 (safety thresholds):** temperature ceiling (°C, default from `const.py`), battery floor % (default from `const.py`)
-- **Step 4 (runtime settings):** active profile selector (from profile list in `const.py`), polling interval (seconds, default 300)
+- **Step 4 (runtime settings):** active profile selector (from profile list in `const.py`), polling interval (seconds, default 300, minimum 60); config flow validates the 60 s floor to prevent intervals shorter than the AI agent's timeout
 - Entity selectors: use HA's `EntitySelector` with appropriate device class filters (power sensor for solar/consumption, percentage sensor for battery SOC)
 - **`OptionsFlow`:** exposes same settings as steps 3–4 (safety thresholds, profile, polling interval) plus dry-run toggle — all runtime-tunable without restart
 - **`ConfigSubentryFlow` for miners:** triggered after initial setup; each subentry collects miner display name and IP address; the parent config entry stores the mapping
-- Unique ID: set on the config entry from the OpenRouter key hash or a user-chosen name to prevent duplicate entries
+- Unique ID: derived from a stable hash of the solar production entity ID and grid consumption entity ID: `hashlib.sha256(f"{solar_entity_id}:{grid_entity_id}".encode()).hexdigest()[:16]`; this survives reinstalls and correctly triggers `already_configured` if the same entity pair is configured twice; do NOT use `uuid.uuid4()` (generates a new ID on every install, bypassing duplicate detection) or credential values (API keys, tokens)
 - Validation: confirm solar and consumption entity IDs exist in HA state before accepting; OpenRouter key is not validated at config time (validated on first use)
+- Credentials storage tier: OpenRouter API key and Telegram bot token are stored in the config entry `data` dict (HA encrypts `data` at rest when HA Cloud is enabled or a storage secret key is configured; without either, `data` is stored as plain JSON on disk — document this in the README so operators understand the trade-off); polling interval, thresholds, profile, and dry-run toggle go in `options` (user-visible, OptionsFlow-editable)
 
 **Patterns to follow:**
 - Multi-step config flow pattern from HA developer docs
@@ -303,7 +327,7 @@ graph TD
 - Happy path: step 2 battery SOC left blank → config entry created with `battery_soc_entity: None`, no error
 - Happy path: add miner subentry after setup → subentry created with IP + display name
 - Edge case: solar entity ID does not exist in HA state → step 1 shows validation error
-- Edge case: two setup attempts with same unique ID → flow aborts with `already_configured`
+- Edge case: two setup attempts with the same solar entity + grid entity pair → flow aborts with `already_configured` (same stable hash derived both times)
 - Happy path: OptionsFlow changes dry-run to True → config entry option updated; no restart required
 - Happy path: OptionsFlow changes profile → takes effect on next coordinator poll
 
@@ -329,14 +353,13 @@ graph TD
 - Test: `tests/test_coordinator.py`
 
 **Approach:**
-- `SolarMinerCoordinator(DataUpdateCoordinator)`: `update_interval` read from config entry options; `_async_update_data()` is the single orchestration point
+- `SolarMinerCoordinator(DataUpdateCoordinator)`: `_async_update_data()` is the single orchestration point; reads active profile, dry-run flag, and safety thresholds from `entry.options` at the start of each cycle so OptionsFlow changes take effect on the next poll without mid-cycle inconsistency; `update_interval` is set once at coordinator construction from `entry.options`; when the polling interval option changes via OptionsFlow, the update listener triggers `hass.config_entries.async_reload(entry.entry_id)` so the coordinator is reconstructed with the new interval; do NOT mutate `coordinator.update_interval` directly — that does not cancel or reschedule the HA event loop timer
 - `_async_update_data()` sequence: read solar snapshot → read miner snapshots → call `SafetyProtocol.evaluate()` → if no breach, call `AgentProtocol.decide()` → call `MinerController.apply()` → call `NotifierProtocol.notify()`
 - Solar snapshot: read `solar_production_w`, `grid_consumption_w`, `battery_soc_pct` (None if not configured) from `hass.states.get(entity_id)` — handle `None` and `STATE_UNAVAILABLE`/`STATE_UNKNOWN` states explicitly
-- Miner snapshot: iterate subentries, read hass-miner sensor entities for each miner (hashrate, power, efficiency, temperatures, min/max power limit from entity attributes)
+- Miner snapshot: iterate subentries, read hass-miner sensor entities for each miner (hashrate, power, efficiency, temperatures, min/max power limit from entity attributes); if any required attribute is missing or returns `None`, mark that miner's `MinerSnapshot` as unavailable, log a WARNING, and exclude it from the current decision cycle — do not raise; other miners are unaffected
 - Solar entity fault (R7): if solar production entity state is `STATE_UNAVAILABLE` or `STATE_UNKNOWN`, pass a fault flag in the snapshot — the safety layer will act on it
 - `protocols.py`: define `AgentProtocol`, `NotifierProtocol`, `SafetyProtocol` using `typing.Protocol`; define shared data classes `EnergySnapshot`, `MinerSnapshot`, `SafetyDecision`, `AiDecision`
 - Coordinator receives concrete implementations injected in `__init__.py` `async_setup_entry`; no direct imports of `agent.py`, `safety.py`, or `telegram.py` inside `coordinator.py`
-- `always_update=False` to skip state machine writes when coordinator data is unchanged
 
 **Patterns to follow:**
 - `DataUpdateCoordinator` pattern from HA developer docs
@@ -372,6 +395,7 @@ graph TD
 
 **Approach:**
 - `DefaultSafetyLayer` implements `SafetyProtocol`; `evaluate(snapshot: EnergySnapshot, miners: list[MinerSnapshot]) -> SafetyDecision | None`
+- Sync-only constraint: `SafetyProtocol.evaluate()` must be synchronous (no `async def`, no I/O); Python's `typing.Protocol` does not enforce this — the contract is documented in the Protocol's docstring and enforced by code review
 - Check order: (1) per-miner temperature ceiling, (2) battery SOC floor, (3) solar entity fault
 - Temperature breach: for each miner, if any reported temperature > configured ceiling → `SafetyDecision(action=THROTTLE_MIN, miner_ids=[affected_miner], reason="temperature")`; if already at min wattage, action becomes `STOP`
 - Battery floor breach: if `battery_soc_pct` < configured floor → `SafetyDecision(action=STOP_ALL, reason="battery_floor")`
@@ -411,23 +435,26 @@ graph TD
 
 **Files:**
 - Create: `custom_components/solar_smart_miner/agent.py`
-- Modify: `custom_components/solar_smart_miner/sensor.py` (add last_decision sensor — can be a stub added here, fleshed out in U7)
 - Test: `tests/test_agent.py`
 
 **Approach:**
-- `OpenRouterAgent` implements `AgentProtocol`; `decide(snapshot, profile_config) -> AiDecision`
-- HTTP client: `openai` Python package, `AsyncOpenAI(base_url="https://openrouter.ai/api/v1", api_key=..., timeout=10.0)`
+- `OpenRouterAgent` implements `AgentProtocol`; constructor takes `hass: HomeAssistant`, `api_key: str`, `model: str`; `hass` is stored as `self._hass` and used inside `decide()` via `async_get_clientsession(self._hass)`; do NOT add `hass` to the `AgentProtocol.decide()` signature — injection is at construction time, not per-call
+- HTTP client: direct `aiohttp` POST using `async_get_clientsession(self._hass)` to `https://openrouter.ai/api/v1/chat/completions` with `Authorization: Bearer <api_key>` header set manually; do NOT use the `openai` Python package — it uses `httpx` internally and bypasses HA's managed aiohttp session (HACS compliance requirement)
 - Prompt construction: system prompt describes the agent's role and output format; user message contains the energy snapshot (solar W, consumption W, battery %, per-miner power/hashrate/efficiency) and active profile parameters from `const.py`
 - Output format: ask the model to respond with a JSON object `{"decisions": [{"miner_id": "...", "power_limit_w": 500, "reasoning": "..."}], "summary": "..."}`
-- Response parsing: extract `power_limit_w` per miner, validate it is a number within the miner's `[min_power_w, max_power_w]` range (clamp if needed per R13); extract `summary` for the decision log
+- Response parsing: extract `power_limit_w` per miner; validate each `miner_id` in the AI response against the coordinator's configured miner list — discard entries for unknown IDs with a WARNING log before touching any hardware; clamp `power_limit_w` to the miner's `[min_power_w, max_power_w]` range (R13); extract `summary` for the decision log
 - Fallback on API timeout or parse error: return `AiDecision` with `power_limit_w = current_power_w` per miner (maintain current state) and `reasoning = "fallback: API error"`; log warning via `_LOGGER`
+- Cold-start fallback: on the first polling cycle `current_power_w` may be `None` (miner not yet reporting); when `None`, use the miner's `min_power_w` as the safe default rather than propagating `None` to the service call
 - Decision log: coordinator writes `AiDecision.summary` to the last-decision sensor state and full per-miner reasoning to `extra_state_attributes`
 - Profile parameters passed to the prompt come from `const.py` profile definitions — not hardcoded in the prompt string
 
 **Patterns to follow:**
 - `AgentProtocol` from `protocols.py`
-- `openai.AsyncOpenAI` with `base_url` override (OpenRouter's documented pattern)
+- direct `aiohttp` POST to `https://openrouter.ai/api/v1/chat/completions` using `async_get_clientsession(self._hass)` (not the `openai` SDK)
 - HA `_LOGGER = logging.getLogger(__name__)` for logging
+- Debug log safety: never log the raw `Authorization` header or full response body at DEBUG level; log metadata only (HTTP status, model name, token count if available)
+- Cookie isolation: `async_get_clientsession(self._hass)` uses `DummyCookieJar` by default in HA — cookies from OpenRouter responses do not persist in the shared session; do not create bare `aiohttp.ClientSession()` instances that bypass this
+- Auth error safety: on 401 responses, never log the request URL or exception repr (may contain the API key); log only the HTTP status code and a static "authentication failed" message
 
 **Test scenarios:**
 - Happy path: valid JSON response → `AiDecision` with correct `power_limit_w` per miner
@@ -452,19 +479,19 @@ graph TD
 
 **Requirements:** R11, R13, R14, R16, R17
 
-**Dependencies:** U3, U4, U5
+**Dependencies:** U3, U4
 
 **Files:**
 - Create: `custom_components/solar_smart_miner/control.py`
 - Test: `tests/test_control.py`
 
 **Approach:**
-- `MinerController.apply(decision: AiDecision | SafetyDecision, dry_run: bool) -> None`
+- `MinerController`; constructor takes `hass: HomeAssistant`; stored as `self._hass` for service calls; `apply(decision: AiDecision | SafetyDecision, dry_run: bool) -> None`
 - If `decision.bypass_dry_run is True` (safety override): apply regardless of `dry_run` flag
 - If `dry_run is True` and not a safety override: log the would-be action at INFO level, return without calling any service
-- If live mode: call `hass.services.async_call("number", "set_value", {"entity_id": power_limit_entity_id, "value": clamped_limit}, blocking=True)` for each miner in the decision
-- Power limit entity ID: resolved from subentry data (miner IP → entity ID lookup); look up `number.<miner_name>_power_limit` from HA entity registry
-- Clamping: applied again here as a final guard using the miner's reported min/max range from the coordinator snapshot (belt-and-suspenders after U5 clamps)
+- If live mode: `await hass.services.async_call("number", "set_value", {"entity_id": power_limit_entity_id, "value": clamped_limit})` for each miner in the decision (do NOT pass `blocking=True` — that parameter was removed in HA 2024.x)
+- Power limit entity ID: resolved by iterating `entity_registry.async_get(hass).entities.values()` and filtering on `entry.platform == 'hass_miner'` and `entry.domain == 'number'`, then matching against the device whose IP matches the subentry's configured miner IP; if no entity is found, log WARNING and skip that miner for this cycle — do not raise; note: `integration_domain` is NOT a valid filter parameter in the HA entity registry API
+- Clamping: applied here as a final guard using the miner's reported min/max range from the coordinator snapshot (R13 ownership lives in U5; U6's clamp is a defensive safety net in case a future `AgentProtocol` implementation bypasses U5's clamping — this is not a second assignment of R13)
 - Record the applied limit in coordinator data for the next cycle's "old limit" reference (used by Telegram notifier to report old → new wattage)
 
 **Patterns to follow:**
@@ -505,13 +532,13 @@ graph TD
 - Test: `tests/test_entities.py`
 
 **Approach:**
-- `entity.py`: `SolarMinerEntity(CoordinatorEntity[SolarMinerCoordinator])` base; sets `device_info` per miner subentry; all properties read from `self.coordinator.data`
+- `entity.py`: `SolarMinerEntity(CoordinatorEntity[SolarMinerCoordinator])` base; sets `device_info` per miner subentry; all properties read from `self.coordinator.data`; pass `always_update=False` to `CoordinatorEntity.__init__()` to skip HA state machine writes when coordinator data has not changed (this is a `CoordinatorEntity` constructor parameter, not a `DataUpdateCoordinator` attribute)
 - `sensor.py`:
   - Per-miner sensors: hashrate (TH/s), power draw (W), efficiency (J/TH), board temperatures — read from coordinator miner snapshot
   - System sensors: solar production (W), grid consumption (W), battery SOC (%) when entity configured
   - `last_decision` sensor: `native_value` = decision summary text; `extra_state_attributes` = per-miner reasoning dict; updated after every AI decision cycle
 - `number.py`: per-miner current applied power limit (W); read-only display (coordinator data, not writable — power is set by the agent, not manually)
-- `select.py`: profile selector; `async_select_option` updates the config entry OptionsFlow data and triggers coordinator reload to pick up the new profile on the next cycle
+- `select.py`: profile selector; `async_select_option` updates the config entry options and triggers a coordinator refresh via `coordinator.async_request_refresh()` to pick up the new profile without a config entry reload
 - `switch.py`: dry-run mode toggle; `async_turn_on/off` updates config entry options without restart (R17); coordinator reads `dry_run` from options on every cycle
 
 **Patterns to follow:**
@@ -540,14 +567,14 @@ graph TD
 
 **Requirements:** R23, R24, R25
 
-**Dependencies:** U5, U6
+**Dependencies:** U3
 
 **Files:**
 - Create: `custom_components/solar_smart_miner/telegram.py`
 - Test: `tests/test_telegram.py`
 
 **Approach:**
-- `TelegramNotifier` implements `NotifierProtocol`; constructor takes `bot_token: str | None`, `chat_id: str | None`; all methods are no-ops when either is absent (R25)
+- `TelegramNotifier` implements `NotifierProtocol`; constructor takes `hass: HomeAssistant`, `bot_token: str | None`, `chat_id: str | None`; `hass` is stored as `self._hass` for `async_get_clientsession(self._hass)` calls; all methods are no-ops when either `bot_token` or `chat_id` is absent (R25)
 - `notify_action(miner_id, old_limit_w, new_limit_w, reason)`: sends a message like "⚡ [MinerName]: 800W → 600W — solar production dropping (450W surplus)"
 - `notify_safety_override(miner_ids, threshold_type, action)`: sends a message like "🛑 Safety: temperature exceeded 80°C on [MinerName] — stopped miner"
 - HTTP transport: use `hass.helpers.aiohttp_client.async_get_clientsession(hass)` to reuse HA's managed `aiohttp` session (avoids creating unmanaged HTTP clients)
@@ -557,8 +584,9 @@ graph TD
 
 **Patterns to follow:**
 - `NotifierProtocol` from `protocols.py`
-- `async_get_clientsession(hass)` for managed aiohttp session
+- `async_get_clientsession(self._hass)` for managed aiohttp session (hass injected via constructor, not per-method)
 - `_LOGGER.warning` (not exception) on notification failure
+- Cookie isolation: HA's managed session uses `DummyCookieJar` by default — Telegram cookies do not persist across unrelated requests
 
 **Test scenarios:**
 - Happy path: token + chat_id configured, action notification → `aiohttp.post` called with correct URL and message body
@@ -609,16 +637,17 @@ graph TD
 
 ## Documentation / Operational Notes
 
-- **README** (in repo root): installation via HACS, prerequisites (hass-miner, solar integration), config flow walkthrough, profile descriptions, dry-run recommendation for first use
+- **README** (in repo root): installation via HACS, prerequisites (hass-miner, solar integration), config flow walkthrough, profile descriptions, dry-run recommendation for first use; plus a **Dev Environment** section covering: OrbStack (recommended over Docker Desktop on macOS — faster mounts, `--network=host` support), `scripts/develop` to boot HA at `localhost:8123`, explicit miner IP requirement (UDP discovery does not work in Docker bridge networking), venv alternative for Python 3.12, and SCP command for syncing to a real HA instance
 - **First-run recommendation:** document that operators should run dry-run mode for at least 24 hours before going live — align with the success criterion in the requirements doc
 - **Release process:** tag `v0.x.y`, publish GitHub Release — HACS picks up the version automatically
-- **Logs:** integration logs at `DEBUG` level include full AI responses and entity reads; enable `custom_components.solar_smart_miner: debug` in HA `configuration.yaml` for diagnosis
+- **Logs:** integration logs at `DEBUG` level include AI response metadata (HTTP status, model name, token count) and entity reads — not raw response bodies or authorization headers; enable `custom_components.solar_smart_miner: debug` in HA `configuration.yaml` for diagnosis
 
 ---
 
 ## Sources & References
 
 - **Origin document:** [docs/brainstorms/solar-smart-miner-requirements.md](docs/brainstorms/solar-smart-miner-requirements.md)
+- **Dev environment requirements:** [docs/brainstorms/2026-05-15-dev-environment-setup-requirements.md](docs/brainstorms/2026-05-15-dev-environment-setup-requirements.md)
 - Integration blueprint: `github.com/ludeeus/integration_blueprint`
 - hass-miner: `github.com/Schnitzel/hass-miner`
 - HA DataUpdateCoordinator: `developers.home-assistant.io/docs/integration_fetching_data/`
