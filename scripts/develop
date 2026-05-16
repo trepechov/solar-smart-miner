@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -e
+
+cd "$(dirname "$0")/.."
+
+pip install --upgrade -r requirements.txt
+
+mkdir -p config/custom_components
+
+rm -rf config/custom_components/solar_smart_miner
+ln -s "$(pwd)/custom_components/solar_smart_miner" config/custom_components/solar_smart_miner
+
+if [ ! -f config/configuration.yaml ]; then
+    cat > config/configuration.yaml << 'EOF'
+default_config:
+
+logger:
+  default: info
+  logs:
+    custom_components.solar_smart_miner: debug
+EOF
+fi
+
+hass --open-ui -c config

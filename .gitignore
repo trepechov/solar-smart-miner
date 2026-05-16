@@ -26,6 +26,9 @@ home-assistant_v2.db-shm
 home-assistant_v2.db-wal
 *.log
 
+# Dev environment — created by scripts/develop
+config/
+
 # Claude Code local settings (user-specific permissions)
 .claude/settings.local.json
 

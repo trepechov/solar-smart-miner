@@ -1,0 +1,19 @@
+{
+  "name": "Solar Smart Miner Development",
+  "image": "ghcr.io/ludeeus/devcontainer/integration:latest",
+  "postCreateCommand": "pip install -r requirements.txt",
+  "containerEnv": {
+    "WORKSPACE_DIRECTORY": "${containerWorkspaceFolder}"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "github.vscode-github-actions"
+      ]
+    }
+  },
+  "forwardPorts": [8123],
+  "runArgs": ["--network=host"]
+}

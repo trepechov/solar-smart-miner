@@ -1,0 +1,14 @@
+version: "3.8"
+services:
+  homeassistant:
+    image: homeassistant/home-assistant:stable
+    container_name: hass-dev
+    restart: unless-stopped
+    volumes:
+      - ./config:/config
+      - ./custom_components/solar_smart_miner:/config/custom_components/solar_smart_miner:ro
+    # If your Docker runtime supports host networking (OrbStack on macOS or Linux),
+    # uncomment the following line to enable miner UDP discovery and full LAN parity:
+    # network_mode: "host"
+    ports:
+      - "8123:8123"

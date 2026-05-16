@@ -101,12 +101,103 @@ Every agent decision — including the model's reasoning, the energy snapshot it
 
 ## Development
 
-The project uses a dev container for local development against a real HA instance. The test suite uses `pytest` with `pytest-homeassistant-custom-component`; no real miner or solar hardware is required to run tests.
+### Quick start
+
+1. Run the local HA dev container:
+   ```bash
+docker compose -f docker-compose.dev.yml up --build
+```
+2. Open `http://localhost:8123`.
+3. Install HACS if needed by placing the downloaded HACS release in `config/custom_components/hacs`.
+4. In HACS, add repository `https://github.com/Schnitzel/hass-miner` as an Integration repo if `hass-miner` is not visible.
+5. Install `hass-miner`, restart HA, then add the integration via `Settings → Devices & Services → Add Integration`.
+6. Configure your miner with explicit IPs; do not rely on UDP discovery unless using host networking / OrbStack.
+
+### Prerequisites
+
+- [OrbStack](https://orbstack.dev) (recommended on macOS) or Docker Desktop — OrbStack provides native filesystem mount speeds and `--network=host` support; Docker Desktop's bridge networking silently breaks UDP device discovery and has slower mounts
+- VS Code with the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension
+- Python 3.12 if using the venv alternative below
+
+### Dev container (recommended)
+
+1. Open this repository in VS Code and reopen in Dev Container when prompted
+2. Inside the container, run:
+   ```bash
+   scripts/develop
+   ```
+3. Home Assistant starts at `http://localhost:8123` with the integration pre-installed
+4. Edit `.py` files on your host — changes are reflected via volume mount; restart HA inside the container to pick them up
+
+### Local Docker startup
+
+If you prefer to run Home Assistant directly from the repo without the Dev Container, use the provided compose file:
 
 ```bash
-# Run tests
+docker compose -f docker-compose.dev.yml up --build
+```
+
+Then open `http://localhost:8123`.
+
+If HACS is not present in `Settings → Devices & Services → Add Integration` after startup, install it manually in `config/custom_components`:
+
+```bash
+mkdir -p config/custom_components
+curl -L -o config/custom_components/hacs.zip https://github.com/hacs/integration/releases/latest/download/hacs.zip
+unzip -q config/custom_components/hacs.zip -d config/custom_components/hacs
+rm config/custom_components/hacs.zip
+```
+
+Restart Home Assistant after installing HACS.
+
+### Installing hass-miner in dev
+
+Once HACS is working, install `hass-miner` from the HACS UI:
+
+1. Open HACS and go to `Integrations`
+2. If `hass-miner` is not visible, add a custom repository:
+   - Repository: `https://github.com/Schnitzel/hass-miner`
+   - Category: `Integration`
+3. Install `hass-miner`
+4. Restart Home Assistant and add the integration via `Settings → Devices & Services → Add Integration`
+
+### Miner connectivity in dev
+
+Configure the integration with the miner's explicit LAN IP address. **Do not use UDP miner discovery** — `pyasic`'s UDP broadcast does not traverse Docker bridge NAT and will fail silently. Outbound TCP to the miner (port 4028 for CGMiner RPC, port 80 for HTTP admin) works through bridge networking when an explicit IP is set.
+
+When OrbStack is the container runtime, `--network=host` is available for any scenario requiring full LAN network parity.
+
+### Running tests (no hardware required)
+
+```bash
+pip install -r requirements.txt
 pytest
 ```
+
+All hass-miner entity state is mocked; no container, running HA instance, or physical miner is needed.
+
+### Python venv alternative
+
+For faster iteration without container overhead:
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install homeassistant -r requirements.txt
+mkdir -p config/custom_components
+ln -s "$(pwd)/custom_components/solar_smart_miner" config/custom_components/solar_smart_miner
+hass -c config
+```
+
+HA constraint: Python 3.12 (do not use 3.11 or 3.13).
+
+### Syncing to a real HA instance
+
+```bash
+scp -r custom_components/solar_smart_miner/ ha-user@ha-host:/config/custom_components/
+```
+
+Then restart Home Assistant on the production host. Run dry-run mode for at least 24 hours before switching to live control.
 
 ## Roadmap
 

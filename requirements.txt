@@ -1,0 +1,4 @@
+# Test dependencies
+# Pin to the version matching your target HA stable release (e.g. 2025.6.x)
+pytest-homeassistant-custom-component
+pytest-asyncio
