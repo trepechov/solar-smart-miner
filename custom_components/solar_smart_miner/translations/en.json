@@ -1,11 +1,74 @@
 {
   "config": {
-    "step": {},
-    "error": {},
-    "abort": {}
+    "step": {
+      "user": {
+        "title": "Solar Smart Miner — Solar & Grid Setup",
+        "description": "Select the HA entities that report solar production and grid consumption, then provide your OpenRouter credentials.",
+        "data": {
+          "solar_production_entity": "Solar production sensor",
+          "grid_consumption_entity": "Grid consumption sensor",
+          "openrouter_api_key": "OpenRouter API key",
+          "openrouter_model": "OpenRouter model"
+        }
+      },
+      "optional_sensors": {
+        "title": "Solar Smart Miner — Optional Sensors",
+        "description": "Optionally select a battery state-of-charge sensor. Leave blank if you have no battery.",
+        "data": {
+          "battery_soc_entity": "Battery SOC sensor (optional)"
+        }
+      },
+      "safety_thresholds": {
+        "title": "Solar Smart Miner — Safety Thresholds",
+        "description": "Set the temperature ceiling and battery floor. The safety layer stops or throttles miners when these are exceeded.",
+        "data": {
+          "temp_ceiling": "Temperature ceiling",
+          "battery_floor": "Battery SOC floor"
+        }
+      },
+      "runtime_settings": {
+        "title": "Solar Smart Miner — Runtime Settings",
+        "description": "Choose the active power profile and how often the controller polls.",
+        "data": {
+          "profile": "Active profile",
+          "polling_interval": "Polling interval"
+        }
+      }
+    },
+    "error": {
+      "solar_entity_not_found": "Solar production entity not found in Home Assistant. Check the entity ID.",
+      "grid_entity_not_found": "Grid consumption entity not found in Home Assistant. Check the entity ID."
+    },
+    "abort": {
+      "already_configured": "This solar + grid entity pair is already configured."
+    }
   },
   "options": {
-    "step": {},
-    "error": {}
+    "step": {
+      "init": {
+        "title": "Solar Smart Miner — Options",
+        "description": "Adjust runtime settings. Changes take effect on the next coordinator poll — no restart required.",
+        "data": {
+          "dry_run": "Dry-run mode (log decisions without applying them)",
+          "profile": "Active profile",
+          "polling_interval": "Polling interval",
+          "temp_ceiling": "Temperature ceiling",
+          "battery_floor": "Battery SOC floor",
+          "telegram_bot_token": "Telegram bot token (optional)",
+          "telegram_chat_id": "Telegram chat ID (optional)"
+        }
+      },
+      "add_miner": {
+        "title": "Add Miner (optional)",
+        "description": "Add a miner by entering its display name and LAN IP address. Leave both fields blank to skip.",
+        "data": {
+          "miner_name": "Display name",
+          "miner_ip": "Miner IP address"
+        }
+      }
+    },
+    "error": {
+      "invalid_ip": "Invalid IPv4 address. Please enter a valid IP (e.g. 192.168.1.100)."
+    }
   }
 }

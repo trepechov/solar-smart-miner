@@ -18,8 +18,8 @@ Build a greenfield Home Assistant custom integration using `integration_blueprin
 
 Check off each unit after it is implemented, tested, and merged.
 
-- [ ] **U1** — Project scaffold: devcontainer, manifest.json, const.py (with profile definitions), HACS, and pytest setup
-- [ ] **U2** — Configuration flow: setup wizard, OptionsFlow (runtime settings), and miner subentries
+- [x] **U1** — Project scaffold: devcontainer, manifest.json, const.py (with profile definitions), HACS, and pytest setup
+- [x] **U2** — Configuration flow: setup wizard, OptionsFlow (runtime settings), and miner subentries
 - [ ] **U3** — DataUpdateCoordinator: energy + miner state ingestion and full decision orchestration loop
 - [ ] **U4** — Safety layer: deterministic temperature / battery SOC / solar fault overrides
 - [ ] **U5** — AI decision engine: OpenRouter agent with profile-aware reasoning and decision log
