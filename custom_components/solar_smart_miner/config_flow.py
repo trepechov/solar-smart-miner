@@ -30,6 +30,8 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_MOCK_SOLAR_ENABLED,
+    CONF_MOCK_SOLAR_ENTITY,
     DEFAULT_BATTERY_FLOOR,
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_PROFILE,
@@ -155,54 +157,67 @@ def _miner_schema() -> vol.Schema:
 
 
 def _options_schema(options: dict) -> vol.Schema:
-    return vol.Schema(
-        {
-            vol.Required(CONF_DRY_RUN, default=options.get(CONF_DRY_RUN, False)): bool,
-            vol.Required(
-                CONF_PROFILE, default=options.get(CONF_PROFILE, DEFAULT_PROFILE)
-            ): SelectSelector(
-                SelectSelectorConfig(options=PROFILE_NAMES, mode=SelectSelectorMode.DROPDOWN)
-            ),
-            vol.Required(
-                CONF_POLLING_INTERVAL,
-                default=options.get(CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL),
-            ): NumberSelector(
-                NumberSelectorConfig(
-                    min=60,
-                    max=3600,
-                    step=60,
-                    unit_of_measurement="s",
-                    mode=NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Required(
-                CONF_TEMP_CEILING,
-                default=options.get(CONF_TEMP_CEILING, DEFAULT_TEMP_CEILING),
-            ): NumberSelector(
-                NumberSelectorConfig(
-                    min=40,
-                    max=120,
-                    step=1,
-                    unit_of_measurement="°C",
-                    mode=NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Required(
-                CONF_BATTERY_FLOOR,
-                default=options.get(CONF_BATTERY_FLOOR, DEFAULT_BATTERY_FLOOR),
-            ): NumberSelector(
-                NumberSelectorConfig(
-                    min=0, max=80, step=1, unit_of_measurement="%", mode=NumberSelectorMode.BOX
-                )
-            ),
-            vol.Optional(
-                CONF_TELEGRAM_TOKEN, default=options.get(CONF_TELEGRAM_TOKEN, "")
-            ): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
-            vol.Optional(
-                CONF_TELEGRAM_CHAT_ID, default=options.get(CONF_TELEGRAM_CHAT_ID, "")
-            ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT)),
-        }
-    )
+    schema: dict = {
+        vol.Required(CONF_DRY_RUN, default=options.get(CONF_DRY_RUN, False)): bool,
+        vol.Required(
+            CONF_PROFILE, default=options.get(CONF_PROFILE, DEFAULT_PROFILE)
+        ): SelectSelector(
+            SelectSelectorConfig(options=PROFILE_NAMES, mode=SelectSelectorMode.DROPDOWN)
+        ),
+        vol.Required(
+            CONF_POLLING_INTERVAL,
+            default=options.get(CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL),
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=60,
+                max=3600,
+                step=60,
+                unit_of_measurement="s",
+                mode=NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Required(
+            CONF_TEMP_CEILING,
+            default=options.get(CONF_TEMP_CEILING, DEFAULT_TEMP_CEILING),
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=40,
+                max=120,
+                step=1,
+                unit_of_measurement="°C",
+                mode=NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Required(
+            CONF_BATTERY_FLOOR,
+            default=options.get(CONF_BATTERY_FLOOR, DEFAULT_BATTERY_FLOOR),
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=0, max=80, step=1, unit_of_measurement="%", mode=NumberSelectorMode.BOX
+            )
+        ),
+        vol.Optional(
+            CONF_TELEGRAM_TOKEN, default=options.get(CONF_TELEGRAM_TOKEN, "")
+        ): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+        vol.Optional(
+            CONF_TELEGRAM_CHAT_ID, default=options.get(CONF_TELEGRAM_CHAT_ID, "")
+        ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT)),
+        vol.Optional(
+            CONF_MOCK_SOLAR_ENABLED,
+            default=options.get(CONF_MOCK_SOLAR_ENABLED, False),
+        ): bool,
+    }
+    # EntitySelector rejects empty strings, so only include a default when an entity is already set.
+    _mock_entity = options.get(CONF_MOCK_SOLAR_ENTITY) or ""
+    if _mock_entity:
+        schema[vol.Optional(CONF_MOCK_SOLAR_ENTITY, default=_mock_entity)] = EntitySelector(
+            EntitySelectorConfig(domain="sensor")
+        )
+    else:
+        schema[vol.Optional(CONF_MOCK_SOLAR_ENTITY)] = EntitySelector(
+            EntitySelectorConfig(domain="sensor")
+        )
+    return vol.Schema(schema)
 
 
 class SolarSmartMinerConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -317,6 +332,13 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
             chat_id = user_input.get(CONF_TELEGRAM_CHAT_ID, "").strip()
             self._pending_options[CONF_TELEGRAM_TOKEN] = token if token else None
             self._pending_options[CONF_TELEGRAM_CHAT_ID] = chat_id if chat_id else None
+
+            self._pending_options[CONF_MOCK_SOLAR_ENABLED] = user_input.get(
+                CONF_MOCK_SOLAR_ENABLED, False
+            )
+            mock_entity = (user_input.get(CONF_MOCK_SOLAR_ENTITY) or "").strip()
+            self._pending_options[CONF_MOCK_SOLAR_ENTITY] = mock_entity if mock_entity else None
+
             return await self.async_step_add_miner()
 
         return self.async_show_form(

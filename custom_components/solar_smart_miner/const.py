@@ -62,3 +62,7 @@ PROFILES = [
 
 PROFILE_NAMES = [p["name"] for p in PROFILES]
 DEFAULT_PROFILE = "solar_max"
+
+# Mock solar mode — development only
+CONF_MOCK_SOLAR_ENABLED = "mock_solar_enabled"
+CONF_MOCK_SOLAR_ENTITY = "mock_solar_entity"

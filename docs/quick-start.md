@@ -67,6 +67,27 @@ In the Home Assistant UI:
 6. Set safety thresholds (temperature ceiling, battery SOC floor)
 7. Choose a starting profile and enable dry-run mode initially
 
+### 6. (Optional) Enable Mock Solar via Forecast.Solar
+
+If you don't have real solar hardware connected to your dev HA, you can feed the integration with Forecast.Solar predicted production values instead.
+
+**Install Forecast.Solar** in your dev HA instance:
+
+1. Go to `Settings → Devices & Services → Add Integration`
+2. Search for `Forecast.Solar` and install it
+3. Enter your location (latitude, longitude) and panel details (total peak power in kW, e.g. `6.0` for 6000 W)
+4. After setup, find the entity named something like `sensor.forecast_solar_power_production_now`
+
+**Enable mock solar** in Solar Smart Miner:
+
+1. Open the Solar Smart Miner integration and click `Configure`
+2. Scroll to **Development** at the bottom of the options form
+3. Toggle **Use Forecast.Solar as mock solar data** on
+4. Select the `sensor.forecast_solar_power_production_now` entity
+5. Save — the coordinator will now use forecasted production values instead of a real solar sensor
+
+The decision log (last-decision sensor) will show a `[MOCK SOLAR]` prefix on every cycle so you can confirm mock mode is active. Toggle it off the same way when you're ready to use real solar data.
+
 ## Testing Without Hardware
 
 Run unit tests locally (no HA instance, no miner needed):

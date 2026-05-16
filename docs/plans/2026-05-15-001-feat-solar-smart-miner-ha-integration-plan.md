@@ -26,6 +26,7 @@ Check off each unit after it is implemented, tested, and merged.
 - [ ] **U6** — Miner control: apply power limit decisions via hass-miner service calls with dry-run gate
 - [ ] **U7** — HA entity platform files: sensors, profile selector, dry-run switch, last-decision display
 - [ ] **U8** — Telegram notifier: optional action and safety override notifications
+- [x] **U9** — Mock Solar Mode: substitute Forecast.Solar entity for real solar entity during development
 
 ---
 
@@ -600,6 +601,44 @@ graph TD
 - Telegram messages are sent on every AI-applied power change and safety override
 - Integration remains fully functional when Telegram credentials are absent
 - No unmanaged HTTP sessions created; uses HA's session
+
+---
+
+### U9. Mock Solar Mode (Forecast.Solar integration)
+
+**Goal:** Allow developers to use Forecast.Solar predicted production data as a mock solar input source, enabling full integration testing without real solar hardware. When enabled, the coordinator reads from the Forecast.Solar entity instead of the real solar production entity; all downstream logic (AI decisions, safety, entity state) runs identically.
+
+**Requirements:** Development aid — no origin requirement. Satisfies the spirit of dev-env requirements (hardware-free testing).
+
+**Dependencies:** U3 (coordinator must be in place; mock mode is a coordinator config switch)
+
+**Files:**
+- Modify: `custom_components/solar_smart_miner/const.py` — add `CONF_MOCK_SOLAR_ENABLED`, `CONF_MOCK_SOLAR_ENTITY`
+- Modify: `custom_components/solar_smart_miner/config_flow.py` — add mock solar toggle + entity selector to `OptionsFlow`
+- Modify: `custom_components/solar_smart_miner/coordinator.py` — substitute mock entity read when mock mode active; tag `EnergySnapshot` with `mock_solar=True`
+- Modify: `custom_components/solar_smart_miner/protocols.py` — add `mock_solar: bool = False` field to `EnergySnapshot` dataclass
+- Modify: `custom_components/solar_smart_miner/strings.json` / `translations/en.json` — labels for mock solar option
+
+**Approach:**
+- `OptionsFlow` addition: add a "Development" section at the bottom of the options form; toggle `CONF_MOCK_SOLAR_ENABLED` (bool, default `False`); when toggled on, show `CONF_MOCK_SOLAR_ENTITY` (EntitySelector, power sensor device class) — lets the user pick any Forecast.Solar entity such as `sensor.forecast_solar_power_production_now`
+- Coordinator: in `_async_update_data()`, after reading options, check `mock_solar_enabled`; if `True`, read solar production from `CONF_MOCK_SOLAR_ENTITY` instead of the configured `solar_production_entity_id`; tag `EnergySnapshot.mock_solar = True`
+- Decision log prefix: when `snapshot.mock_solar is True`, prepend `[MOCK SOLAR] ` to the last-decision sensor state so the operator can see development mode is active in the HA UI
+- No new protocols, no new files, no new patterns — purely configuration-controlled entity substitution
+
+**Patterns to follow:**
+- Same `hass.states.get(entity_id)` read pattern as the real solar entity (coordinator already does this)
+- `OptionsFlow` pattern from U2
+
+**Test scenarios:**
+- Happy path: mock mode enabled, Forecast.Solar entity provides a value → coordinator reads mock entity, `snapshot.mock_solar=True`, last-decision prefixed with `[MOCK SOLAR]`
+- Happy path: mock mode disabled → coordinator reads real solar entity, behavior unchanged from U3
+- Edge case: mock mode enabled but `CONF_MOCK_SOLAR_ENTITY` not set or entity unavailable → fall back to real solar entity, log `WARNING` — do not raise
+- Happy path: mock mode toggled off at runtime via OptionsFlow → next cycle reads real solar, no restart required
+
+**Verification:**
+- With Forecast.Solar configured in HA and mock mode enabled, the coordinator uses forecasted production values in all decisions
+- Decision log shows `[MOCK SOLAR]` prefix so operator can confirm development mode is active
+- Disabling mock mode via OptionsFlow requires no HA restart
 
 ---
 

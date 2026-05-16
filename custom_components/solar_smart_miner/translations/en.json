@@ -55,7 +55,9 @@
           "temp_ceiling": "Temperature ceiling",
           "battery_floor": "Battery SOC floor",
           "telegram_bot_token": "Telegram bot token (optional)",
-          "telegram_chat_id": "Telegram chat ID (optional)"
+          "telegram_chat_id": "Telegram chat ID (optional)",
+          "mock_solar_enabled": "Use Forecast.Solar as mock solar data (development only)",
+          "mock_solar_entity": "Forecast.Solar power sensor (mock source)"
         }
       },
       "add_miner": {

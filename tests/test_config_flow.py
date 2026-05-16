@@ -25,6 +25,8 @@ from custom_components.solar_smart_miner.config_flow import (
     DEFAULT_OPENROUTER_MODEL,
 )
 from custom_components.solar_smart_miner.const import (
+    CONF_MOCK_SOLAR_ENABLED,
+    CONF_MOCK_SOLAR_ENTITY,
     DEFAULT_BATTERY_FLOOR,
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_PROFILE,
@@ -463,3 +465,79 @@ async def test_options_flow_telegram_blank_stored_as_none(hass: HomeAssistant) -
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"].get("telegram_bot_token") is None
     assert result["data"].get("telegram_chat_id") is None
+
+
+# ---------------------------------------------------------------------------
+# OptionsFlow — mock solar (U9)
+# ---------------------------------------------------------------------------
+
+FORECAST_SOLAR_ENTITY = "sensor.forecast_solar_power_production_now"
+
+
+async def test_options_flow_mock_solar_enabled_stores_entity(hass: HomeAssistant) -> None:
+    """Happy path: mock solar enabled with entity → stored correctly in options."""
+    entry = _make_entry(hass)
+    hass.states.async_set(FORECAST_SOLAR_ENTITY, "3500")
+
+    result = await _get_options_flow_result(
+        hass,
+        entry,
+        {
+            CONF_DRY_RUN: False,
+            CONF_PROFILE: DEFAULT_PROFILE,
+            CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
+            CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
+            CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
+            CONF_MOCK_SOLAR_ENABLED: True,
+            CONF_MOCK_SOLAR_ENTITY: FORECAST_SOLAR_ENTITY,
+        },
+        miner_input={CONF_MINER_NAME: "", CONF_MINER_IP: ""},
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_MOCK_SOLAR_ENABLED] is True
+    assert result["data"][CONF_MOCK_SOLAR_ENTITY] == FORECAST_SOLAR_ENTITY
+
+
+async def test_options_flow_mock_solar_disabled_by_default(hass: HomeAssistant) -> None:
+    """Happy path: mock solar not submitted → defaults to disabled, entity stored as None."""
+    entry = _make_entry(hass)
+
+    result = await _get_options_flow_result(
+        hass,
+        entry,
+        {
+            CONF_DRY_RUN: False,
+            CONF_PROFILE: DEFAULT_PROFILE,
+            CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
+            CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
+            CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
+        },
+        miner_input={CONF_MINER_NAME: "", CONF_MINER_IP: ""},
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"].get(CONF_MOCK_SOLAR_ENABLED) is False
+    assert result["data"].get(CONF_MOCK_SOLAR_ENTITY) is None
+
+
+async def test_options_flow_mock_solar_no_entity_selected_stored_as_none(hass: HomeAssistant) -> None:
+    """Edge case: mock solar enabled but no entity selected → entity stored as None."""
+    entry = _make_entry(hass)
+
+    # Omitting CONF_MOCK_SOLAR_ENTITY simulates the user not selecting an entity in the HA UI.
+    # EntitySelector rejects empty strings, so real users can only submit a valid entity ID or nothing.
+    result = await _get_options_flow_result(
+        hass,
+        entry,
+        {
+            CONF_DRY_RUN: False,
+            CONF_PROFILE: DEFAULT_PROFILE,
+            CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
+            CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
+            CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
+            CONF_MOCK_SOLAR_ENABLED: True,
+        },
+        miner_input={CONF_MINER_NAME: "", CONF_MINER_IP: ""},
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_MOCK_SOLAR_ENABLED] is True
+    assert result["data"].get(CONF_MOCK_SOLAR_ENTITY) is None
