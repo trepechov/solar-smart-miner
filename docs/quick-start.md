@@ -84,16 +84,31 @@ pytest
 
 ## Syncing to Production
 
-When ready to deploy to a real Home Assistant instance:
+**If your production HA runs in Docker** (e.g. `docker run homeassistant/home-assistant`):
+
+```bash
+# Copy the entire integration directory into the running container
+docker cp custom_components/solar_smart_miner <container-name>:/config/custom_components/
+
+# Restart to load the new files
+docker restart <container-name>
+```
+
+Replace `<container-name>` with your actual container name (`docker ps` to find it).
+
+**If your production HA is accessible over SSH:**
 
 ```bash
 scp -r custom_components/solar_smart_miner/ ha-user@ha-host:/config/custom_components/
 ```
 
-Restart Home Assistant on the production host. Run in dry-run mode for at least 24 hours before enabling live control.
+Then restart Home Assistant on the production host.
+
+Run in dry-run mode for at least 24 hours before enabling live control.
 
 ## Troubleshooting
 
+- **"Config flow could not be loaded: Invalid handler specified":** `config_flow.py` is missing from the container. Confirm with `docker logs <container-name> 2>&1 | grep solar_smart_miner` — you will see `No module named 'custom_components.solar_smart_miner.config_flow'`. Re-copy the file and restart: `docker cp custom_components/solar_smart_miner/config_flow.py <container-name>:/config/custom_components/solar_smart_miner/config_flow.py && docker restart <container-name>`
 - **HACS not found after install:** Use a modern browser (Chrome/Firefox); Safari may have front-end rendering issues
 - **Miner not found in hass-miner config:** Use explicit IP, not UDP discovery
 - **Docker networking slow on macOS:** Switch to OrbStack for native filesystem mounts

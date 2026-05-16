@@ -67,6 +67,17 @@ Solar Smart Miner closes that gap. An AI agent runs on a configurable interval, 
 
 Copy the `custom_components/solar_smart_miner/` directory into your HA `config/custom_components/` folder and restart Home Assistant.
 
+**Docker-based HA:**
+```bash
+docker cp custom_components/solar_smart_miner <container-name>:/config/custom_components/
+docker restart <container-name>
+```
+
+**SSH-accessible HA:**
+```bash
+scp -r custom_components/solar_smart_miner/ ha-user@ha-host:/config/custom_components/
+```
+
 ## Configuration
 
 The integration is configured entirely through the Home Assistant UI config flow:
@@ -193,11 +204,18 @@ HA constraint: Python 3.12 (do not use 3.11 or 3.13).
 
 ### Syncing to a real HA instance
 
+**Docker-based HA:**
+```bash
+docker cp custom_components/solar_smart_miner <container-name>:/config/custom_components/
+docker restart <container-name>
+```
+
+**SSH-accessible HA:**
 ```bash
 scp -r custom_components/solar_smart_miner/ ha-user@ha-host:/config/custom_components/
 ```
 
-Then restart Home Assistant on the production host. Run dry-run mode for at least 24 hours before switching to live control.
+Then restart Home Assistant. Run dry-run mode for at least 24 hours before switching to live control.
 
 ## Roadmap
 
