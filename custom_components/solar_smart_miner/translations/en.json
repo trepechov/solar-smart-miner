@@ -47,6 +47,13 @@
     "step": {
       "init": {
         "title": "Solar Smart Miner — Options",
+        "menu_options": {
+          "edit_settings": "Edit settings",
+          "add_miner": "Add a miner"
+        }
+      },
+      "edit_settings": {
+        "title": "Solar Smart Miner — Edit Settings",
         "description": "Adjust runtime settings. Changes take effect on the next coordinator poll — no restart required.",
         "data": {
           "dry_run": "Dry-run mode (log decisions without applying them)",
@@ -62,8 +69,8 @@
         }
       },
       "add_miner": {
-        "title": "Add Miner (optional)",
-        "description": "Add a miner by entering its display name and LAN IP address. Leave both fields blank to skip.",
+        "title": "Add Miner",
+        "description": "Enter the display name and LAN IP address of the miner to add.",
         "data": {
           "miner_name": "Display name",
           "miner_ip": "Miner IP address"

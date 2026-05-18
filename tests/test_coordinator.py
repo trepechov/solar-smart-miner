@@ -75,11 +75,11 @@ def _make_entry(
 
 
 def _register_miner_device(hass, miner_ip: str, config_entry_id: str):
-    """Create a hass_miner device entry in the device registry."""
+    """Create a hass-miner device entry in the device registry."""
     dr = dr_module.async_get(hass)
     return dr.async_get_or_create(
         config_entry_id=config_entry_id,
-        identifiers={("hass_miner", miner_ip)},
+        connections={("ip", miner_ip)},
         name=f"Miner {miner_ip}",
     )
 
@@ -93,12 +93,12 @@ def _register_miner_entities(
     hashrate: float | None = None,
     efficiency: float | None = None,
 ):
-    """Create hass_miner entity registry entries for a device."""
+    """Create hass-miner entity registry entries for a device."""
     er = er_module.async_get(hass)
 
     power_entry = er.async_get_or_create(
         "sensor",
-        "hass_miner",
+        "miner",
         f"{miner_ip}_power",
         device_id=device.id,
         original_device_class="power",
@@ -110,7 +110,7 @@ def _register_miner_entities(
 
     temp_entry = er.async_get_or_create(
         "sensor",
-        "hass_miner",
+        "miner",
         f"{miner_ip}_temperature",
         device_id=device.id,
         original_device_class="temperature",
@@ -119,7 +119,7 @@ def _register_miner_entities(
 
     limit_entry = er.async_get_or_create(
         "number",
-        "hass_miner",
+        "miner",
         f"{miner_ip}_power_limit",
         device_id=device.id,
     )
@@ -131,7 +131,7 @@ def _register_miner_entities(
     if hashrate is not None:
         hashrate_entry = er.async_get_or_create(
             "sensor",
-            "hass_miner",
+            "miner",
             f"{miner_ip}_hashrate",
             device_id=device.id,
             unit_of_measurement="TH/s",
@@ -142,7 +142,7 @@ def _register_miner_entities(
     if efficiency is not None:
         efficiency_entry = er.async_get_or_create(
             "sensor",
-            "hass_miner",
+            "miner",
             f"{miner_ip}_efficiency",
             device_id=device.id,
             unit_of_measurement="J/TH",

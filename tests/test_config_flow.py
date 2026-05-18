@@ -261,23 +261,35 @@ async def test_unique_id_is_stable(hass: HomeAssistant) -> None:
 async def _get_options_flow_result(
     hass: HomeAssistant,
     entry: MockConfigEntry,
-    options_input: dict,
+    options_input: dict | None = None,
     miner_input: dict | None = None,
 ) -> dict:
-    """Drive the OptionsFlow init step and optional add_miner step."""
+    """Drive the OptionsFlow through the menu and return the final result.
+
+    Pass options_input to navigate the "edit_settings" path.
+    Pass miner_input to navigate the "add_miner" path.
+    """
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert result["type"] == FlowResultType.FORM
+    assert result["type"] == FlowResultType.MENU
     assert result["step_id"] == "init"
 
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], options_input
-    )
-
     if miner_input is not None:
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"next_step_id": "add_miner"}
+        )
         assert result["type"] == FlowResultType.FORM
         assert result["step_id"] == "add_miner"
         result = await hass.config_entries.options.async_configure(
             result["flow_id"], miner_input
+        )
+    else:
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"next_step_id": "edit_settings"}
+        )
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "edit_settings"
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], options_input
         )
 
     return result
@@ -308,59 +320,50 @@ def _make_entry(hass: HomeAssistant, miners: list | None = None) -> MockConfigEn
 
 
 async def test_options_flow_sets_dry_run(hass: HomeAssistant) -> None:
-    """Happy path: OptionsFlow sets dry_run=True; option updated."""
+    """Happy path: OptionsFlow sets dry_run=True via edit_settings."""
     entry = _make_entry(hass)
 
     result = await _get_options_flow_result(
         hass,
         entry,
-        {
+        options_input={
             CONF_DRY_RUN: True,
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
             CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
             CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
         },
-        miner_input={CONF_MINER_NAME: "", CONF_MINER_IP: ""},
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_DRY_RUN] is True
 
 
 async def test_options_flow_changes_profile(hass: HomeAssistant) -> None:
-    """Happy path: OptionsFlow changes profile; takes effect on next poll."""
+    """Happy path: OptionsFlow changes profile via edit_settings."""
     entry = _make_entry(hass)
 
     result = await _get_options_flow_result(
         hass,
         entry,
-        {
+        options_input={
             CONF_DRY_RUN: False,
             CONF_PROFILE: "battery_focused",
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
             CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
             CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
         },
-        miner_input={CONF_MINER_NAME: "", CONF_MINER_IP: ""},
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_PROFILE] == "battery_focused"
 
 
 async def test_options_flow_add_miner_stores_in_data(hass: HomeAssistant) -> None:
-    """Happy path: add miner via OptionsFlow → stored in config entry data."""
+    """Happy path: add miner via add_miner menu path → stored in config entry data."""
     entry = _make_entry(hass)
 
     result = await _get_options_flow_result(
         hass,
         entry,
-        {
-            CONF_DRY_RUN: False,
-            CONF_PROFILE: DEFAULT_PROFILE,
-            CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
-            CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
-            CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
-        },
         miner_input={CONF_MINER_NAME: MINER_NAME, CONF_MINER_IP: MINER_IP},
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
@@ -368,6 +371,7 @@ async def test_options_flow_add_miner_stores_in_data(hass: HomeAssistant) -> Non
     assert len(miners) == 1
     assert miners[0][CONF_MINER_NAME] == MINER_NAME
     assert miners[0][CONF_MINER_IP] == MINER_IP
+    await hass.async_block_till_done()  # drain the reload task scheduled by async_step_add_miner
 
 
 async def test_options_flow_add_miner_invalid_ip(hass: HomeAssistant) -> None:
@@ -375,15 +379,9 @@ async def test_options_flow_add_miner_invalid_ip(hass: HomeAssistant) -> None:
     entry = _make_entry(hass)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] == FlowResultType.MENU
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {
-            CONF_DRY_RUN: False,
-            CONF_PROFILE: DEFAULT_PROFILE,
-            CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
-            CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
-            CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
-        },
+        result["flow_id"], {"next_step_id": "add_miner"}
     )
     assert result["step_id"] == "add_miner"
 
@@ -398,20 +396,13 @@ async def test_options_flow_add_miner_invalid_ip(hass: HomeAssistant) -> None:
     assert entry.data[CONF_MINERS] == []
 
 
-async def test_options_flow_skip_miner_add(hass: HomeAssistant) -> None:
-    """Happy path: leaving both miner fields blank saves without adding a miner."""
+async def test_options_flow_add_miner_blank_saves_without_adding(hass: HomeAssistant) -> None:
+    """Happy path: blank miner fields in add_miner step saves without adding a miner."""
     entry = _make_entry(hass)
 
     result = await _get_options_flow_result(
         hass,
         entry,
-        {
-            CONF_DRY_RUN: False,
-            CONF_PROFILE: DEFAULT_PROFILE,
-            CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
-            CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
-            CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
-        },
         miner_input={CONF_MINER_NAME: "", CONF_MINER_IP: ""},
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
@@ -422,10 +413,10 @@ async def test_options_flow_telegram_credentials_stored(hass: HomeAssistant) -> 
     """Happy path: Telegram credentials provided → stored in options."""
     entry = _make_entry(hass)
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {
+    result = await _get_options_flow_result(
+        hass,
+        entry,
+        options_input={
             CONF_DRY_RUN: False,
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
@@ -434,10 +425,6 @@ async def test_options_flow_telegram_credentials_stored(hass: HomeAssistant) -> 
             "telegram_bot_token": "bot123:ABC",
             "telegram_chat_id": "-100123456",
         },
-    )
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {CONF_MINER_NAME: "", CONF_MINER_IP: ""},
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"]["telegram_bot_token"] == "bot123:ABC"
@@ -451,7 +438,7 @@ async def test_options_flow_telegram_blank_stored_as_none(hass: HomeAssistant) -
     result = await _get_options_flow_result(
         hass,
         entry,
-        {
+        options_input={
             CONF_DRY_RUN: False,
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
@@ -460,7 +447,6 @@ async def test_options_flow_telegram_blank_stored_as_none(hass: HomeAssistant) -
             "telegram_bot_token": "",
             "telegram_chat_id": "",
         },
-        miner_input={CONF_MINER_NAME: "", CONF_MINER_IP: ""},
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"].get("telegram_bot_token") is None
@@ -482,7 +468,7 @@ async def test_options_flow_mock_solar_enabled_stores_entity(hass: HomeAssistant
     result = await _get_options_flow_result(
         hass,
         entry,
-        {
+        options_input={
             CONF_DRY_RUN: False,
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
@@ -491,7 +477,6 @@ async def test_options_flow_mock_solar_enabled_stores_entity(hass: HomeAssistant
             CONF_MOCK_SOLAR_ENABLED: True,
             CONF_MOCK_SOLAR_ENTITY: FORECAST_SOLAR_ENTITY,
         },
-        miner_input={CONF_MINER_NAME: "", CONF_MINER_IP: ""},
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_MOCK_SOLAR_ENABLED] is True
@@ -505,14 +490,13 @@ async def test_options_flow_mock_solar_disabled_by_default(hass: HomeAssistant) 
     result = await _get_options_flow_result(
         hass,
         entry,
-        {
+        options_input={
             CONF_DRY_RUN: False,
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
             CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
             CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
         },
-        miner_input={CONF_MINER_NAME: "", CONF_MINER_IP: ""},
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"].get(CONF_MOCK_SOLAR_ENABLED) is False
@@ -528,7 +512,7 @@ async def test_options_flow_mock_solar_no_entity_selected_stored_as_none(hass: H
     result = await _get_options_flow_result(
         hass,
         entry,
-        {
+        options_input={
             CONF_DRY_RUN: False,
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
@@ -536,7 +520,6 @@ async def test_options_flow_mock_solar_no_entity_selected_stored_as_none(hass: H
             CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
             CONF_MOCK_SOLAR_ENABLED: True,
         },
-        miner_input={CONF_MINER_NAME: "", CONF_MINER_IP: ""},
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_MOCK_SOLAR_ENABLED] is True

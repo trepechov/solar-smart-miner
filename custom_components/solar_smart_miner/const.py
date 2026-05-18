@@ -69,3 +69,5 @@ CONF_MOCK_SOLAR_ENTITY = "mock_solar_entity"
 
 # Mock consumption mode — development only
 CONF_MOCK_CONSUMPTION_ENABLED = "mock_consumption_enabled"
+
+HASS_MINER_PLATFORM = "miner"  # domain of the hass-miner integration (github.com/Schnitzel/hass-miner)

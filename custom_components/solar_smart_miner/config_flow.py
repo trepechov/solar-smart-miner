@@ -13,7 +13,6 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.selector import (
     EntitySelector,
@@ -320,9 +319,18 @@ class SolarSmartMinerConfigFlow(ConfigFlow, domain=DOMAIN):
 class SolarSmartMinerOptionsFlow(OptionsFlow):
     def __init__(self, config_entry: ConfigEntry) -> None:
         self._config_entry = config_entry
-        self._pending_options: dict[str, Any] = {}
+        # Pre-fill with current options so add_miner can save without going through edit_settings.
+        self._pending_options: dict[str, Any] = dict(config_entry.options)
 
     async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["edit_settings", "add_miner"],
+        )
+
+    async def async_step_edit_settings(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
@@ -347,17 +355,17 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
                 CONF_MOCK_CONSUMPTION_ENABLED, False
             )
 
-            return await self.async_step_add_miner()
+            return self.async_create_entry(data=self._pending_options)
 
         return self.async_show_form(
-            step_id="init",
+            step_id="edit_settings",
             data_schema=_options_schema(self._config_entry.options),
         )
 
     async def async_step_add_miner(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Optional step to add a miner. Submitting empty name skips and saves."""
+        """Add a miner by name and IP. Submitting blank fields saves without adding."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -379,13 +387,14 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
                     self._config_entry,
                     data={**self._config_entry.data, CONF_MINERS: miners},
                 )
+                # Reload so sensor.py picks up the new miner's entities on next setup.
+                self.hass.async_create_task(
+                    self.hass.config_entries.async_reload(self._config_entry.entry_id)
+                )
                 return self.async_create_entry(data=self._pending_options)
 
         return self.async_show_form(
             step_id="add_miner",
             data_schema=_miner_schema(),
             errors=errors,
-            description_placeholders={
-                "tip": "Leave both fields blank to skip and save without adding a miner."
-            },
         )
