@@ -26,7 +26,9 @@ Check off each unit after it is implemented, tested, and merged.
 - [ ] **U6** — Miner control: apply power limit decisions via hass-miner service calls with dry-run gate
 - [ ] **U7** — HA entity platform files: sensors, profile selector, dry-run switch, last-decision display
 - [ ] **U8** — Telegram notifier: optional action and safety override notifications
-- [x] **U9** — Mock Solar Mode: substitute Forecast.Solar entity for real solar entity during development
+- [x] **U9** — Mock Solar Mode: substitute Forecast. Solar entity for real solar entity during development
+- [ ] **U10** — Mock Consumption Meter: miner power sum sensor and mock grid consumption mode
+- [x] **U11** — Minimal coordinator: entity reads and power limit control
 
 ---
 
@@ -138,6 +140,8 @@ Solar-powered ASIC miners waste opportunity by running at a fixed wattage regard
 - **Profile parameter values (thresholds):** Default threshold values for each profile (e.g., battery-focused "reduce at 60%, stop at 20%") need real-world tuning. Defaults in `const.py` should be conservative and user-overridable via OptionsFlow.
 - **[Affects R9 / dev-env] CGMiner mock server:** No existing tool is specified for mocking the CGMiner RPC protocol that `pyasic` speaks — needed for hardware-free integration testing (dev-env requirements R9, R10). Options to evaluate during U1: a lightweight Python stub server, an existing open-source CGMiner simulator, or a `pyasic` test fixture exposed as a network endpoint at `host.docker.internal:<port>`.
 - **[Affects Key Technical Decisions] [Design]** Protocol interfaces (`AgentProtocol`, `NotifierProtocol`, `SafetyProtocol`) each currently have a single concrete implementation. Decide explicitly before starting U3 implementation: keep the Protocol abstraction for future swap-in extensibility (as designed), or remove Protocols and use concrete types directly to reduce indirection. The user has expressed a preference for modular, swappable components, but the scope-guardian flagged this as potential YAGNI if no second implementation is planned for v1.
+- **[Affects U10] Exact hass-miner device attribute for IP matching:** Which attribute on the device registry entry holds the miner's IP — `configuration_url`, `connections` (set of tuples), or `identifiers`. Verify against a live hass-miner instance during U10 implementation.
+- **[Affects U10] hass-miner power entity selection:** Which sensor entity represents power consumption (watts) when hass-miner registers multiple sensors per miner. Filter candidates by `device_class == SensorDeviceClass.POWER` and `unit_of_measurement == "W"`, but confirm exact naming at implementation time.
 
 ---
 
@@ -174,10 +178,12 @@ solar-smart-miner/
     ├── conftest.py              # hass fixture, MockConfigEntry helpers, enable_custom_integrations
     ├── test_config_flow.py
     ├── test_coordinator.py
+    ├── test_protocols.py
     ├── test_safety.py
     ├── test_agent.py
     ├── test_control.py
     ├── test_entities.py
+    ├── test_sensor.py
     └── test_telegram.py
 ```
 
@@ -339,27 +345,88 @@ graph TD
 
 ---
 
+### U11. Minimal coordinator — entity reads and power limit control
+
+**Goal:** Extend the coordinator with complete entity reads for the core operational inputs and a dry-run-aware power limit apply method, validating the HA data access path end-to-end before any safety or AI layer is added. At the end of this unit the coordinator polls solar production W, grid consumption W, and per-miner sensors (power W, temperature °C, current and min/max power limit) on every poll cycle, and can write a power limit to a miner's `number.*_power_limit` entity.
+
+**Requirements:** R1, R2, R3, R4, R11, R14
+
+**Dependencies:** U1, U2
+
+**Files:**
+- Modify: `custom_components/solar_smart_miner/coordinator.py`
+- Create: `custom_components/solar_smart_miner/protocols.py` (data classes only; Protocol interfaces added in U3)
+- Modify: `custom_components/solar_smart_miner/__init__.py` (coordinator construction, `async_config_entry_first_refresh`, `entry.runtime_data`, `async_forward_entry_setups`)
+- Test: `tests/test_coordinator.py`
+- Test: `tests/test_protocols.py` (create) — data class construction, defaults, and backward compatibility
+
+**Approach:**
+
+*Data classes (`protocols.py`):*
+- `EnergySnapshot`: `solar_production_w: float | None`, `grid_consumption_w: float | None`, `battery_soc_pct: float | None = None`, `solar_fault: bool = False`, `mock_solar: bool = False` — all with defaults so partial construction works in tests
+- `MinerSnapshot`: `miner_id: str`, `ip: str`, `power_w: float | None`, `power_limit_w: float | None`, `min_power_w: float | None`, `max_power_w: float | None`, `temperature_c: float | None`, `is_available: bool`, `power_limit_entity_id: str | None` — `power_limit_entity_id` cached on the snapshot so downstream apply calls do not re-query the registry
+- `CoordinatorSnapshot`: `energy: EnergySnapshot`, `miners: list[MinerSnapshot]` — the single object stored in `coordinator.data`
+
+*Coordinator entity reads (`coordinator.py`):*
+- `_parse_state_float(state)` helper: returns `float(state.state)` or `None` when state is `None`, `STATE_UNAVAILABLE`, or `STATE_UNKNOWN`
+- `_async_read_energy() -> EnergySnapshot`: reads solar production, grid consumption, and battery SOC (optional) via `hass.states.get(entity_id)`; sets `solar_fault=True` when solar state is unavailable — does NOT raise `UpdateFailed` (replaces the U9 stub behavior on lines 77–78 of the current `coordinator.py`)
+- `_async_read_miners() -> list[MinerSnapshot]`: iterates config subentries; for each miner IP, queries `entity_registry.async_get(hass)` filtered on `platform == "hass_miner"` and device registry IP match; reads power W sensor (`device_class == POWER`), temperature sensor (`device_class == TEMPERATURE`), and power limit number entity (domain `"number"`); reads `min_value` and `max_value` from the number entity's attributes; marks miner `is_available=False` when required entities are missing; logs WARNING per unavailable miner; caches `power_limit_entity_id` on the snapshot
+- `_async_update_data() -> CoordinatorSnapshot`: calls `_async_read_energy()` then `_async_read_miners()`; returns `CoordinatorSnapshot` — no safety, AI, or control calls yet (those are wired in U3)
+
+*Power limit apply (`coordinator.py`):*
+- `_async_apply_power_limit(snapshot: MinerSnapshot, limit_w: float, dry_run: bool) -> None`: clamps `limit_w` to `[snapshot.min_power_w, snapshot.max_power_w]` when both are non-None; if `dry_run is True`, logs INFO and returns without a service call; otherwise calls `await hass.services.async_call("number", "set_value", {"entity_id": snapshot.power_limit_entity_id, "value": clamped_limit})`; logs WARNING and skips if `power_limit_entity_id is None`; pausing a miner is represented as setting the limit to `snapshot.min_power_w`
+
+*`__init__.py` wiring:*
+- `async_setup_entry`: construct `SolarMinerCoordinator(hass, entry)`, call `await coordinator.async_config_entry_first_refresh()`, set `entry.runtime_data = coordinator`, then `await async_forward_entry_setups(entry, PLATFORMS)`
+- `async_unload_entry`: `await hass.config_entries.async_unload_platforms(entry, PLATFORMS)` — no explicit coordinator teardown (DataUpdateCoordinator manages its own HA lifecycle listeners)
+
+**Patterns to follow:**
+- `DataUpdateCoordinator._async_update_data()` pattern from HA developer docs
+- `hass.states.get(entity_id)` + `_parse_state_float()` for safe entity state reads
+- `entry.runtime_data` for coordinator storage (replaces `hass.data[DOMAIN]`)
+- `entity_registry.async_get(hass)` for entity discovery (platform + IP matching)
+
+**Test scenarios:**
+- Happy path: solar entity = `"2000"`, grid entity = `"1500"` → `snapshot.energy.solar_production_w == 2000.0`, `grid_consumption_w == 1500.0`
+- Edge case: solar entity state is `STATE_UNAVAILABLE` → `snapshot.energy.solar_fault is True`, `solar_production_w is None`, no exception raised; update existing `test_coordinator_raises_when_real_solar_unavailable` to assert `solar_fault=True` rather than `UpdateFailed`
+- Edge case: grid entity state is `STATE_UNKNOWN` → `grid_consumption_w is None`, no exception
+- Edge case: battery entity not configured → `battery_soc_pct is None`, no error
+- Happy path: two miners configured, both hass-miner entities available → `len(snapshot.miners) == 2`, both `is_available is True`, `power_w` and `temperature_c` populated
+- Edge case: one miner's power entity state is unavailable → that `MinerSnapshot.is_available is False`; other miner unaffected; WARNING logged
+- Happy path: `_async_apply_power_limit(snapshot, 600.0, dry_run=False)` → `hass.services.async_call` called with `snapshot.power_limit_entity_id` and `value=600.0`
+- Happy path: `_async_apply_power_limit(snapshot, 600.0, dry_run=True)` → service call NOT made; INFO logged
+- Edge case: `limit_w` below `min_power_w` → clamped to `min_power_w` before service call
+- Edge case: `limit_w` above `max_power_w` → clamped to `max_power_w` before service call
+- Edge case: `power_limit_entity_id is None` → WARNING logged, returns without calling service
+- Integration: `async_config_entry_first_refresh()` completes; `entry.runtime_data.data` is a `CoordinatorSnapshot` with `energy` and `miners` populated; platform setup succeeds
+
+**Verification:**
+- `pytest tests/test_coordinator.py` passes with mocked HA fixture and no hardware
+- Coordinator data (`entry.runtime_data.data.energy.solar_production_w`) accessible after setup
+- `_async_apply_power_limit` with `dry_run=False` calls the correct HA service; `dry_run=True` logs only
+- `solar_fault=True` in snapshot when solar entity unavailable; no exception propagated to HA
+
+---
+
 ### U3. DataUpdateCoordinator and HA data ingestion
 
 **Goal:** Implement the coordinator that reads all energy and miner state from HA entity state on the configured polling interval and exposes a unified snapshot to all downstream components and entities.
 
 **Requirements:** R1, R2, R3, R4, R9
 
-**Dependencies:** U1, U2
+**Dependencies:** U1, U2, U11
 
 **Files:**
-- Create: `custom_components/solar_smart_miner/coordinator.py`
-- Create: `custom_components/solar_smart_miner/protocols.py`
-- Modify: `custom_components/solar_smart_miner/__init__.py` (wire coordinator, inject dependencies)
+- Modify: `custom_components/solar_smart_miner/coordinator.py` (add Protocol-based orchestration pipeline on top of U11 entity reads)
+- Modify: `custom_components/solar_smart_miner/protocols.py` (add `AgentProtocol`, `NotifierProtocol`, `SafetyProtocol` interfaces; add `SafetyDecision` and `AiDecision` data classes)
+- Modify: `custom_components/solar_smart_miner/__init__.py` (inject concrete protocol implementations — agent, safety, notifier — into coordinator constructor)
 - Test: `tests/test_coordinator.py`
 
 **Approach:**
+- U11 already implements entity reads and `CoordinatorSnapshot` / `EnergySnapshot` / `MinerSnapshot` data classes; U3 builds the full orchestration pipeline on top without duplicating the read layer
 - `SolarMinerCoordinator(DataUpdateCoordinator)`: `_async_update_data()` is the single orchestration point; reads active profile, dry-run flag, and safety thresholds from `entry.options` at the start of each cycle so OptionsFlow changes take effect on the next poll without mid-cycle inconsistency; `update_interval` is set once at coordinator construction from `entry.options`; when the polling interval option changes via OptionsFlow, the update listener triggers `hass.config_entries.async_reload(entry.entry_id)` so the coordinator is reconstructed with the new interval; do NOT mutate `coordinator.update_interval` directly — that does not cancel or reschedule the HA event loop timer
-- `_async_update_data()` sequence: read solar snapshot → read miner snapshots → call `SafetyProtocol.evaluate()` → if no breach, call `AgentProtocol.decide()` → call `MinerController.apply()` → call `NotifierProtocol.notify()`
-- Solar snapshot: read `solar_production_w`, `grid_consumption_w`, `battery_soc_pct` (None if not configured) from `hass.states.get(entity_id)` — handle `None` and `STATE_UNAVAILABLE`/`STATE_UNKNOWN` states explicitly
-- Miner snapshot: iterate subentries, read hass-miner sensor entities for each miner (hashrate, power, efficiency, temperatures, min/max power limit from entity attributes); if any required attribute is missing or returns `None`, mark that miner's `MinerSnapshot` as unavailable, log a WARNING, and exclude it from the current decision cycle — do not raise; other miners are unaffected
-- Solar entity fault (R7): if solar production entity state is `STATE_UNAVAILABLE` or `STATE_UNKNOWN`, pass a fault flag in the snapshot — the safety layer will act on it
-- `protocols.py`: define `AgentProtocol`, `NotifierProtocol`, `SafetyProtocol` using `typing.Protocol`; define shared data classes `EnergySnapshot`, `MinerSnapshot`, `SafetyDecision`, `AiDecision`
+- `_async_update_data()` sequence: call U11's `_async_read_energy()` and `_async_read_miners()` to build the snapshot, then call `SafetyProtocol.evaluate()` → if no breach, call `AgentProtocol.decide()` → call `MinerController.apply()` → call `NotifierProtocol.notify()`; entity read implementation lives in U11 methods — do not duplicate
+- `protocols.py`: add `AgentProtocol`, `NotifierProtocol`, `SafetyProtocol` interfaces using `typing.Protocol`; add `SafetyDecision` and `AiDecision` data classes; `EnergySnapshot` and `MinerSnapshot` already defined by U11
 - Coordinator receives concrete implementations injected in `__init__.py` `async_setup_entry`; no direct imports of `agent.py`, `safety.py`, or `telegram.py` inside `coordinator.py`
 
 **Patterns to follow:**
@@ -642,6 +709,76 @@ graph TD
 
 ---
 
+### U10. Mock Consumption Meter — miner power sum sensor and mock grid consumption mode
+
+**Goal:** Extend the coordinator to compute total miner power consumption from hass-miner entities, expose that sum as a persistent HA sensor, and optionally substitute the computed miner sum for the real grid consumption entity when running without a solar inverter. Complements U9 to enable full integration testing without hardware.
+
+**Requirements:** R2 (grid consumption ingest), R30 (hardware-free testing)
+
+**Dependencies:** U1, U2, U3, U7
+
+**Files:**
+- Modify: `custom_components/solar_smart_miner/protocols.py` — add `miner_consumption_sum_w`, `mock_consumption` fields to `EnergySnapshot` (note: `grid_consumption_w` already added in U11)
+- Modify: `custom_components/solar_smart_miner/const.py` — add `CONF_MOCK_CONSUMPTION_ENABLED` constant
+- Modify: `custom_components/solar_smart_miner/coordinator.py` — add `_sum_miner_power_w()` helper; extend `_async_update_data()` for mock consumption substitution
+- Modify: `custom_components/solar_smart_miner/config_flow.py` — add `CONF_MOCK_CONSUMPTION_ENABLED` toggle to `_options_schema()` and extraction in `async_step_init()`
+- Modify: `custom_components/solar_smart_miner/strings.json` / `translations/en.json` — label for `mock_consumption_enabled`; sensor entity name for `total_miner_consumption`
+- Modify: `custom_components/solar_smart_miner/sensor.py` — add `TotalMinerConsumptionSensor`; U7 created this file
+- Test: `tests/test_coordinator.py` (extend) — miner sum, mock consumption mode scenarios
+- Test: `tests/test_sensor.py` (create) — `TotalMinerConsumptionSensor` via coordinator
+
+**Approach:**
+
+*EnergySnapshot extension (`protocols.py`):*
+- Add `grid_consumption_w: float | None = None`, `miner_consumption_sum_w: float | None = None`, `mock_consumption: bool = False` — all with defaults so existing instantiations (`EnergySnapshot(solar_production_w=2000.0)`) are not broken
+
+*Coordinator (`coordinator.py`):*
+- `_sum_miner_power_w() -> float | None`: sum `snapshot.power_w` values from `coordinator.data.miners` (the `MinerSnapshot` list already built by U11's `_async_read_miners()`); skip miners where `power_w is None`; return `None` if all miners are unavailable — avoids a redundant second entity registry scan
+- `_async_update_data()` additions: after reading energy and miners via U11's read methods, call `_sum_miner_power_w()` and store in `miner_consumption_sum_w`; read `CONF_MOCK_CONSUMPTION_ENABLED` from `entry.options`; if enabled and sum is not None → substitute `grid_consumption_w = miner_consumption_sum_w`, set `mock_consumption=True`, log `[MOCK CONSUMPTION] Using miner sum: {sum}W`; if enabled but sum is None → keep grid entity read from U11, log WARNING; if disabled → `grid_consumption_w` already populated by U11's `_async_read_energy()`
+
+*OptionsFlow (`config_flow.py`):*
+- Add `vol.Optional(CONF_MOCK_CONSUMPTION_ENABLED, default=options.get(CONF_MOCK_CONSUMPTION_ENABLED, False)): bool` to `_options_schema()`; extract `CONF_MOCK_CONSUMPTION_ENABLED` from `user_input` in `async_step_init()` and add to `_pending_options`; no entity selector needed (source is always the coordinator's own miner sum)
+
+*Meter sensor (`sensor.py` stub):*
+- `async_setup_entry(hass, entry, async_add_entities)`: retrieve coordinator from `entry.runtime_data`, call `async_add_entities([TotalMinerConsumptionSensor(coordinator, entry)])`
+- `TotalMinerConsumptionSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity)`: `native_value` → `self.coordinator.data.miner_consumption_sum_w` when data is not None, else None; `native_unit_of_measurement = UnitOfPower.WATT`; `device_class = SensorDeviceClass.POWER`; `state_class = SensorStateClass.MEASUREMENT`; `_attr_has_entity_name = True`; `unique_id = f"{entry.unique_id}_total_miner_consumption"` (guard against None `unique_id` in test fixtures); keep file minimal — U7 substantially expands `sensor.py`
+
+**Key decisions:**
+- Coordinator always computes `miner_consumption_sum_w` regardless of mock mode — the meter sensor has a live value in production too
+- No user-configurable entity for the mock consumption source (unlike U9's Forecast.Solar entity picker) — mock source is always the coordinator's own miner sum
+- `grid_consumption_w = None` propagates through the snapshot without raising; downstream U3–U5 consumers must handle None consumption gracefully
+- `_sum_miner_power_w()` reads from the already-built `MinerSnapshot` list — no second entity registry scan
+
+**Patterns to follow:**
+- U9 mock solar substitution and fallback pattern in `coordinator.py`
+- `_parse_state_float()` helper in `coordinator.py`
+- `CoordinatorEntity[SolarMinerCoordinator]` base class for the sensor entity
+- `CONF_MOCK_SOLAR_ENABLED` naming convention (parallel `CONF_MOCK_CONSUMPTION_ENABLED`)
+
+**Test scenarios:**
+- Backward compatibility: `EnergySnapshot(solar_production_w=2000.0)` constructs without error; new fields default to `None`/`False`
+- Mock disabled, grid entity has state `"1800"` → `snapshot.grid_consumption_w == 1800.0`, `mock_consumption is False`
+- Mock enabled, two hass-miner entities report `600W` and `400W` → `miner_consumption_sum_w == 1000.0`, `grid_consumption_w == 1000.0`, `mock_consumption is True`
+- One miner entity unavailable, one returns `500W` → `miner_consumption_sum_w == 500.0`, WARNING logged
+- All miners unavailable, mock enabled → falls back to real grid entity, `mock_consumption is False`, WARNING logged
+- No miners configured in `CONF_MINERS`, mock enabled → `miner_consumption_sum_w is None`, falls back to real grid entity
+- Mock disabled, real grid entity state `"unavailable"` → `grid_consumption_w is None`, no exception raised
+- Sensor: `miner_consumption_sum_w == 1400.0` → `native_value == 1400.0`
+- Sensor: `miner_consumption_sum_w is None` → `native_value is None`, entity state `unavailable`
+- Sensor: `coordinator.data is None` → `native_value` returns None without `AttributeError`
+
+**Deferred to Implementation:**
+- Exact hass-miner device attribute for IP matching (`configuration_url`, `connections`, or `identifiers`) — verify against a live hass-miner instance
+- Which hass-miner sensor entity represents power consumption (watts) when multiple sensors are registered per miner — filter candidates by `device_class == SensorDeviceClass.POWER`; confirm naming at implementation time
+
+**Verification:**
+- All existing coordinator tests pass (backward-compatible `EnergySnapshot` defaults; `entry.data.get(CONF_MINERS, [])` avoids `KeyError` on fixtures that omit the key)
+- `sensor.solar_smart_miner_total_miner_consumption` appears in HA UI after setup
+- Mock consumption toggle in OptionsFlow takes effect on the next coordinator poll without restart
+- `async_config_entry_first_refresh()` blocks platform setup until coordinator data is available; entities start with valid data
+
+---
+
 ## System-Wide Impact
 
 - **Interaction graph:** `SolarMinerCoordinator._async_update_data` is the single orchestration point; safety layer, AI agent, miner controller, and notifier are all called from it in sequence. All callbacks and entity state writes happen inside this method or downstream of it.
@@ -687,6 +824,7 @@ graph TD
 
 - **Origin document:** [docs/brainstorms/solar-smart-miner-requirements.md](docs/brainstorms/solar-smart-miner-requirements.md)
 - **Dev environment requirements:** [docs/brainstorms/2026-05-15-dev-environment-setup-requirements.md](docs/brainstorms/2026-05-15-dev-environment-setup-requirements.md)
+- **U10 origin plan (merged):** [docs/plans/2026-05-17-001-feat-mock-consumption-meter-plan.md](docs/plans/2026-05-17-001-feat-mock-consumption-meter-plan.md) — content merged into this file as U10; standalone file retained as archive
 - Integration blueprint: `github.com/ludeeus/integration_blueprint`
 - hass-miner: `github.com/Schnitzel/hass-miner`
 - HA DataUpdateCoordinator: `developers.home-assistant.io/docs/integration_fetching_data/`
