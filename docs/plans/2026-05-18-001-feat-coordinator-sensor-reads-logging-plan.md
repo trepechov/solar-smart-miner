@@ -1,7 +1,7 @@
 ---
 title: "feat: Coordinator full sensor reads and snapshot logging"
 type: feat
-status: active
+status: completed
 date: 2026-05-18
 origin: docs/brainstorms/solar-smart-miner-requirements.md
 parent_plan: docs/plans/2026-05-15-001-feat-solar-smart-miner-ha-integration-plan.md

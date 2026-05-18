@@ -24,7 +24,7 @@ Check off each unit after it is implemented, tested, and merged.
 - [ ] **U4** — Safety layer: deterministic temperature / battery SOC / solar fault overrides
 - [ ] **U5** — AI decision engine: OpenRouter agent with profile-aware reasoning and decision log
 - [ ] **U6** — Miner control: apply power limit decisions via hass-miner service calls with dry-run gate
-- [ ] **U7** — HA entity platform files: sensors, profile selector, dry-run switch, last-decision display
+- [~] **U7** — HA entity platform files: sensors ✓ (hub + per-miner via hub-device-entity-exposure plan), profile selector, dry-run switch, last-decision display
 - [ ] **U8** — Telegram notifier: optional action and safety override notifications
 - [x] **U9** — Mock Solar Mode: substitute Forecast. Solar entity for real solar entity during development
 - [x] **U10** — Mock Consumption Meter: miner power sum sensor and mock grid consumption mode
@@ -140,8 +140,8 @@ Solar-powered ASIC miners waste opportunity by running at a fixed wattage regard
 - **Profile parameter values (thresholds):** Default threshold values for each profile (e.g., battery-focused "reduce at 60%, stop at 20%") need real-world tuning. Defaults in `const.py` should be conservative and user-overridable via OptionsFlow.
 - **[Affects R9 / dev-env] CGMiner mock server:** No existing tool is specified for mocking the CGMiner RPC protocol that `pyasic` speaks — needed for hardware-free integration testing (dev-env requirements R9, R10). Options to evaluate during U1: a lightweight Python stub server, an existing open-source CGMiner simulator, or a `pyasic` test fixture exposed as a network endpoint at `host.docker.internal:<port>`.
 - **[Affects Key Technical Decisions] [Design]** Protocol interfaces (`AgentProtocol`, `NotifierProtocol`, `SafetyProtocol`) each currently have a single concrete implementation. Decide explicitly before starting U3 implementation: keep the Protocol abstraction for future swap-in extensibility (as designed), or remove Protocols and use concrete types directly to reduce indirection. The user has expressed a preference for modular, swappable components, but the scope-guardian flagged this as potential YAGNI if no second implementation is planned for v1.
-- **[Affects U10] Exact hass-miner device attribute for IP matching:** Which attribute on the device registry entry holds the miner's IP — `configuration_url`, `connections` (set of tuples), or `identifiers`. Verify against a live hass-miner instance during U10 implementation.
-- **[Affects U10] hass-miner power entity selection:** Which sensor entity represents power consumption (watts) when hass-miner registers multiple sensors per miner. Filter candidates by `device_class == SensorDeviceClass.POWER` and `unit_of_measurement == "W"`, but confirm exact naming at implementation time.
+- ~~**[Affects U10] Exact hass-miner device attribute for IP matching:**~~ **Resolved (2026-05-19):** Primary lookup via `dr.async_get_device(connections={("ip", miner_ip)})`. Fallback: scan `device.configuration_url` for the miner IP string. Both approaches verified against a live hass-miner instance.
+- ~~**[Affects U10] hass-miner power entity selection:**~~ **Resolved (2026-05-19):** Filter by `e.platform == "miner"` (integration domain — NOT `"hass_miner"`) and `e.original_device_class == "power"`, then skip the `number.*_power_limit` entity (domain `"number"`). The power sensor entity is the remaining `sensor.*` match. See `docs/solutions/architecture-patterns/ha-hub-device-entity-exposure-pattern-2026-05-19.md` for the full pattern including the platform name pitfall.
 
 ---
 
@@ -161,6 +161,7 @@ solar-smart-miner/
 │       ├── const.py             # DOMAIN, defaults, profile definitions
 │       ├── config_flow.py       # ConfigFlow + OptionsFlow + ConfigSubentryFlow (miners)
 │       ├── coordinator.py       # SolarMinerCoordinator (DataUpdateCoordinator subclass)
+│       ├── button.py            # Add to Dashboard button entity
 │       ├── protocols.py         # AgentProtocol, NotifierProtocol, SafetyProtocol
 │       ├── safety.py            # DefaultSafetyLayer(SafetyProtocol)
 │       ├── agent.py             # OpenRouterAgent(AgentProtocol)
@@ -590,13 +591,16 @@ graph TD
 
 **Dependencies:** U3
 
+**Status note (2026-05-19):** Sensor entities and the hub device registration were delivered ahead of schedule via the hub-device-entity-exposure plan (see [2026-05-18-002](docs/plans/2026-05-18-002-feat-hub-device-entity-exposure-plan.md)). The remaining work in this unit is `entity.py` base, `number.py`, `select.py`, `switch.py`, and the last-decision / coordinator-status sensors. `button.py` (Add to Dashboard) was also shipped as part of that plan.
+
 **Files:**
+- Done: `custom_components/solar_smart_miner/sensor.py` — hub + per-miner sensors, hub DeviceInfo
+- Done: `custom_components/solar_smart_miner/button.py` — Add to Dashboard button
+- Done: `custom_components/solar_smart_miner/__init__.py` — PLATFORMS, forward setups, coordinator wiring
 - Create: `custom_components/solar_smart_miner/entity.py`
-- Create: `custom_components/solar_smart_miner/sensor.py`
 - Create: `custom_components/solar_smart_miner/number.py`
 - Create: `custom_components/solar_smart_miner/select.py`
 - Create: `custom_components/solar_smart_miner/switch.py`
-- Modify: `custom_components/solar_smart_miner/__init__.py` (add PLATFORMS, forward setups)
 - Test: `tests/test_entities.py`
 
 **Approach:**
