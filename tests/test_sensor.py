@@ -296,3 +296,196 @@ async def test_battery_sensor_created_when_entity_configured(hass) -> None:
     er = er_module.async_get(hass)
     battery_entities = [e for e in er.entities.values() if e.platform == DOMAIN and "battery_soc" in e.entity_id]
     assert len(battery_entities) == 1
+
+
+# ---------------------------------------------------------------------------
+# U4: Per-miner sensor entities
+# ---------------------------------------------------------------------------
+
+def _make_miner_snapshot(
+    ip: str = "192.168.1.10",
+    is_available: bool = True,
+    power_w: float | None = 600.0,
+    temperature_c: float | None = 65.0,
+    power_limit_w: float | None = 750.0,
+    hashrate_th: float | None = 45.5,
+    efficiency_jth: float | None = 21.3,
+) -> MinerSnapshot:
+    return MinerSnapshot(
+        miner_id=ip,
+        ip=ip,
+        power_w=power_w,
+        power_limit_w=power_limit_w,
+        min_power_w=200.0,
+        max_power_w=1500.0,
+        temperature_c=temperature_c,
+        is_available=is_available,
+        power_limit_entity_id=f"number.miner_{ip.replace('.', '_')}_limit",
+        hashrate_th=hashrate_th,
+        efficiency_jth=efficiency_jth,
+    )
+
+
+def _get_metric(key: str) -> dict:
+    return next(m for m in _MINER_METRICS if m["key"] == key)
+
+
+async def test_miner_sensor_power_draw(hass) -> None:
+    entry = _make_entry(hass)
+    miner = _make_miner_snapshot(ip="192.168.1.10", power_w=600.0)
+    coord = _make_coordinator_with_data(hass, entry, miners=[miner])
+
+    sensor = MinerSensor(coord, entry, "192.168.1.10", "ASIC 1", _get_metric("power_w"))
+    assert sensor.native_value == pytest.approx(600.0)
+
+
+async def test_miner_sensor_temperature(hass) -> None:
+    entry = _make_entry(hass)
+    miner = _make_miner_snapshot(ip="192.168.1.10", temperature_c=65.0)
+    coord = _make_coordinator_with_data(hass, entry, miners=[miner])
+
+    sensor = MinerSensor(coord, entry, "192.168.1.10", "ASIC 1", _get_metric("temperature_c"))
+    assert sensor.native_value == pytest.approx(65.0)
+
+
+async def test_miner_sensor_power_limit(hass) -> None:
+    entry = _make_entry(hass)
+    miner = _make_miner_snapshot(ip="192.168.1.10", power_limit_w=750.0)
+    coord = _make_coordinator_with_data(hass, entry, miners=[miner])
+
+    sensor = MinerSensor(coord, entry, "192.168.1.10", "ASIC 1", _get_metric("power_limit_w"))
+    assert sensor.native_value == pytest.approx(750.0)
+
+
+async def test_miner_sensor_hashrate(hass) -> None:
+    entry = _make_entry(hass)
+    miner = _make_miner_snapshot(ip="192.168.1.10", hashrate_th=45.5)
+    coord = _make_coordinator_with_data(hass, entry, miners=[miner])
+
+    sensor = MinerSensor(coord, entry, "192.168.1.10", "ASIC 1", _get_metric("hashrate_th"))
+    assert sensor.native_value == pytest.approx(45.5)
+
+
+async def test_miner_sensor_hashrate_none_when_not_populated(hass) -> None:
+    entry = _make_entry(hass)
+    miner = _make_miner_snapshot(ip="192.168.1.10", hashrate_th=None)
+    coord = _make_coordinator_with_data(hass, entry, miners=[miner])
+
+    sensor = MinerSensor(coord, entry, "192.168.1.10", "ASIC 1", _get_metric("hashrate_th"))
+    assert sensor.native_value is None
+
+
+async def test_miner_sensor_efficiency(hass) -> None:
+    entry = _make_entry(hass)
+    miner = _make_miner_snapshot(ip="192.168.1.10", efficiency_jth=21.3)
+    coord = _make_coordinator_with_data(hass, entry, miners=[miner])
+
+    sensor = MinerSensor(coord, entry, "192.168.1.10", "ASIC 1", _get_metric("efficiency_jth"))
+    assert sensor.native_value == pytest.approx(21.3)
+
+
+async def test_miner_sensor_none_when_coordinator_data_none(hass) -> None:
+    entry = _make_entry(hass)
+    coord = SolarMinerCoordinator(hass, entry)
+    coord.data = None
+
+    sensor = MinerSensor(coord, entry, "192.168.1.10", "ASIC 1", _get_metric("power_w"))
+    assert sensor.native_value is None
+
+
+async def test_miner_sensor_none_when_unavailable(hass) -> None:
+    """Covers AE2: all 5 sensors return None when miner is_available=False."""
+    entry = _make_entry(hass)
+    miner = _make_miner_snapshot(ip="192.168.1.10", is_available=False)
+    coord = _make_coordinator_with_data(hass, entry, miners=[miner])
+
+    for metric in _MINER_METRICS:
+        sensor = MinerSensor(coord, entry, "192.168.1.10", "ASIC 1", metric)
+        assert sensor.native_value is None, f"Expected None for {metric['key']} when unavailable"
+
+
+async def test_miner_sensor_none_when_ip_not_in_snapshot(hass) -> None:
+    """Sensor returns None when its IP doesn't match any snapshot (e.g. stale after reload)."""
+    entry = _make_entry(hass)
+    miner = _make_miner_snapshot(ip="192.168.1.99")
+    coord = _make_coordinator_with_data(hass, entry, miners=[miner])
+
+    sensor = MinerSensor(coord, entry, "192.168.1.10", "ASIC 1", _get_metric("power_w"))
+    assert sensor.native_value is None
+
+
+async def test_miner_sensor_device_info_is_hub(hass) -> None:
+    entry = _make_entry(hass)
+    miner = _make_miner_snapshot()
+    coord = _make_coordinator_with_data(hass, entry, miners=[miner])
+
+    sensor = MinerSensor(coord, entry, "192.168.1.10", "ASIC 1", _get_metric("power_w"))
+    assert sensor.device_info["identifiers"] == {(DOMAIN, entry.entry_id)}
+
+
+async def test_miner_sensor_unique_id_format(hass) -> None:
+    entry = _make_entry(hass)
+    miner = _make_miner_snapshot()
+    coord = _make_coordinator_with_data(hass, entry, miners=[miner])
+
+    sensor = MinerSensor(coord, entry, "192.168.1.10", "ASIC 1", _get_metric("power_w"))
+    assert "192_168_1_10" in sensor.unique_id
+    assert "power_w" in sensor.unique_id
+    assert entry.entry_id in sensor.unique_id
+
+
+async def test_zero_miners_creates_no_per_miner_entities(hass) -> None:
+    """No per-miner entities created when CONF_MINERS is empty."""
+    from homeassistant.helpers import entity_registry as er_module
+
+    entry = _make_entry(hass)  # CONF_MINERS=[]
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    er = er_module.async_get(hass)
+    miner_sensor_entities = [
+        e for e in er.entities.values()
+        if e.platform == DOMAIN and any(
+            k in e.entity_id for k in ("power_draw", "temperature", "hashrate", "efficiency", "power_limit")
+        )
+    ]
+    assert len(miner_sensor_entities) == 0
+
+
+async def test_two_miners_creates_ten_per_miner_entities(hass) -> None:
+    """Covers AE1 (partial): 2 miners × 5 metrics = 10 per-miner entities."""
+    from homeassistant.helpers import entity_registry as er_module
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_SOLAR_ENTITY: SOLAR_ENTITY,
+            CONF_GRID_ENTITY: GRID_ENTITY,
+            CONF_BATTERY_ENTITY: BATTERY_ENTITY,
+            CONF_MINERS: [
+                {"miner_name": "ASIC 1", "miner_ip": "192.168.1.10"},
+                {"miner_name": "ASIC 2", "miner_ip": "192.168.1.11"},
+            ],
+        },
+        options={
+            CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
+            CONF_MOCK_SOLAR_ENABLED: False,
+            CONF_MOCK_CONSUMPTION_ENABLED: False,
+        },
+        version=1,
+    )
+    entry.add_to_hass(hass)
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    hass.states.async_set(BATTERY_ENTITY, "75")
+
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    er = er_module.async_get(hass)
+    our_entities = [e for e in er.entities.values() if e.platform == DOMAIN]
+    # 4 hub-level (solar, grid, battery, total consumption) + 10 per-miner = 14
+    assert len(our_entities) == 14
