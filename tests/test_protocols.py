@@ -76,3 +76,37 @@ def test_coordinator_snapshot_default_miners() -> None:
     energy = EnergySnapshot(solar_production_w=0.0)
     snapshot = CoordinatorSnapshot(energy=energy)
     assert snapshot.miners == []
+
+
+def test_miner_snapshot_hashrate_efficiency_default_none() -> None:
+    miner = MinerSnapshot(
+        miner_id="192.168.1.100",
+        ip="192.168.1.100",
+        power_w=600.0,
+        power_limit_w=800.0,
+        min_power_w=200.0,
+        max_power_w=1500.0,
+        temperature_c=65.0,
+        is_available=True,
+        power_limit_entity_id="number.miner_power_limit",
+    )
+    assert miner.hashrate_th is None
+    assert miner.efficiency_jth is None
+
+
+def test_miner_snapshot_hashrate_efficiency_populated() -> None:
+    miner = MinerSnapshot(
+        miner_id="192.168.1.100",
+        ip="192.168.1.100",
+        power_w=600.0,
+        power_limit_w=800.0,
+        min_power_w=200.0,
+        max_power_w=1500.0,
+        temperature_c=65.0,
+        is_available=True,
+        power_limit_entity_id=None,
+        hashrate_th=45.5,
+        efficiency_jth=21.3,
+    )
+    assert miner.hashrate_th == pytest.approx(45.5)
+    assert miner.efficiency_jth == pytest.approx(21.3)

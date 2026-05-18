@@ -26,6 +26,8 @@ class MinerSnapshot:
     temperature_c: float | None
     is_available: bool
     power_limit_entity_id: str | None
+    hashrate_th: float | None = None
+    efficiency_jth: float | None = None
 
 
 @dataclass
