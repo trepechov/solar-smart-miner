@@ -39,8 +39,8 @@ POWER_LIMIT_ENTITY = "number.miner_power_limit"
 
 
 def _make_hass_miner_entry(hass):
-    """Create a fake hass_miner config entry so we can register devices under it."""
-    entry = MockConfigEntry(domain="hass_miner", data={}, version=1)
+    """Create a fake miner config entry (matching the real hass-miner integration domain)."""
+    entry = MockConfigEntry(domain="miner", data={}, version=1)
     entry.add_to_hass(hass)
     return entry
 
@@ -75,11 +75,18 @@ def _make_entry(
 
 
 def _register_miner_device(hass, miner_ip: str, config_entry_id: str):
-    """Create a hass_miner device entry in the device registry."""
+    """Create a miner device entry matching the real hass-miner structure.
+
+    The real integration uses MAC-based identifiers and sets connections=("ip", ip).
+    We use a deterministic test MAC and add the IP connection so coordinator lookup works.
+    """
     dr = dr_module.async_get(hass)
+    octets = miner_ip.split(".")
+    test_mac = f"aa:bb:cc:dd:{int(octets[-2]):02x}:{int(octets[-1]):02x}"
     return dr.async_get_or_create(
         config_entry_id=config_entry_id,
-        identifiers={("hass_miner", miner_ip)},
+        identifiers={("miner", test_mac)},
+        connections={("ip", miner_ip)},
         name=f"Miner {miner_ip}",
     )
 
@@ -90,7 +97,7 @@ def _register_miner_entities(hass, device, miner_ip: str, *, power_available: bo
 
     power_entry = er.async_get_or_create(
         "sensor",
-        "hass_miner",
+        "miner",
         f"{miner_ip}_power",
         device_id=device.id,
         original_device_class="power",
@@ -102,7 +109,7 @@ def _register_miner_entities(hass, device, miner_ip: str, *, power_available: bo
 
     temp_entry = er.async_get_or_create(
         "sensor",
-        "hass_miner",
+        "miner",
         f"{miner_ip}_temperature",
         device_id=device.id,
         original_device_class="temperature",
@@ -111,7 +118,7 @@ def _register_miner_entities(hass, device, miner_ip: str, *, power_available: bo
 
     limit_entry = er.async_get_or_create(
         "number",
-        "hass_miner",
+        "miner",
         f"{miner_ip}_power_limit",
         device_id=device.id,
     )
@@ -607,3 +614,62 @@ async def test_energy_snapshot_backward_compat_no_new_fields(hass) -> None:
     snap = EnergySnapshot(solar_production_w=2000.0)
     assert snap.miner_consumption_sum_w is None
     assert snap.mock_consumption is False
+
+
+# ---------------------------------------------------------------------------
+# Regression: coordinator must use real hass-miner platform name ("miner")
+# ---------------------------------------------------------------------------
+
+async def test_coordinator_finds_miner_device_via_real_platform(hass) -> None:
+    """Coordinator must discover miner entities under platform 'miner' (not 'hass_miner').
+
+    Regression for production bug: all sensors showed Unknown because the
+    coordinator filtered e.platform == 'hass_miner' but the real integration
+    uses domain/platform 'miner'.
+    """
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    entry = _make_entry(hass, miners=[{CONF_MINER_NAME: "Ant03", CONF_MINER_IP: MINER_IP}])
+
+    dr = dr_module.async_get(hass)
+    er = er_module.async_get(hass)
+
+    # Register device exactly as the real hass-miner integration does:
+    # identifier = ("miner", mac), connections = {("ip", ip), ("mac", mac)}
+    real_miner_entry = MockConfigEntry(domain="miner", data={}, version=1)
+    real_miner_entry.add_to_hass(hass)
+    device = dr.async_get_or_create(
+        config_entry_id=real_miner_entry.entry_id,
+        identifiers={("miner", "aa:bb:cc:dd:ee:ff")},
+        connections={("ip", MINER_IP)},
+        name="Ant03",
+    )
+
+    # Register entities under platform "miner"
+    power_entry = er.async_get_or_create(
+        "sensor", "miner", f"{MINER_IP}_power",
+        device_id=device.id,
+        original_device_class="power",
+    )
+    hass.states.async_set(power_entry.entity_id, "620")
+
+    temp_entry = er.async_get_or_create(
+        "sensor", "miner", f"{MINER_IP}_temperature",
+        device_id=device.id,
+        original_device_class="temperature",
+    )
+    hass.states.async_set(temp_entry.entity_id, "68")
+
+    limit_entry = er.async_get_or_create(
+        "number", "miner", f"{MINER_IP}_power_limit",
+        device_id=device.id,
+    )
+    hass.states.async_set(limit_entry.entity_id, "900", {"min": 200.0, "max": 1500.0})
+
+    coord = SolarMinerCoordinator(hass, entry)
+    snapshot = await coord._async_update_data()
+
+    miner = snapshot.miners[0]
+    assert miner.is_available is True, "Miner must be available when using real 'miner' platform"
+    assert miner.power_w == pytest.approx(620.0)
+    assert miner.temperature_c == pytest.approx(68.0)

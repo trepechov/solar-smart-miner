@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 DOMAIN = "solar_smart_miner"
+HASS_MINER_PLATFORM = "miner"  # domain of the hass-miner integration (github.com/Schnitzel/hass-miner)
 
 DEFAULT_POLLING_INTERVAL = 300  # seconds; minimum 60
 DEFAULT_TEMP_CEILING = 80  # °C

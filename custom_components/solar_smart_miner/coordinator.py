@@ -30,6 +30,7 @@ from .const import (
     CONF_MOCK_SOLAR_ENTITY,
     DEFAULT_POLLING_INTERVAL,
     DOMAIN,
+    HASS_MINER_PLATFORM,
 )
 from .protocols import CoordinatorSnapshot, EnergySnapshot, MinerSnapshot
 
@@ -121,22 +122,19 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             miner_ip: str = miner_conf.get(CONF_MINER_IP, "")
             miner_id: str = miner_ip  # IP is the stable identifier
 
-            # Locate the hass_miner device for this IP via identifiers or configuration_url
-            target_device = None
-            for device in dr.devices.values():
-                if any(
-                    ident_domain == "hass_miner" and ident_value == miner_ip
-                    for ident_domain, ident_value in device.identifiers
-                ):
-                    target_device = device
-                    break
-                if device.configuration_url and miner_ip in device.configuration_url:
-                    target_device = device
-                    break
+            # Locate the hass-miner device for this IP.
+            # Primary: device registered with connections=("ip", ip) — set by hass-miner number/select entities.
+            # Fallback: configuration_url contains the IP (also set by hass-miner number/select entities).
+            target_device = dr.async_get_device(connections={("ip", miner_ip)})
+            if target_device is None:
+                for device in dr.devices.values():
+                    if device.configuration_url and miner_ip in device.configuration_url:
+                        target_device = device
+                        break
 
             if target_device is None:
                 _LOGGER.warning(
-                    "No hass_miner device found for IP %s; marking unavailable", miner_ip
+                    "No hass-miner device found for IP %s; marking unavailable", miner_ip
                 )
                 snapshots.append(
                     MinerSnapshot(
@@ -156,7 +154,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             device_entities = [
                 e
                 for e in er.entities.values()
-                if e.device_id == target_device.id and e.platform == "hass_miner"
+                if e.device_id == target_device.id and e.platform == HASS_MINER_PLATFORM
             ]
 
             power_entry = next(
