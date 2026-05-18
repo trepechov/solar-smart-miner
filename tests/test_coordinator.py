@@ -84,7 +84,15 @@ def _register_miner_device(hass, miner_ip: str, config_entry_id: str):
     )
 
 
-def _register_miner_entities(hass, device, miner_ip: str, *, power_available: bool = True):
+def _register_miner_entities(
+    hass,
+    device,
+    miner_ip: str,
+    *,
+    power_available: bool = True,
+    hashrate: float | None = None,
+    efficiency: float | None = None,
+):
     """Create hass_miner entity registry entries for a device."""
     er = er_module.async_get(hass)
 
@@ -119,7 +127,29 @@ def _register_miner_entities(hass, device, miner_ip: str, *, power_available: bo
         limit_entry.entity_id, "800", {"min": 200.0, "max": 1500.0}
     )
 
-    return power_entry, temp_entry, limit_entry
+    hashrate_entry = None
+    if hashrate is not None:
+        hashrate_entry = er.async_get_or_create(
+            "sensor",
+            "hass_miner",
+            f"{miner_ip}_hashrate",
+            device_id=device.id,
+            unit_of_measurement="TH/s",
+        )
+        hass.states.async_set(hashrate_entry.entity_id, str(hashrate))
+
+    efficiency_entry = None
+    if efficiency is not None:
+        efficiency_entry = er.async_get_or_create(
+            "sensor",
+            "hass_miner",
+            f"{miner_ip}_efficiency",
+            device_id=device.id,
+            unit_of_measurement="J/TH",
+        )
+        hass.states.async_set(efficiency_entry.entity_id, str(efficiency))
+
+    return power_entry, temp_entry, limit_entry, hashrate_entry, efficiency_entry
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +284,7 @@ async def test_coordinator_reads_miner_entities(hass) -> None:
     hm_entry = _make_hass_miner_entry(hass)
 
     device = _register_miner_device(hass, MINER_IP, hm_entry.entry_id)
-    _, _, limit_entry = _register_miner_entities(hass, device, MINER_IP)
+    _, _, limit_entry, _, _ = _register_miner_entities(hass, device, MINER_IP)
 
     coord = SolarMinerCoordinator(hass, entry)
     snapshot = await coord._async_update_data()
@@ -607,3 +637,64 @@ async def test_energy_snapshot_backward_compat_no_new_fields(hass) -> None:
     snap = EnergySnapshot(solar_production_w=2000.0)
     assert snap.miner_consumption_sum_w is None
     assert snap.mock_consumption is False
+
+
+# ---------------------------------------------------------------------------
+# U2: Hashrate and efficiency reads
+# ---------------------------------------------------------------------------
+
+async def test_coordinator_reads_hashrate_and_efficiency(hass) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    entry = _make_entry(hass, miners=[{CONF_MINER_NAME: "Test", CONF_MINER_IP: MINER_IP}])
+    hm_entry = _make_hass_miner_entry(hass)
+
+    device = _register_miner_device(hass, MINER_IP, hm_entry.entry_id)
+    _register_miner_entities(hass, device, MINER_IP, hashrate=45.5, efficiency=21.3)
+
+    coord = SolarMinerCoordinator(hass, entry)
+    snapshot = await coord._async_update_data()
+
+    miner = snapshot.miners[0]
+    assert miner.hashrate_th == pytest.approx(45.5)
+    assert miner.efficiency_jth == pytest.approx(21.3)
+
+
+async def test_coordinator_hashrate_none_when_entity_absent(hass) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    entry = _make_entry(hass, miners=[{CONF_MINER_NAME: "Test", CONF_MINER_IP: MINER_IP}])
+    hm_entry = _make_hass_miner_entry(hass)
+
+    device = _register_miner_device(hass, MINER_IP, hm_entry.entry_id)
+    _register_miner_entities(hass, device, MINER_IP)  # no hashrate/efficiency
+
+    coord = SolarMinerCoordinator(hass, entry)
+    snapshot = await coord._async_update_data()
+
+    miner = snapshot.miners[0]
+    assert miner.hashrate_th is None
+    assert miner.efficiency_jth is None
+
+
+async def test_coordinator_hashrate_none_when_state_unavailable(hass) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    entry = _make_entry(hass, miners=[{CONF_MINER_NAME: "Test", CONF_MINER_IP: MINER_IP}])
+    hm_entry = _make_hass_miner_entry(hass)
+
+    device = _register_miner_device(hass, MINER_IP, hm_entry.entry_id)
+    _register_miner_entities(hass, device, MINER_IP, hashrate=45.5)
+
+    # Override hashrate state to unavailable after entity creation
+    er = er_module.async_get(hass)
+    hashrate_entry = next(
+        e for e in er.entities.values()
+        if e.device_id == device.id and e.unit_of_measurement == "TH/s"
+    )
+    hass.states.async_set(hashrate_entry.entity_id, "unavailable")
+
+    coord = SolarMinerCoordinator(hass, entry)
+    snapshot = await coord._async_update_data()
+
+    assert snapshot.miners[0].hashrate_th is None

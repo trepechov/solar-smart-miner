@@ -179,10 +179,28 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 (e for e in device_entities if e.domain == "number"),
                 None,
             )
+            hashrate_entry = next(
+                (
+                    e
+                    for e in device_entities
+                    if e.domain == "sensor" and e.unit_of_measurement == "TH/s"
+                ),
+                None,
+            )
+            efficiency_entry = next(
+                (
+                    e
+                    for e in device_entities
+                    if e.domain == "sensor" and e.unit_of_measurement == "J/TH"
+                ),
+                None,
+            )
 
             power_state = self.hass.states.get(power_entry.entity_id) if power_entry else None
             temp_state = self.hass.states.get(temp_entry.entity_id) if temp_entry else None
             limit_state = self.hass.states.get(limit_entry.entity_id) if limit_entry else None
+            hashrate_state = self.hass.states.get(hashrate_entry.entity_id) if hashrate_entry else None
+            efficiency_state = self.hass.states.get(efficiency_entry.entity_id) if efficiency_entry else None
 
             power_w = _parse_state_float(power_state)
             temperature_c = _parse_state_float(temp_state)
@@ -197,6 +215,8 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 if limit_state and "max" in limit_state.attributes
                 else None
             )
+            hashrate_th = _parse_state_float(hashrate_state)
+            efficiency_jth = _parse_state_float(efficiency_state)
 
             is_available = power_entry is not None and power_w is not None
             if not is_available:
@@ -213,6 +233,8 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                     temperature_c=temperature_c,
                     is_available=is_available,
                     power_limit_entity_id=limit_entry.entity_id if limit_entry else None,
+                    hashrate_th=hashrate_th,
+                    efficiency_jth=efficiency_jth,
                 )
             )
 
@@ -267,5 +289,25 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 _LOGGER.warning(
                     "[MOCK CONSUMPTION] Miner sum unavailable; keeping real grid entity read"
                 )
+
+        def _fmt(val, suffix="") -> str:
+            return f"{val:.1f}{suffix}" if val is not None else "n/a"
+
+        miner_parts = []
+        for m in miners:
+            if not m.is_available:
+                miner_parts.append(f"{m.ip}: unavailable")
+            else:
+                miner_parts.append(
+                    f"{m.ip}: {_fmt(m.power_w, 'W')} {_fmt(m.temperature_c, '°C')}"
+                    f" {_fmt(m.hashrate_th, 'TH/s')} {_fmt(m.efficiency_jth, 'J/TH')}"
+                )
+        _LOGGER.info(
+            "Snapshot — solar: %s | grid: %s | battery: %s | miners: [%s]",
+            _fmt(energy.solar_production_w, "W"),
+            _fmt(energy.grid_consumption_w, "W"),
+            _fmt(energy.battery_soc_pct, "%"),
+            ", ".join(miner_parts) if miner_parts else "none",
+        )
 
         return CoordinatorSnapshot(energy=energy, miners=miners)
