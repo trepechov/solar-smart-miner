@@ -9,8 +9,10 @@ class EnergySnapshot:
     solar_production_w: float | None
     grid_consumption_w: float | None = None
     battery_soc_pct: float | None = None
+    miner_consumption_sum_w: float | None = None
     solar_fault: bool = False
     mock_solar: bool = False
+    mock_consumption: bool = False
 
 
 @dataclass

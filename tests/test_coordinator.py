@@ -1,4 +1,4 @@
-"""Tests for SolarMinerCoordinator — U11 (entity reads + power limit apply)."""
+"""Tests for SolarMinerCoordinator — U11 (entity reads + power limit apply) and U10 (miner sum + mock consumption)."""
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
@@ -17,6 +17,7 @@ from custom_components.solar_smart_miner.config_flow import (
     CONF_SOLAR_ENTITY,
 )
 from custom_components.solar_smart_miner.const import (
+    CONF_MOCK_CONSUMPTION_ENABLED,
     CONF_MOCK_SOLAR_ENABLED,
     CONF_MOCK_SOLAR_ENTITY,
     DEFAULT_POLLING_INTERVAL,
@@ -49,6 +50,7 @@ def _make_entry(
     *,
     mock_enabled: bool = False,
     mock_entity: str | None = None,
+    mock_consumption_enabled: bool = False,
     miners: list | None = None,
     battery_entity: str | None = None,
 ):
@@ -64,6 +66,7 @@ def _make_entry(
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
             CONF_MOCK_SOLAR_ENABLED: mock_enabled,
             CONF_MOCK_SOLAR_ENTITY: mock_entity,
+            CONF_MOCK_CONSUMPTION_ENABLED: mock_consumption_enabled,
         },
         version=1,
     )
@@ -468,3 +471,139 @@ async def test_async_setup_entry_wires_coordinator(hass) -> None:
     assert isinstance(entry.runtime_data.data, CoordinatorSnapshot)
     assert entry.runtime_data.data.energy.solar_production_w == pytest.approx(2000.0)
     assert entry.runtime_data.data.miners == []
+
+
+# ---------------------------------------------------------------------------
+# U10 — miner power sum and mock consumption mode
+# ---------------------------------------------------------------------------
+
+
+async def test_miner_sum_computed_from_available_miners(hass) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1800")
+    entry = _make_entry(
+        hass,
+        miners=[
+            {CONF_MINER_NAME: "M1", CONF_MINER_IP: MINER_IP},
+            {CONF_MINER_NAME: "M2", CONF_MINER_IP: MINER_IP_2},
+        ],
+    )
+    hm_entry = _make_hass_miner_entry(hass)
+    device1 = _register_miner_device(hass, MINER_IP, hm_entry.entry_id)
+    _register_miner_entities(hass, device1, MINER_IP)  # power_w = 600
+    device2 = _register_miner_device(hass, MINER_IP_2, hm_entry.entry_id)
+    _register_miner_entities(hass, device2, MINER_IP_2)  # power_w = 600
+
+    coord = SolarMinerCoordinator(hass, entry)
+    snapshot = await coord._async_update_data()
+
+    assert snapshot.energy.miner_consumption_sum_w == pytest.approx(1200.0)
+    assert snapshot.energy.mock_consumption is False
+    assert snapshot.energy.grid_consumption_w == pytest.approx(1800.0)  # unchanged
+
+
+async def test_miner_sum_skips_unavailable_miners(hass) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1800")
+    entry = _make_entry(
+        hass,
+        miners=[
+            {CONF_MINER_NAME: "Bad", CONF_MINER_IP: MINER_IP},
+            {CONF_MINER_NAME: "Good", CONF_MINER_IP: MINER_IP_2},
+        ],
+    )
+    hm_entry = _make_hass_miner_entry(hass)
+    device1 = _register_miner_device(hass, MINER_IP, hm_entry.entry_id)
+    _register_miner_entities(hass, device1, MINER_IP, power_available=False)
+    device2 = _register_miner_device(hass, MINER_IP_2, hm_entry.entry_id)
+    _register_miner_entities(hass, device2, MINER_IP_2)  # power_w = 600
+
+    coord = SolarMinerCoordinator(hass, entry)
+    snapshot = await coord._async_update_data()
+
+    assert snapshot.energy.miner_consumption_sum_w == pytest.approx(600.0)
+
+
+async def test_miner_sum_is_none_when_all_miners_unavailable(hass) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1800")
+    entry = _make_entry(hass, miners=[{CONF_MINER_NAME: "Bad", CONF_MINER_IP: MINER_IP}])
+    hm_entry = _make_hass_miner_entry(hass)
+    device = _register_miner_device(hass, MINER_IP, hm_entry.entry_id)
+    _register_miner_entities(hass, device, MINER_IP, power_available=False)
+
+    coord = SolarMinerCoordinator(hass, entry)
+    snapshot = await coord._async_update_data()
+
+    assert snapshot.energy.miner_consumption_sum_w is None
+
+
+async def test_miner_sum_is_none_when_no_miners_configured(hass) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1800")
+    entry = _make_entry(hass, miners=[])
+
+    coord = SolarMinerCoordinator(hass, entry)
+    snapshot = await coord._async_update_data()
+
+    assert snapshot.energy.miner_consumption_sum_w is None
+
+
+async def test_mock_consumption_substitutes_grid_when_sum_available(hass) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1800")
+    entry = _make_entry(
+        hass,
+        mock_consumption_enabled=True,
+        miners=[
+            {CONF_MINER_NAME: "M1", CONF_MINER_IP: MINER_IP},
+            {CONF_MINER_NAME: "M2", CONF_MINER_IP: MINER_IP_2},
+        ],
+    )
+    hm_entry = _make_hass_miner_entry(hass)
+    device1 = _register_miner_device(hass, MINER_IP, hm_entry.entry_id)
+    _register_miner_entities(hass, device1, MINER_IP)  # 600 W
+    device2 = _register_miner_device(hass, MINER_IP_2, hm_entry.entry_id)
+    _register_miner_entities(hass, device2, MINER_IP_2)  # 600 W
+
+    coord = SolarMinerCoordinator(hass, entry)
+    snapshot = await coord._async_update_data()
+
+    assert snapshot.energy.miner_consumption_sum_w == pytest.approx(1200.0)
+    assert snapshot.energy.grid_consumption_w == pytest.approx(1200.0)
+    assert snapshot.energy.mock_consumption is True
+
+
+async def test_mock_consumption_falls_back_when_sum_none(hass) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1800")
+    entry = _make_entry(hass, mock_consumption_enabled=True, miners=[])
+
+    coord = SolarMinerCoordinator(hass, entry)
+    snapshot = await coord._async_update_data()
+
+    # sum is None → keep real grid entity value
+    assert snapshot.energy.grid_consumption_w == pytest.approx(1800.0)
+    assert snapshot.energy.mock_consumption is False
+    assert snapshot.energy.miner_consumption_sum_w is None
+
+
+async def test_mock_consumption_disabled_leaves_grid_unchanged(hass) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1800")
+    entry = _make_entry(hass, mock_consumption_enabled=False, miners=[])
+
+    coord = SolarMinerCoordinator(hass, entry)
+    snapshot = await coord._async_update_data()
+
+    assert snapshot.energy.grid_consumption_w == pytest.approx(1800.0)
+    assert snapshot.energy.mock_consumption is False
+
+
+async def test_energy_snapshot_backward_compat_no_new_fields(hass) -> None:
+    """EnergySnapshot(solar_production_w=...) still constructs without error."""
+    from custom_components.solar_smart_miner.protocols import EnergySnapshot
+
+    snap = EnergySnapshot(solar_production_w=2000.0)
+    assert snap.miner_consumption_sum_w is None
+    assert snap.mock_consumption is False

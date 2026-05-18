@@ -66,3 +66,6 @@ DEFAULT_PROFILE = "solar_max"
 # Mock solar mode — development only
 CONF_MOCK_SOLAR_ENABLED = "mock_solar_enabled"
 CONF_MOCK_SOLAR_ENTITY = "mock_solar_entity"
+
+# Mock consumption mode — development only
+CONF_MOCK_CONSUMPTION_ENABLED = "mock_consumption_enabled"

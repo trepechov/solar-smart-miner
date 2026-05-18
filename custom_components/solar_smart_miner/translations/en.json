@@ -57,7 +57,8 @@
           "telegram_bot_token": "Telegram bot token (optional)",
           "telegram_chat_id": "Telegram chat ID (optional)",
           "mock_solar_enabled": "Use Forecast.Solar as mock solar data (development only)",
-          "mock_solar_entity": "Forecast.Solar power sensor (mock source)"
+          "mock_solar_entity": "Forecast.Solar power sensor (mock source)",
+          "mock_consumption_enabled": "Use total miner power as mock grid consumption (development only)"
         }
       },
       "add_miner": {

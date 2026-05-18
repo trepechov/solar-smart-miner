@@ -25,6 +25,7 @@ from .config_flow import (
     CONF_SOLAR_ENTITY,
 )
 from .const import (
+    CONF_MOCK_CONSUMPTION_ENABLED,
     CONF_MOCK_SOLAR_ENABLED,
     CONF_MOCK_SOLAR_ENTITY,
     DEFAULT_POLLING_INTERVAL,
@@ -246,7 +247,25 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             {"entity_id": snapshot.power_limit_entity_id, "value": clamped},
         )
 
+    def _sum_miner_power_w(self, miners: list[MinerSnapshot]) -> float | None:
+        values = [m.power_w for m in miners if m.power_w is not None]
+        return sum(values) if values else None
+
     async def _async_update_data(self) -> CoordinatorSnapshot:
         energy = await self._async_read_energy()
         miners = await self._async_read_miners()
+
+        miner_sum = self._sum_miner_power_w(miners)
+        energy.miner_consumption_sum_w = miner_sum
+
+        if self._entry.options.get(CONF_MOCK_CONSUMPTION_ENABLED, False):
+            if miner_sum is not None:
+                energy.grid_consumption_w = miner_sum
+                energy.mock_consumption = True
+                _LOGGER.info("[MOCK CONSUMPTION] Using miner sum: %.1f W", miner_sum)
+            else:
+                _LOGGER.warning(
+                    "[MOCK CONSUMPTION] Miner sum unavailable; keeping real grid entity read"
+                )
+
         return CoordinatorSnapshot(energy=energy, miners=miners)

@@ -6,8 +6,8 @@ from homeassistant.core import HomeAssistant
 from .const import DOMAIN  # noqa: F401
 from .coordinator import SolarMinerCoordinator
 
-# Entity platform files are added in U7. Empty for now.
-PLATFORMS: list[str] = []
+# sensor.py added in U10; number/select/switch added in U7.
+PLATFORMS: list[str] = ["sensor"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

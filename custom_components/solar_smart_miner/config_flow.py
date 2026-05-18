@@ -30,6 +30,7 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_MOCK_CONSUMPTION_ENABLED,
     CONF_MOCK_SOLAR_ENABLED,
     CONF_MOCK_SOLAR_ENTITY,
     DEFAULT_BATTERY_FLOOR,
@@ -206,6 +207,10 @@ def _options_schema(options: dict) -> vol.Schema:
             CONF_MOCK_SOLAR_ENABLED,
             default=options.get(CONF_MOCK_SOLAR_ENABLED, False),
         ): bool,
+        vol.Optional(
+            CONF_MOCK_CONSUMPTION_ENABLED,
+            default=options.get(CONF_MOCK_CONSUMPTION_ENABLED, False),
+        ): bool,
     }
     # EntitySelector rejects empty strings, so only include a default when an entity is already set.
     _mock_entity = options.get(CONF_MOCK_SOLAR_ENTITY) or ""
@@ -338,6 +343,9 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
             )
             mock_entity = (user_input.get(CONF_MOCK_SOLAR_ENTITY) or "").strip()
             self._pending_options[CONF_MOCK_SOLAR_ENTITY] = mock_entity if mock_entity else None
+            self._pending_options[CONF_MOCK_CONSUMPTION_ENABLED] = user_input.get(
+                CONF_MOCK_CONSUMPTION_ENABLED, False
+            )
 
             return await self.async_step_add_miner()
 

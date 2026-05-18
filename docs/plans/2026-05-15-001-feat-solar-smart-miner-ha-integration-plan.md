@@ -27,7 +27,7 @@ Check off each unit after it is implemented, tested, and merged.
 - [ ] **U7** — HA entity platform files: sensors, profile selector, dry-run switch, last-decision display
 - [ ] **U8** — Telegram notifier: optional action and safety override notifications
 - [x] **U9** — Mock Solar Mode: substitute Forecast. Solar entity for real solar entity during development
-- [ ] **U10** — Mock Consumption Meter: miner power sum sensor and mock grid consumption mode
+- [x] **U10** — Mock Consumption Meter: miner power sum sensor and mock grid consumption mode
 - [x] **U11** — Minimal coordinator: entity reads and power limit control
 
 ---
