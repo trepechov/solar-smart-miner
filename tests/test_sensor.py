@@ -487,5 +487,5 @@ async def test_two_miners_creates_ten_per_miner_entities(hass) -> None:
 
     er = er_module.async_get(hass)
     our_entities = [e for e in er.entities.values() if e.platform == DOMAIN]
-    # 4 hub-level (solar, grid, battery, total consumption) + 10 per-miner = 14
-    assert len(our_entities) == 14
+    # 1 button + 4 hub-level sensors (solar, grid, battery, total consumption) + 10 per-miner = 15
+    assert len(our_entities) == 15

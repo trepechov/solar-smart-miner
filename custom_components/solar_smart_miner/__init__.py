@@ -7,7 +7,7 @@ from .const import DOMAIN  # noqa: F401
 from .coordinator import SolarMinerCoordinator
 
 # sensor.py added in U10; number/select/switch added in U7.
-PLATFORMS: list[str] = ["sensor"]
+PLATFORMS: list[str] = ["button", "sensor"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
