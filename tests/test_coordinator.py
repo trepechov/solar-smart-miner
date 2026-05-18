@@ -352,6 +352,57 @@ async def test_coordinator_miner_power_unavailable_marks_unavailable(hass) -> No
     assert snapshot.miners[0].is_available is False
 
 
+async def test_coordinator_ignores_power_limit_sensor_for_power_reading(hass) -> None:
+    """When hass-miner exposes both a consumption sensor and a power-limit sensor
+    (both with device_class=power), coordinator must read consumption, not the limit."""
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    entry = _make_entry(hass, miners=[{CONF_MINER_NAME: "Test", CONF_MINER_IP: MINER_IP}])
+    hm_entry = _make_hass_miner_entry(hass)
+
+    device = _register_miner_device(hass, MINER_IP, hm_entry.entry_id)
+    er = er_module.async_get(hass)
+
+    # Register limit sensor FIRST so it appears first in er.entities iteration;
+    # the coordinator must skip it even though it has device_class=power.
+    limit_sensor = er.async_get_or_create(
+        "sensor", "miner", f"{MINER_IP}_power_limit",
+        device_id=device.id,
+        original_device_class="power",
+    )
+    hass.states.async_set(limit_sensor.entity_id, "1200")
+
+    # Consumption sensor registered second (has no "limit" in unique_id/entity_id)
+    consumption = er.async_get_or_create(
+        "sensor", "miner", f"{MINER_IP}_power",
+        device_id=device.id,
+        original_device_class="power",
+    )
+    hass.states.async_set(consumption.entity_id, "750")
+
+    # Writable number entity for limit
+    limit_number = er.async_get_or_create(
+        "number", "miner", f"{MINER_IP}_limit",
+        device_id=device.id,
+    )
+    hass.states.async_set(limit_number.entity_id, "1200", {"min": 200.0, "max": 1500.0})
+
+    temp = er.async_get_or_create(
+        "sensor", "miner", f"{MINER_IP}_temperature",
+        device_id=device.id,
+        original_device_class="temperature",
+    )
+    hass.states.async_set(temp.entity_id, "65")
+
+    coord = SolarMinerCoordinator(hass, entry)
+    snapshot = await coord._async_update_data()
+
+    miner = snapshot.miners[0]
+    assert miner.is_available is True
+    assert miner.power_w == pytest.approx(750.0)   # consumption, not limit (1200)
+    assert miner.power_limit_w == pytest.approx(1200.0)  # from the number entity
+
+
 async def test_coordinator_miner_power_unavailable_does_not_affect_other(hass) -> None:
     hass.states.async_set(SOLAR_ENTITY, "2000")
     hass.states.async_set(GRID_ENTITY, "1500")

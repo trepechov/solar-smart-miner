@@ -161,7 +161,9 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 (
                     e
                     for e in device_entities
-                    if e.domain == "sensor" and e.original_device_class == "power"
+                    if e.domain == "sensor"
+                    and e.original_device_class == "power"
+                    and "limit" not in e.entity_id.lower()
                 ),
                 None,
             )
