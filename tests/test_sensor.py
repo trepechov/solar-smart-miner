@@ -5,8 +5,10 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.solar_smart_miner.config_flow import (
+    CONF_AI_ENABLED,
     CONF_BATTERY_ENTITY,
     CONF_GRID_ENTITY,
+    CONF_OPENROUTER_KEY,
     CONF_POLLING_INTERVAL,
     CONF_SOLAR_ENTITY,
 )
@@ -18,11 +20,13 @@ from custom_components.solar_smart_miner.const import (
 )
 from custom_components.solar_smart_miner.coordinator import SolarMinerCoordinator
 from custom_components.solar_smart_miner.protocols import (
+    AiAdvice,
     CoordinatorSnapshot,
     EnergySnapshot,
     MinerSnapshot,
 )
 from custom_components.solar_smart_miner.sensor import (
+    AiAdviceSensor,
     BatterySocSensor,
     GridConsumptionSensor,
     MinerSensor,
@@ -469,9 +473,9 @@ async def test_two_miners_creates_ten_per_miner_entities(hass, add_hass_miner) -
 
     er = er_module.async_get(hass)
     our_entities = [e for e in er.entities.values() if e.platform == DOMAIN]
-    # 1 button + 1 select + 7 hub sensors (solar, house, battery, total miners,
-    # grid export, available for miners, decision log) + 10 per-miner = 19
-    assert len(our_entities) == 19
+    # 2 buttons + 1 select + 8 hub sensors (solar, house, battery, total miners,
+    # grid export, available for miners, decision log, AI advice) + 10 per-miner = 21
+    assert len(our_entities) == 21
 
 
 async def test_miner_added_after_setup_gets_sensors(hass, add_hass_miner) -> None:
@@ -511,3 +515,77 @@ async def test_decision_log_sensor_exposes_trace(hass, add_hass_miner) -> None:
     assert state.attributes["trace"][0] == "READ"
     assert "ASIC 1" in state.attributes["proposals"]
     assert len(state.state) <= 255
+
+
+# ---------------------------------------------------------------------------
+# AI advice sensor
+# ---------------------------------------------------------------------------
+
+
+def _ai_sensor(hass, *, key: str | None = "sk-or-key", enabled: bool = True, advice=None):
+    entry = _make_entry(hass)
+    hass.config_entries.async_update_entry(
+        entry,
+        data={**entry.data, CONF_OPENROUTER_KEY: key},
+        options={**entry.options, CONF_AI_ENABLED: enabled},
+    )
+    coord = _make_coordinator_with_data(hass, entry)
+    coord.data.ai_advice = advice
+    return AiAdviceSensor(coord, entry)
+
+
+def _advice(**overrides) -> AiAdvice:
+    return AiAdvice(
+        **{
+            "text": "Looks sensible.",
+            "model": "x/y:free",
+            "requested_at": "2026-10-05T10:00:00+00:00",
+            "latency_s": 1.5,
+            **overrides,
+        }
+    )
+
+
+async def test_ai_sensor_shows_the_response_and_details(hass) -> None:
+    sensor = _ai_sensor(hass, advice=_advice())
+
+    assert sensor.native_value == "Looks sensible."
+    assert sensor.extra_state_attributes == {
+        "preview_only": True,
+        "response": "Looks sensible.",
+        "error": None,
+        "model": "x/y:free",
+        "requested_at": "2026-10-05T10:00:00+00:00",
+        "latency_s": 1.5,
+    }
+
+
+async def test_ai_sensor_truncates_state_but_keeps_full_response(hass) -> None:
+    long_text = "word " * 100
+    sensor = _ai_sensor(hass, advice=_advice(text=long_text))
+
+    assert len(sensor.native_value) == 255
+    assert sensor.extra_state_attributes["response"] == long_text
+
+
+async def test_ai_sensor_shows_errors(hass) -> None:
+    sensor = _ai_sensor(hass, advice=_advice(text="", error="OpenRouter rejected the API key"))
+
+    assert sensor.native_value == "Error: OpenRouter rejected the API key"
+    assert sensor.extra_state_attributes["error"] == "OpenRouter rejected the API key"
+
+
+async def test_ai_sensor_waits_for_first_answer(hass) -> None:
+    sensor = _ai_sensor(hass, advice=None)
+
+    assert sensor.native_value == "Waiting for the first answer"
+    assert sensor.extra_state_attributes == {"preview_only": True}
+
+
+async def test_ai_sensor_off_without_key_or_when_disabled(hass) -> None:
+    assert _ai_sensor(hass, key="", advice=_advice()).native_value == "Off"
+    assert _ai_sensor(hass, enabled=False, advice=_advice()).native_value == "Off"
+
+
+async def test_ai_sensor_keeps_bulky_response_out_of_recorder() -> None:
+    assert "response" in AiAdviceSensor._unrecorded_attributes

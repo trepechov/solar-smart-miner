@@ -7,42 +7,54 @@ Safety layer and AI agent are wired in U3 on top of this foundation.
 from __future__ import annotations
 
 import logging
+import time
 from collections import deque
 from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry, entity_registry
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
+from .ai import async_ask, build_messages
 from .config_flow import (
+    CONF_AI_ENABLED,
+    CONF_AI_INTERVAL,
     CONF_BATTERY_ENTITY,
     CONF_BATTERY_FLOOR,
     CONF_GRID_ENTITY,
+    CONF_OPENROUTER_KEY,
+    CONF_OPENROUTER_MODEL,
     CONF_POLLING_INTERVAL,
     CONF_PROFILE,
     CONF_SOLAR_ENTITY,
     CONF_SOLAR_ENTITY_TYPE,
     CONF_TEMP_CEILING,
+    DEFAULT_OPENROUTER_MODEL,
 )
 from .const import (
     CONF_MOCK_CONSUMPTION_ENABLED,
     CONF_MOCK_SOLAR_ENABLED,
     CONF_MOCK_SOLAR_ENTITY,
+    ASK_AI_COOLDOWN,
     DECISION_HISTORY_SIZE,
+    DEFAULT_AI_INTERVAL,
     DEFAULT_BATTERY_FLOOR,
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_PROFILE,
     DEFAULT_TEMP_CEILING,
     DOMAIN,
     HASS_MINER_PLATFORM,
+    MIN_AI_INTERVAL,
     SOLAR_ENTITY_TYPE_NET_IMPORT,
     SOLAR_ENTITY_TYPE_PRODUCTION,
 )
 from .decision import build_decision
-from .protocols import CoordinatorSnapshot, EnergySnapshot, MinerSnapshot
+from .protocols import AiAdvice, CoordinatorSnapshot, EnergySnapshot, MinerSnapshot
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -97,6 +109,9 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         )
         self._entry = entry
         self._history: deque[dict[str, str]] = deque(maxlen=DECISION_HISTORY_SIZE)
+        self._ai_advice: AiAdvice | None = None
+        self._ai_busy = False
+        self._ai_last_request: float | None = None  # time.monotonic()
 
     async def _async_read_energy(self) -> EnergySnapshot:
         options = self._entry.options
@@ -273,6 +288,71 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 energy.miner_consumption_sum_w or 0.0
             )
 
+    # --- AI advisor (advisory only: nothing here changes the miners) -----------
+
+    @property
+    def ai_enabled(self) -> bool:
+        key = (self._entry.data.get(CONF_OPENROUTER_KEY) or "").strip()
+        return bool(key) and self._entry.options.get(CONF_AI_ENABLED, True)
+
+    def _maybe_request_ai(self, snapshot: CoordinatorSnapshot) -> None:
+        if not self.ai_enabled or self._ai_busy:
+            return
+        interval = max(
+            int(self._entry.options.get(CONF_AI_INTERVAL, DEFAULT_AI_INTERVAL)), MIN_AI_INTERVAL
+        )
+        last = self._ai_last_request
+        if last is None or time.monotonic() - last >= interval:
+            self._start_ai_request(snapshot)
+
+    def _start_ai_request(self, snapshot: CoordinatorSnapshot) -> None:
+        options = self._entry.options
+        messages = build_messages(
+            snapshot,
+            profile=options.get(CONF_PROFILE, DEFAULT_PROFILE),
+            temp_ceiling=float(options.get(CONF_TEMP_CEILING, DEFAULT_TEMP_CEILING)),
+            battery_floor=float(options.get(CONF_BATTERY_FLOOR, DEFAULT_BATTERY_FLOOR)),
+        )
+        self._ai_busy = True
+        self._ai_last_request = time.monotonic()
+        self._entry.async_create_background_task(
+            self.hass, self._async_run_ai(messages), name=f"{DOMAIN}_ai_advice"
+        )
+
+    async def _async_run_ai(self, messages: list[dict[str, str]]) -> None:
+        data = self._entry.data
+        try:
+            advice = await async_ask(
+                async_get_clientsession(self.hass),
+                api_key=(data.get(CONF_OPENROUTER_KEY) or "").strip(),
+                model=(data.get(CONF_OPENROUTER_MODEL) or DEFAULT_OPENROUTER_MODEL).strip(),
+                messages=messages,
+            )
+        finally:
+            self._ai_busy = False
+        if advice.error:
+            _LOGGER.warning("AI advice failed (%s): %s", advice.model, advice.error)
+        else:
+            _LOGGER.debug("AI advice from %s in %.1f s", advice.model, advice.latency_s)
+        self._ai_advice = advice
+        if self.data is not None:
+            self.data.ai_advice = advice
+            self.async_update_listeners()
+
+    def async_ask_ai_now(self) -> None:
+        """Request advice immediately (the "Ask AI now" button)."""
+        if not self.ai_enabled:
+            raise HomeAssistantError(
+                "AI advice is off: set an OpenRouter API key and enable it under "
+                "Configure → AI (OpenRouter)."
+            )
+        if self.data is None or self._ai_busy:
+            return
+        last = self._ai_last_request
+        if last is not None and time.monotonic() - last < ASK_AI_COOLDOWN:
+            return
+        self._start_ai_request(self.data)
+
     async def _async_update_data(self) -> CoordinatorSnapshot:
         energy = await self._async_read_energy()
         miners = await self._async_read_miners()
@@ -307,6 +387,9 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             )
         snapshot.decision = decision
         snapshot.decision_history = list(self._history)
+        self._maybe_request_ai(snapshot)
+        # After the request: a very fast answer can already be in by now.
+        snapshot.ai_advice = self._ai_advice
 
         _LOGGER.debug("Decision cycle:\n  %s", "\n  ".join(decision.trace))
         return snapshot

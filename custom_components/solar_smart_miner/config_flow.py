@@ -55,8 +55,11 @@ CONF_POLLING_INTERVAL = "polling_interval"
 CONF_DRY_RUN = "dry_run"
 CONF_TELEGRAM_TOKEN = "telegram_bot_token"
 CONF_TELEGRAM_CHAT_ID = "telegram_chat_id"
+CONF_AI_ENABLED = "ai_enabled"
+CONF_AI_INTERVAL = "ai_interval"
 
-DEFAULT_OPENROUTER_MODEL = "anthropic/claude-haiku-4-5"
+# Routes to whichever free model is up, so it survives free models being rotated out.
+DEFAULT_OPENROUTER_MODEL = "openrouter/free"
 
 
 def _stable_unique_id(solar_entity_id: str, grid_entity_id: str) -> str:

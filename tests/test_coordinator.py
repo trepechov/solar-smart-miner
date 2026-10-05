@@ -705,6 +705,196 @@ async def test_coordinator_ignores_empty_duplicate_devices(hass, add_hass_miner)
     assert snapshot.miners[0].name == "Real"
 
 
+# ---------------------------------------------------------------------------
+# AI advisor (advisory only)
+# ---------------------------------------------------------------------------
+
+
+def _ai_entry(hass, *, key: str | None = "sk-or-key", options: dict | None = None):
+    from custom_components.solar_smart_miner.config_flow import CONF_OPENROUTER_KEY
+
+    entry = _make_entry(hass, options=options)
+    hass.config_entries.async_update_entry(entry, data={**entry.data, CONF_OPENROUTER_KEY: key})
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    return entry
+
+
+async def _refresh(hass, coordinator):
+    coordinator.data = await coordinator._async_update_data()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+
+async def test_ai_advice_requested_and_attached_to_snapshot(hass, mock_openrouter) -> None:
+    coordinator = SolarMinerCoordinator(hass, _ai_entry(hass))
+
+    await _refresh(hass, coordinator)
+
+    mock_openrouter.assert_awaited_once()
+    kwargs = mock_openrouter.await_args.kwargs
+    assert kwargs["api_key"] == "sk-or-key"
+    assert kwargs["model"] == "openrouter/free"  # default when none is stored
+    assert "READ" in kwargs["messages"][1]["content"]
+    assert coordinator.data.ai_advice.text == "Looks fine."
+    # The next regular update carries the stored answer too.
+    assert (await coordinator._async_update_data()).ai_advice.text == "Looks fine."
+
+
+async def test_ai_uses_the_configured_model(hass, mock_openrouter) -> None:
+    from custom_components.solar_smart_miner.config_flow import CONF_OPENROUTER_MODEL
+
+    entry = _ai_entry(hass)
+    hass.config_entries.async_update_entry(
+        entry, data={**entry.data, CONF_OPENROUTER_MODEL: "google/gemma-4-31b-it:free"}
+    )
+
+    await _refresh(hass, SolarMinerCoordinator(hass, entry))
+
+    assert mock_openrouter.await_args.kwargs["model"] == "google/gemma-4-31b-it:free"
+
+
+async def test_ai_not_asked_again_within_interval(hass, mock_openrouter) -> None:
+    coordinator = SolarMinerCoordinator(hass, _ai_entry(hass))
+
+    await _refresh(hass, coordinator)
+    await _refresh(hass, coordinator)
+
+    assert mock_openrouter.await_count == 1
+
+
+async def test_ai_asked_again_once_interval_has_passed(hass, mock_openrouter) -> None:
+    import time
+
+    from custom_components.solar_smart_miner.config_flow import CONF_AI_INTERVAL
+
+    coordinator = SolarMinerCoordinator(hass, _ai_entry(hass, options={CONF_AI_INTERVAL: 120}))
+    await _refresh(hass, coordinator)
+
+    coordinator._ai_last_request = time.monotonic() - 121
+    await _refresh(hass, coordinator)
+
+    assert mock_openrouter.await_count == 2
+
+
+async def test_ai_interval_has_a_floor(hass, mock_openrouter) -> None:
+    import time
+
+    from custom_components.solar_smart_miner.config_flow import CONF_AI_INTERVAL
+
+    coordinator = SolarMinerCoordinator(hass, _ai_entry(hass, options={CONF_AI_INTERVAL: 1}))
+    await _refresh(hass, coordinator)
+
+    coordinator._ai_last_request = time.monotonic() - 30  # < 60 s minimum
+    await _refresh(hass, coordinator)
+
+    assert mock_openrouter.await_count == 1
+
+
+async def test_ai_not_asked_without_key(hass, mock_openrouter) -> None:
+    coordinator = SolarMinerCoordinator(hass, _ai_entry(hass, key=""))
+
+    await _refresh(hass, coordinator)
+
+    mock_openrouter.assert_not_awaited()
+    assert coordinator.ai_enabled is False
+    assert coordinator.data.ai_advice is None
+
+
+async def test_ai_not_asked_when_disabled(hass, mock_openrouter) -> None:
+    from custom_components.solar_smart_miner.config_flow import CONF_AI_ENABLED
+
+    coordinator = SolarMinerCoordinator(hass, _ai_entry(hass, options={CONF_AI_ENABLED: False}))
+
+    await _refresh(hass, coordinator)
+
+    mock_openrouter.assert_not_awaited()
+
+
+async def test_ai_failure_is_stored_not_raised(hass, mock_openrouter) -> None:
+    from custom_components.solar_smart_miner.protocols import AiAdvice
+
+    mock_openrouter.return_value = AiAdvice(
+        text="", model="m", requested_at="t", latency_s=0.0, error="Rate limited by OpenRouter"
+    )
+    coordinator = SolarMinerCoordinator(hass, _ai_entry(hass))
+
+    await _refresh(hass, coordinator)
+
+    assert coordinator.data.ai_advice.error == "Rate limited by OpenRouter"
+    # A failed request still counts toward the interval, so a bad key isn't retried every poll.
+    await _refresh(hass, coordinator)
+    assert mock_openrouter.await_count == 1
+
+
+async def test_ai_answer_arriving_after_update_notifies_listeners(hass, mock_openrouter) -> None:
+    import asyncio
+
+    from custom_components.solar_smart_miner.protocols import AiAdvice
+
+    async def slow_answer(*_, **__):
+        await asyncio.sleep(0)  # a real request suspends; the answer lands after the update
+        return AiAdvice(text="Slow answer.", model="m", requested_at="t", latency_s=0.0)
+
+    mock_openrouter.side_effect = slow_answer
+    coordinator = SolarMinerCoordinator(hass, _ai_entry(hass))
+    coordinator.data = await coordinator._async_update_data()
+    assert coordinator.data.ai_advice is None
+    updates = []
+    unsubscribe = coordinator.async_add_listener(
+        lambda: updates.append(coordinator.data.ai_advice)
+    )
+
+    await hass.async_block_till_done(wait_background_tasks=True)
+    unsubscribe()
+
+    assert [a.text for a in updates] == ["Slow answer."]
+
+
+async def test_ask_ai_now_bypasses_interval(hass, mock_openrouter) -> None:
+    coordinator = SolarMinerCoordinator(hass, _ai_entry(hass))
+    await _refresh(hass, coordinator)
+
+    import time
+
+    coordinator._ai_last_request = time.monotonic() - 11  # past the button cooldown
+    coordinator.async_ask_ai_now()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert mock_openrouter.await_count == 2
+
+
+async def test_ask_ai_now_ignores_rapid_repeat_presses(hass, mock_openrouter) -> None:
+    coordinator = SolarMinerCoordinator(hass, _ai_entry(hass))
+    await _refresh(hass, coordinator)
+
+    coordinator.async_ask_ai_now()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert mock_openrouter.await_count == 1
+
+
+async def test_ask_ai_now_explains_when_ai_is_off(hass) -> None:
+    import pytest
+    from homeassistant.exceptions import HomeAssistantError
+
+    coordinator = SolarMinerCoordinator(hass, _ai_entry(hass, key=""))
+    coordinator.data = await coordinator._async_update_data()
+
+    with pytest.raises(HomeAssistantError, match="AI \\(OpenRouter\\)"):
+        coordinator.async_ask_ai_now()
+
+
+async def test_ai_never_changes_the_proposals(hass, mock_openrouter) -> None:
+    """Advice is advisory: the rule-based decision is identical with or without AI."""
+    with_ai = SolarMinerCoordinator(hass, _ai_entry(hass))
+    without_ai = SolarMinerCoordinator(hass, _ai_entry(hass, key=""))
+
+    await _refresh(hass, with_ai)
+    await _refresh(hass, without_ai)
+
+    assert with_ai.data.decision.proposals == without_ai.data.decision.proposals
+    assert with_ai.data.decision.summary == without_ai.data.decision.summary
+
+
 # --- solar production floor ---------------------------------------------------
 
 

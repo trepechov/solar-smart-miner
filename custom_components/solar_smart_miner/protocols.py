@@ -43,8 +43,20 @@ class Decision:
 
 
 @dataclass
+class AiAdvice:
+    """The AI advisor's latest answer to the decision preview. Advisory only."""
+
+    text: str
+    model: str
+    requested_at: str  # ISO timestamp
+    latency_s: float
+    error: str | None = None
+
+
+@dataclass
 class CoordinatorSnapshot:
     energy: EnergySnapshot
     miners: list[MinerSnapshot] = field(default_factory=list)
     decision: Decision | None = None
     decision_history: list[dict[str, str]] = field(default_factory=list)
+    ai_advice: AiAdvice | None = None

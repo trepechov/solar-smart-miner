@@ -286,3 +286,54 @@ async def test_press_includes_profile_select_and_decision_log_card(hass) -> None
     assert entities_card["entities"] == ["select.x_profile", "sensor.x_solar_production"]
     assert log_card["type"] == "markdown"
     assert "sensor.x_decision_log" in log_card["content"]
+
+
+# ---------------------------------------------------------------------------
+# Ask AI now
+# ---------------------------------------------------------------------------
+
+
+async def test_ask_ai_button_asks_the_coordinator(hass) -> None:
+    from unittest.mock import MagicMock
+
+    from custom_components.solar_smart_miner.button import AskAiButton
+
+    entry = _make_entry(hass)
+    entry.runtime_data = MagicMock()
+    button = AskAiButton(entry)
+    button.hass = hass
+
+    await button.async_press()
+
+    entry.runtime_data.async_ask_ai_now.assert_called_once_with()
+
+
+async def test_ask_ai_button_registered_with_hub_device(hass) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    entry = _make_entry(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    states = [s for s in hass.states.async_all("button") if "ask_ai" in s.entity_id]
+    assert len(states) == 1
+
+
+async def test_dashboard_card_shows_ai_advice_in_markdown_not_entity_list(hass) -> None:
+    from homeassistant.components import persistent_notification as pn
+
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    entry = _make_entry(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    button_id = next(s.entity_id for s in hass.states.async_all("button") if "add_to_dashboard" in s.entity_id)
+
+    await hass.services.async_call(
+        "button", "press", {"entity_id": button_id}, blocking=True
+    )
+
+    message = pn._async_get_or_create_notifications(hass)[f"{DOMAIN}_add_to_dashboard"]["message"]
+    ai_entity = next(s.entity_id for s in hass.states.async_all("sensor") if "ai_advice" in s.entity_id)
+    assert f"state_attr('{ai_entity}', 'response')" in message
+    assert f"  - {ai_entity}" not in message

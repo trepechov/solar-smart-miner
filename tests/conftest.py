@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from homeassistant.helpers import device_registry as dr_module, entity_registry as er_module
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -9,6 +11,43 @@ pytest_plugins = "pytest_homeassistant_custom_component"
 def auto_enable_custom_integrations(enable_custom_integrations):
     """Enable custom integrations for all tests."""
     yield
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _start_resolver_thread_once():
+    """Start pycares' process-wide helper thread before any test snapshots threads.
+
+    aiohttp's first real session (used with aioclient_mock) lazily starts it, which the
+    harness' per-test leak check would otherwise blame on whichever test comes first.
+    """
+    try:
+        import pycares
+
+        pycares.Channel()
+    except ImportError:
+        pass
+
+
+@pytest.fixture(autouse=True)
+def mock_openrouter():
+    """Never hit the network: the AI advisor gets a canned answer.
+
+    Tests that care about the AI call assert on / reconfigure this mock.
+    """
+    from custom_components.solar_smart_miner.protocols import AiAdvice
+
+    advice = AiAdvice(
+        text="Looks fine.", model="test/model", requested_at="2026-01-01T00:00:00+00:00", latency_s=0.1
+    )
+    with (
+        patch(
+            "custom_components.solar_smart_miner.coordinator.async_ask",
+            AsyncMock(return_value=advice),
+        ) as mock,
+        # A real session would start helper threads the test harness flags as leaks.
+        patch("custom_components.solar_smart_miner.coordinator.async_get_clientsession"),
+    ):
+        yield mock
 
 
 @pytest.fixture

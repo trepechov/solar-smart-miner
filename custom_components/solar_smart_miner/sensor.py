@@ -34,6 +34,7 @@ async def async_setup_entry(
         NetGridPowerSensor(coordinator, entry),
         AvailableForMinersSensor(coordinator, entry),
         DecisionLogSensor(coordinator, entry),
+        AiAdviceSensor(coordinator, entry),
     ]
 
     if entry.data.get(CONF_GRID_ENTITY, ""):
@@ -202,6 +203,45 @@ class DecisionLogSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
             "trace": data.decision.trace,
             "proposals": {names.get(mid, mid): w for mid, w in data.decision.proposals.items()},
             "history": data.decision_history,
+        }
+
+
+class AiAdviceSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
+    """The AI advisor's latest comment on the decision preview (advisory only)."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:robot-outline"
+    _unrecorded_attributes = frozenset({"response"})
+
+    def __init__(self, coordinator: SolarMinerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.unique_id or entry.entry_id}_ai_advice"
+        self._attr_name = "AI advice"
+        self._attr_device_info = _hub_device_info(entry)
+
+    @property
+    def native_value(self) -> str | None:
+        if not self.coordinator.ai_enabled:
+            return "Off"
+        advice = self.coordinator.data.ai_advice if self.coordinator.data else None
+        if advice is None:
+            return "Waiting for the first answer"
+        if advice.error:
+            return f"Error: {advice.error}"[:255]
+        return advice.text[:255]
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        advice = self.coordinator.data.ai_advice if self.coordinator.data else None
+        if advice is None:
+            return {"preview_only": True}
+        return {
+            "preview_only": True,
+            "response": advice.text,
+            "error": advice.error,
+            "model": advice.model,
+            "requested_at": advice.requested_at,
+            "latency_s": advice.latency_s,
         }
 
 

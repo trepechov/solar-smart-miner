@@ -6,7 +6,11 @@ DEFAULT_POLLING_INTERVAL = 15  # seconds
 MIN_POLLING_INTERVAL = 1  # seconds; hass-miner itself refreshes every 10 s
 DEFAULT_TEMP_CEILING = 80  # °C
 DEFAULT_BATTERY_FLOOR = 20  # % SOC
-DEFAULT_AI_TIMEOUT = 10  # seconds; OpenRouter call timeout
+DEFAULT_AI_TIMEOUT = 20  # seconds; OpenRouter call timeout (free models can be slow)
+DEFAULT_AI_INTERVAL = 900  # seconds between AI advice requests; free tiers are rate-limited
+MIN_AI_INTERVAL = 60  # seconds
+ASK_AI_COOLDOWN = 10  # seconds; minimum gap between "Ask AI now" presses
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 PROFILES = [
     {

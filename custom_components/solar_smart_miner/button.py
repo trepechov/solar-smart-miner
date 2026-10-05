@@ -12,6 +12,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
+from .coordinator import SolarMinerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    async_add_entities([AddToDashboardButton(entry)])
+    async_add_entities([AddToDashboardButton(entry), AskAiButton(entry)])
 
 
 class AddToDashboardButton(ButtonEntity):
@@ -61,7 +62,12 @@ class AddToDashboardButton(ButtonEntity):
             (e.entity_id for e in hub_entities if e.unique_id.endswith("_decision_log")),
             None,
         )
-        entity_ids = sorted(e.entity_id for e in hub_entities if e.entity_id != log_entity_id)
+        ai_entity_id = next(
+            (e.entity_id for e in hub_entities if e.unique_id.endswith("_ai_advice")), None
+        )
+        entity_ids = sorted(
+            e.entity_id for e in hub_entities if e.entity_id not in (log_entity_id, ai_entity_id)
+        )
 
         if not entity_ids:
             pn_create(
@@ -79,7 +85,7 @@ class AddToDashboardButton(ButtonEntity):
             lines = ["type: vertical-stack", "cards:"] + [
                 ("  - " if i == 0 else "    ") + line for i, line in enumerate(lines)
             ]
-            lines += _decision_log_card(log_entity_id)
+            lines += _decision_log_card(log_entity_id, ai_entity_id)
         yaml_card = "\n".join(lines)
 
         pn_create(
@@ -94,8 +100,34 @@ class AddToDashboardButton(ButtonEntity):
         )
 
 
-def _decision_log_card(entity_id: str) -> list[str]:
+class AskAiButton(ButtonEntity):
+    """Ask the AI advisor about the current readings right now."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Ask AI now"
+    _attr_icon = "mdi:robot-happy-outline"
+
+    def __init__(self, entry: ConfigEntry) -> None:
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_ask_ai"
+        self._attr_device_info = _hub_device_info(entry)
+
+    async def async_press(self) -> None:
+        coordinator: SolarMinerCoordinator = self._entry.runtime_data
+        coordinator.async_ask_ai_now()
+
+
+def _decision_log_card(entity_id: str, ai_entity_id: str | None = None) -> list[str]:
     """Markdown card (as vertical-stack child lines) rendering the decision trace."""
+    ai_lines = (
+        [
+            "",
+            "      **AI advice**",
+            f"      {{{{ state_attr('{ai_entity_id}', 'response') or states('{ai_entity_id}') }}}}",
+        ]
+        if ai_entity_id
+        else []
+    )
     return [
         "  - type: markdown",
         "    title: Decision log (preview — not applied)",
@@ -110,4 +142,5 @@ def _decision_log_card(entity_id: str) -> list[str]:
         f"      {{% for h in state_attr('{entity_id}', 'history') or [] %}}",
         "      - `{{ h.time }}` {{ h.summary }}",
         "      {% endfor %}",
+        *ai_lines,
     ]
