@@ -1,0 +1,262 @@
+# The control rules. P0 and P1 are what the AI's answer is checked against.
+# Read the README for the format.
+entries:
+  # --- P0: hard limits -----------------------------------------------------
+  - id: rule.guard-above-ai
+    title: Safety sits above the AI
+    statement: >
+      Every AI answer passes through the safety rules first. The AI can propose, never
+      bypass: a proposal that breaks a P0 or P1 rule is dropped and logged.
+    priority: P0
+    status: decided
+    source: "requirements doc §7"
+    date: "2026-10-05"
+    tags: [always]
+
+  - id: rule.one-controller
+    title: One controller at a time
+    statement: >
+      The fixed-hour schedule automation and this integration never control the miners
+      together. The schedule is switched off when applying starts.
+    priority: P0
+    status: decided
+    source: "requirements doc §0 point 10"
+    date: "2026-10-05"
+    tags: [always, startup]
+
+  - id: rule.miner-range
+    title: Stay inside the miner's range
+    statement: >
+      A power limit is always inside the miner's own minimum and maximum, and is one of the
+      configured power steps.
+    priority: P0
+    status: decided
+    source: "requirements doc §3.1; power steps decided 2026-10-05"
+    date: "2026-10-05"
+    tags: [always]
+
+  - id: rule.sustained-low-voltage
+    title: Low voltage steps miners down
+    statement: >
+      A sustained low voltage (below about 210 V, averaged over 30 to 60 seconds, never a
+      single dip) steps the miners down, and may change several at once.
+    priority: P0
+    status: decided
+    source: "requirements doc §3.3 (the threshold is a suggestion)"
+    date: "2026-10-05"
+    tags: [always, voltage]
+    note: The sensor and a hard-stop threshold are still open.
+
+  - id: rule.temperature-is-braiins
+    title: The miner's cutoff is the last defense
+    statement: >
+      The Braiins OS cutoff is the final line of defense and the plugin does not track it. The
+      plugin only follows a target temperature plus a tolerance. A miner too hot at its lowest
+      step is not the plugin's job; at most it is noted in the decision trace.
+    priority: P0
+    status: decided
+    source: "requirements doc §0.3"
+    date: "2026-10-05"
+    tags: [always, temperature]
+
+  # --- P1: operating rules --------------------------------------------------
+  - id: rule.power-steps
+    title: Move between fixed steps
+    statement: >
+      Limits only move between the power steps (900, 1100, 1300 and 1500 W by default, each
+      miner using the ones in its own range). Never ask for an arbitrary wattage such as
+      1,280 W or 190 W. The smallest change is one step (200 W).
+    priority: P1
+    status: decided
+    source: "owner, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, allocation]
+
+  - id: rule.no-step-up-while-tuning
+    title: No step up while tuning
+    statement: >
+      A miner is not stepped up while it is still tuning after its last change (assumed 60
+      minutes). Stepping down and stopping are always allowed.
+    priority: P1
+    status: decided
+    source: "owner, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, allocation]
+
+  - id: rule.stop-below-lowest-step
+    title: Stop, don't idle
+    statement: >
+      When the budget doesn't cover the lowest step, the miner is stopped through its stop
+      procedure (a relay switch if configured, otherwise its own pause switch), not left
+      running at a hardware minimum. It is started again when its lowest step fits with a
+      margin of 100 W.
+    priority: P1
+    status: decided
+    source: "requirements doc §0 point 7, §5.3; owner, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, sunset, sunrise, allocation]
+
+  - id: rule.hold-on-sensor-drop
+    title: A sensor drop holds, it doesn't re-tune
+    statement: >
+      When the solar or meter sensor drops out, every miner is held as it is. A short gap
+      must never make the miners change.
+    priority: P1
+    status: decided
+    source: "decided 2026-10-05 after the 17:39 and 18:43 dropouts"
+    date: "2026-10-05"
+    tags: [always, alerts]
+
+  - id: rule.minimise-restarts
+    title: Few restarts
+    statement: >
+      Restarts are the main cost. One miner changed by a lot beats three changed by a little,
+      except when safety needs several, or when pausing one and raising another is better.
+    priority: P1
+    status: decided
+    source: "requirements doc §0 point 8, §0.1 point 1"
+    date: "2026-10-05"
+    tags: [always, allocation]
+
+  - id: rule.ramp-lock
+    title: No decision while ramping
+    statement: >
+      While any miner is ramping after a change, the decision is hold. Its readings are
+      misleading then.
+    priority: P1
+    status: decided
+    source: "requirements doc §5.2"
+    date: "2026-10-05"
+    tags: [always, allocation]
+
+  - id: rule.consolidate-needs-sustained-deficit
+    title: Don't consolidate on a cloud
+    statement: >
+      Pausing one miner and raising the others restarts all of them, and a passing cloud may
+      reverse it soon. Do it only for a sustained deficit.
+    priority: P1
+    status: decided
+    source: "requirements doc §5.3"
+    date: "2026-10-05"
+    tags: [cloud, sunset, allocation]
+
+  - id: rule.transitions-tolerant
+    title: Don't chase sunrise, sunset or clouds
+    statement: >
+      Import during a transition is accepted and there is no give-up rule. Don't step down
+      for a deficit shorter than a typical cloud, and don't step up for a surplus that hasn't held.
+    priority: P1
+    status: decided
+    source: "requirements doc §0.2, §5.4"
+    date: "2026-10-05"
+    tags: [sunrise, sunset, cloud]
+
+  - id: rule.small-import-target
+    title: Aim for a small steady import
+    statement: >
+      In Solar-follow, aim for a small constant grid import. Import well below target means
+      spare solar: step up. Well above: step down. Inside the band: hold. The band must be
+      wider than one step (200 W).
+    priority: P1
+    status: decided
+    source: "requirements doc §6.2"
+    date: "2026-10-05"
+    tags: [midday, allocation]
+    note: Not what the code does yet; see conflict.control-model.
+
+  # --- P2: guidance ----------------------------------------------------------
+  - id: rule.prefer-spread
+    title: More miners in the efficient range
+    statement: >
+      Prefer several miners in the efficient range over fewer miners pushed harder, as long as
+      each is above the pause threshold.
+    priority: P2
+    status: decided
+    source: "requirements doc §5.3"
+    date: "2026-10-05"
+    tags: [midday, allocation]
+
+  - id: rule.fill-running-first
+    title: Fill a running miner before starting another
+    statement: >
+      Step a running miner up to its top step before starting a stopped one: at 2,100 W one
+      miner goes to 1,500 W rather than a second one starting.
+    priority: P2
+    status: assumed
+    source: "code: decision._allocate, a choice made 2026-10-05, not yet confirmed by the owner"
+    date: "2026-10-05"
+    tags: [sunrise, allocation]
+    note: The requirements doc suggests resuming the next paused miner at sunrise instead.
+
+  - id: rule.asymmetric-reaction
+    title: Down quickly, up slowly
+    statement: >
+      Step down fairly quickly on a sustained deficit. Step up only after the surplus has held
+      for a while, except at sunrise.
+    priority: P2
+    status: assumed
+    source: "requirements doc §5.2 (a suggestion)"
+    date: "2026-10-05"
+    tags: [always, allocation]
+
+  - id: rule.smooth-inputs
+    title: Decide on averages
+    statement: Decide on values averaged over a few minutes rather than the latest sample.
+    priority: P2
+    status: assumed
+    source: "requirements doc §5.2 (a suggestion)"
+    date: "2026-10-05"
+    tags: [always, allocation]
+
+  - id: rule.stop-trigger-below-start
+    title: Stop at a lower level than start
+    statement: >
+      Whatever the triggers turn out to be, the level that stops the last miner sits below the
+      level that starts it, so it doesn't start and stop while production hovers near one value.
+    priority: P2
+    status: assumed
+    source: "requirements doc §5.4 (a suggestion)"
+    date: "2026-10-05"
+    tags: [sunrise, sunset]
+
+  # --- conflicts: needs a decision --------------------------------------------
+  - id: conflict.pause-threshold
+    title: Pause below 1000 W, or below 900 W?
+    statement: >
+      The requirements doc says a miner below about 1000 W is not worth running and should
+      be paused. The power steps start at 900 W, so a miner may run at 900 W today.
+    priority: P1
+    status: conflict
+    source: "requirements doc §0 point 7 against owner's steps, 2026-10-05"
+    date: "2026-10-05"
+    tags: [sunset, allocation]
+    conflicts_with: [rule.stop-below-lowest-step, rule.power-steps]
+    note: Pick one number, or make the lowest step the pause threshold.
+
+  - id: conflict.control-model
+    title: Budget model or import band?
+    statement: >
+      The requirements doc steers on a small grid import band, because throttling hides the
+      real solar. The code allocates from a computed budget (grid balance plus miner draw) with
+      a 150 W tolerance and a 100 W margin. The two behave differently while the inverters
+      are throttled.
+    priority: P1
+    status: conflict
+    source: "requirements doc §6.2 against code, 2026-10-05"
+    date: "2026-10-05"
+    tags: [midday, allocation]
+    conflicts_with: [rule.small-import-target, energy.budget-formula]
+
+  - id: conflict.ramp-vs-tuning
+    title: 3 minutes or an hour?
+    statement: >
+      The requirements doc assumes a change costs a restart plus a 2 to 3 minute ramp, with a
+      minimum hold time of 10 to 15 minutes. The owner says a miner tunes for 14 minutes to an
+      hour. The two give very different hold times.
+    priority: P1
+    status: conflict
+    source: "requirements doc §5.1, §5.2 against owner, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, allocation]
+    conflicts_with: [miner.limit-change-cost, miner.retune]
+    note: Measure the first applied step change; see open-questions.yaml.

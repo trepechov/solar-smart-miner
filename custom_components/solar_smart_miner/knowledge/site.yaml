@@ -1,0 +1,121 @@
+# The installation. Mostly P3 context; read the README for the format.
+entries:
+  - id: site.location
+    title: Where the site is
+    statement: >
+      The site is in Brodilovo, Bulgaria (about 42.08 N, 27.86 E). Home Assistant runs in
+      local time, UTC+3 in summer and UTC+2 in winter. In early October the first PV output
+      appears around 07:00 and the sun is gone by about 18:20.
+    priority: P3
+    status: verified
+    source: "measured: HA history and sun.sun, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, sunrise, sunset]
+
+  - id: site.inverters
+    title: Three 5 kW inverters
+    statement: >
+      Three Huawei SUN2000-5KTL-L1 inverters (Invertor 071, 981 and 928), 5 kW AC each,
+      15 kW in total. Home Assistant has one active-power sensor per inverter and a
+      calculated sum, sensor.active_power_total.
+    priority: P3
+    status: verified
+    source: "measured: HA entities, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, solar]
+
+  - id: site.array-orientation
+    title: East-west roof
+    statement: >
+      The panels sit on a two-slope roof, split about 50:50. The slopes face roughly 80 deg
+      (east-north-east) and 260 deg (west-south-west), compass degrees with 0 = north.
+      The forecast assumes 7.5 kWp per slope at 15 deg tilt.
+    priority: P3
+    status: assumed
+    source: "owner: satellite screenshot, 2026-10-05; angle measured from the arrows, about 10 deg uncertain; tilt not checked"
+    date: "2026-10-05"
+    tags: [solar, forecast]
+    note: Morning output was 1.5-3.6x the old west-only forecast, which is what an east-facing half would give.
+
+  - id: site.no-battery
+    title: No battery, grid always there
+    statement: >
+      There is no battery. The grid is always connected and absorbs every swing: a miner
+      ramping, a cloud, or an inverter throttling.
+    priority: P3
+    status: decided
+    source: "requirements doc §4.3, §6.1"
+    date: "2026-10-05"
+    tags: [always, grid]
+
+  - id: site.grid-meter-sign
+    title: Meter sign convention
+    statement: >
+      sensor.power_meter_active_power is the grid meter in W. Negative means importing from
+      the grid, positive means exporting. It sits close to 0 while the inverters cover the load.
+    priority: P3
+    status: verified
+    source: "measured: meter read -3656 W while PV was 216 W, 2026-10-05 18:10"
+    date: "2026-10-05"
+    tags: [always, grid]
+
+  - id: site.zero-export
+    title: Inverters hold output to the house load
+    statement: >
+      All three inverters report "Grid Connection: power limited" and produce only what the
+      house consumes. While that holds, measured solar equals the load, not the sun, and
+      says nothing about how much more the panels could give.
+    priority: P3
+    status: verified
+    source: "measured: flat 4.0 kWh per hour from 09:00 to 16:00 against a 9.9 kW forecast, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, midday, solar]
+
+  - id: site.load-is-miners
+    title: The house load is the miners
+    statement: >
+      The house consumption is about 98% miners. The rest is one PC and anything not counted
+      in the miners' own power reading, about 70 W on 3.9 kW.
+    priority: P3
+    status: verified
+    source: "measured: PV 3926 W against miners 3856 W, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, grid]
+
+  - id: site.forecast-setup
+    title: How the solar forecast is set up
+    statement: >
+      Forecast.Solar runs as two entries, "East slope" (80 deg, 7.5 kWp) and "West slope"
+      (260 deg, 7.5 kWp). Two template sensors add them: sensor.solar_forecast_power_now and
+      sensor.solar_forecast_energy_left_today. The free API allows 12 calls an hour.
+    priority: P3
+    status: verified
+    source: "measured: HA config entries, 2026-10-05"
+    date: "2026-10-05"
+    tags: [forecast, solar]
+
+  - id: site.forecast-accuracy
+    title: Forecast against reality
+    statement: >
+      On 2026-10-05 the forecast said about 66 kWh and the inverters made 36 kWh, but the
+      inverters were throttled to the load, so the gap is mostly unused capacity. In the
+      unthrottled hours the new two-slope forecast fits the morning better than the old one
+      and still runs about twice too high at 17:00, possibly from shading on the west side.
+    priority: P3
+    status: assumed
+    source: "measured: hourly forecast vs hourly yield, 2026-10-05; the shading is a guess"
+    date: "2026-10-05"
+    tags: [forecast, sunset]
+    note: Check again on a day with no throttling at the edges, and compare the evening hours.
+
+  - id: site.schedule-automation
+    title: Fixed-hour schedule still runs the miners
+    statement: >
+      Home Assistant automations pause and resume the miners at fixed hours: resume at
+      07:00, 07:05 and 07:10, pause at 19:00, 19:05 and 19:10 (Brod1, Brod2, Brod3). They are
+      to be switched off when the integration starts applying decisions, never both at once.
+    priority: P3
+    status: verified
+    source: "measured: switch history 2026-09-25 to 2026-10-05; handover decided in requirements doc §0 point 10"
+    date: "2026-10-05"
+    tags: [always, startup, sunset, sunrise]

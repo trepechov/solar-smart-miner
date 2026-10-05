@@ -1,0 +1,131 @@
+# How the miners behave. Read the README for the format.
+entries:
+  - id: miner.fleet
+    title: Three Braiins miners
+    statement: >
+      Three miners, Brod1, Brod2 and Brod3, run Braiins OS and are read through hass-miner
+      (one config entry per miner). Each has a power limit (a number entity, range 500 to
+      3500 W in steps of 100 W) and a pause/resume switch (switch.brodN_active).
+    priority: P3
+    status: verified
+    source: "measured: HA entity registry, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always]
+
+  - id: miner.immersion
+    title: Immersion cooled, no fans
+    statement: >
+      The miners are immersion cooled and have no fans. Temperature follows power and the
+      cooling directly. The only Braiins OS temperature setting that matters is the cutoff,
+      about 80 deg C, which restarts the miner.
+    priority: P3
+    status: decided
+    source: "requirements doc §0 point 5, §3.2"
+    date: "2026-10-05"
+    tags: [always, temperature]
+
+  - id: miner.draw-vs-limit
+    title: A miner draws a little under its limit
+    statement: >
+      At a 1300 W limit a miner draws about 1280 to 1300 W. Budgets should expect the draw
+      to be 5 to 20 W under the limit, not exactly the limit.
+    priority: P3
+    status: verified
+    source: "measured: three miners at 1300 W limit, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, midday]
+
+  - id: miner.hashrate-noise
+    title: Hashrate is noisy
+    statement: >
+      At a steady power the hashrate of one miner moves between about 47 and 66 TH/s from
+      one minute to the next. A single low reading means nothing.
+    priority: P3
+    status: verified
+    source: "measured: Brod1 after resume, 2026-10-05 07:00"
+    date: "2026-10-05"
+    tags: [always, alerts]
+
+  - id: miner.efficiency-range
+    title: Efficient between 1000 and 2000 W
+    statement: >
+      The miners have similar efficiency between about 1000 W and 2000 W. So 4000 W is
+      better used by three miners near 1330 W than by two at 2000 W.
+    priority: P3
+    status: assumed
+    source: "requirements doc §1; owner's belief, not measured"
+    date: "2026-10-05"
+    tags: [midday, allocation]
+    note: Open question in the requirements doc §9 (efficiency above 2000 W).
+
+  - id: miner.retune
+    title: A limit change starts a long tuning
+    statement: >
+      After a power limit changes, a miner spends 14 minutes to an hour tuning to find the
+      best settings for that wattage. Once a wattage has been tuned, going back to it is
+      quick and reaches full efficiency within a couple of minutes. This is why limits only
+      move between a few fixed steps.
+    priority: P3
+    status: decided
+    source: "owner, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, allocation]
+    note: Not seen in the recorded data; no limit changes exist in the history.
+
+  - id: miner.tuning-not-exposed
+    title: The tuning state isn't available
+    statement: >
+      hass-miner doesn't expose whether a miner is tuning or stable. sensor.brodN_active_preset_name
+      reads unknown even while the miner runs. The controller estimates it as the time since
+      the power limit last changed.
+    priority: P3
+    status: verified
+    source: "measured: HA states, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, allocation]
+
+  - id: miner.limit-change-cost
+    title: Cost of a limit change
+    statement: >
+      Changing the power limit is assumed to restart the miner: power drops to 0 W at once and
+      takes 2 to 3 minutes to climb to the new target.
+    priority: P3
+    status: assumed
+    source: "requirements doc §5.1"
+    date: "2026-10-05"
+    tags: [allocation]
+    note: Unmeasured. Settle it with the first applied step change and the power and hashrate history around it.
+
+  - id: miner.resume-cost
+    title: Resuming a paused miner
+    statement: >
+      After resume, power reaches about 1.4 kW within 90 seconds and settles near the limit
+      by about 6 minutes. Hashrate is about 25 TH/s at 30 s and 47 TH/s at 90 s.
+    priority: P3
+    status: verified
+    source: "measured: Brod1 resume on 2026-10-05 07:00"
+    date: "2026-10-05"
+    tags: [sunrise, startup]
+
+  - id: miner.pause-cost
+    title: Pausing a miner
+    statement: >
+      A paused miner drops to 0 W within about 25 seconds and its hashrate decays over about
+      a minute. While paused its power sensor reads unknown, not 0.
+    priority: P3
+    status: verified
+    source: "measured: Brod1 pause on 2026-10-05 19:00"
+    date: "2026-10-05"
+    tags: [sunset]
+
+  - id: miner.power-sensor-unknown-when-paused
+    title: A paused miner looks unreachable
+    statement: >
+      Because the power sensor reads unknown while a miner is paused (or its relay is off),
+      the miner looks unreachable unless the pause switch or the relay is checked too.
+      A paused miner is stopped, not broken.
+    priority: P3
+    status: verified
+    source: "measured: HA states after the 19:00 pause, 2026-10-05; fixed in the controller"
+    date: "2026-10-05"
+    tags: [always, alerts]

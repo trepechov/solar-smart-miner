@@ -1,0 +1,130 @@
+# Questions, not facts. Never sent to the AI. When one is settled, write the answer as a
+# fact in the right file and retire the question here. Read the README for the format.
+entries:
+  - id: open.limit-change-cost
+    title: What does a power-limit change cost?
+    statement: >
+      Does changing the limit really restart the miner (0 W, then a 2 to 3 minute ramp), and
+      how long until the miner is efficient again?
+    priority: P3
+    status: open
+    source: "requirements doc §9 point 2"
+    date: "2026-10-05"
+    tags: [allocation]
+    note: >
+      Measure on the first applied step: power and hashrate every few seconds for an hour.
+      Settles conflict.ramp-vs-tuning and the hold times.
+
+  - id: open.tuning-state-source
+    title: Can the tuning state be read?
+    statement: >
+      Is there a Braiins OS field (through its API or pyasic) that says whether a miner is
+      tuning or stable, so the controller doesn't have to guess from time since the last change?
+    priority: P3
+    status: open
+    source: "owner, 2026-10-05; hass-miner exposes nothing, see miner.tuning-not-exposed"
+    date: "2026-10-05"
+    tags: [allocation]
+
+  - id: open.pause-threshold
+    title: The pause threshold
+    statement: Is the lowest step 900 W or the pause threshold 1000 W, and how long must a deficit last before pausing?
+    priority: P3
+    status: open
+    source: "requirements doc §9; conflict.pause-threshold"
+    date: "2026-10-05"
+    tags: [allocation]
+
+  - id: open.efficiency-above-2000
+    title: Efficiency above 2000 W
+    statement: Is efficiency really worse above about 2000 W, and does "prefer more miners" still hold when there is sun for all of them?
+    priority: P3
+    status: open
+    source: "requirements doc §9 point 3"
+    date: "2026-10-05"
+    tags: [midday, allocation]
+
+  - id: open.import-band
+    title: Import target and band defaults
+    statement: >
+      What import target and band work for normal operation, given the band has to be wider
+      than 200 W? And should the controller steer on the import band at all (see conflict.control-model)?
+    priority: P3
+    status: open
+    source: "requirements doc §9 point 4"
+    date: "2026-10-05"
+    tags: [midday, allocation]
+
+  - id: open.rise-and-fall-speed
+    title: How fast does production rise and fall?
+    statement: >
+      How many watts per 10 minutes at sunrise and sunset, how long from first light to
+      enough for one and two miners, and how long a typical cloud lasts? It sets the start
+      and stop triggers and the pace of transitions.
+    priority: P3
+    status: open
+    source: "requirements doc §5.4, §9 point 1"
+    date: "2026-10-05"
+    tags: [sunrise, sunset, cloud]
+    note: Use only periods with import, the forecast, or unthrottled actual PV. Throttled history shows the load.
+
+  - id: open.voltage-sensor
+    title: Which voltage sensor, and the hard-stop level
+    statement: Which entity gives the voltage to act on (inverter AC or grid), and is there a lower hard-stop level such as 200 V that pauses everything?
+    priority: P3
+    status: open
+    source: "requirements doc §9 point 5"
+    date: "2026-10-05"
+    tags: [voltage]
+
+  - id: open.temperature-margin
+    title: A margin below the target temperature?
+    statement: Should a miner step up only when it is some degrees below the target, so one at the boundary doesn't step up after every hold?
+    priority: P3
+    status: open
+    source: "requirements doc §9 point 6"
+    date: "2026-10-05"
+    tags: [temperature]
+
+  - id: open.ai-learning
+    title: How the AI learns from the history
+    statement: >
+      Examples in the prompt, a summary of statistics, or offline review turned into rule
+      changes? Whichever it is, the log first needs outcome fields (what was applied, restarts,
+      import and hashrate afterwards, whether it was reversed).
+    priority: P3
+    status: open
+    source: "requirements doc §7, §9 point 7"
+    date: "2026-10-05"
+    tags: [ai]
+
+  - id: open.go-live-evidence
+    title: When does applying start?
+    statement: What evidence is enough to switch off the schedule and let the integration apply decisions?
+    priority: P3
+    status: open
+    source: "requirements doc §9 point 8"
+    date: "2026-10-05"
+    tags: [startup]
+
+  - id: open.west-shading
+    title: Is the west slope shaded in the evening?
+    statement: The evening forecast runs about twice the real output at 17:00. Is that shading from the neighbouring house and trees, a different tilt, or something else?
+    priority: P3
+    status: open
+    source: "owner and measured, 2026-10-05"
+    date: "2026-10-05"
+    tags: [sunset, forecast]
+    note: Compare unthrottled evening hours over several days, and the real roof tilt.
+
+  - id: open.alert-routes
+    title: Where do alerts go, and when?
+    statement: >
+      Which notification service (a mobile push, Telegram, both), whether warnings are held
+      overnight, and how a critical alert is acknowledged. The Telegram options are stored
+      in the settings but not used yet.
+    priority: P3
+    status: open
+    source: "owner, 2026-10-05"
+    date: "2026-10-05"
+    tags: [alerts]

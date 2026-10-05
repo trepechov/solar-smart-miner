@@ -1,0 +1,105 @@
+# How the energy signals behave. Read the README for the format.
+entries:
+  - id: energy.budget-formula
+    title: How the power budget is computed
+    statement: >
+      The controller's budget for the miners is the grid balance plus what the miners draw
+      now: available = (export - import) + miners' draw. It is exact while the inverters are
+      not throttled.
+    priority: P3
+    status: verified
+    source: "code: coordinator._derive_balance"
+    date: "2026-10-05"
+    tags: [always, allocation]
+
+  - id: energy.throttle-hides-headroom
+    title: Throttling hides extra solar
+    statement: >
+      While the inverters hold output to the load, the budget equals what the miners already
+      draw, so it never shows spare solar. On 2026-10-05 around noon the panels could give
+      about 9.7 kW and the miners used 3.9 kW, with their own power limits as the only brake.
+    priority: P3
+    status: verified
+    source: "measured: forecast 9.7 kW against 3.9 kW drawn, 2026-10-05 14:00"
+    date: "2026-10-05"
+    tags: [midday, allocation]
+
+  - id: energy.evening-curve
+    title: What the sunset looked like
+    statement: >
+      On 2026-10-05, with three miners at 1300 W, PV fell from 3.0 kW at 17:02 to 1.45 kW at
+      17:41, 0.85 kW at 18:02 and 0.2 kW at 18:17. Grid import grew from 1.3 kW at 17:14 to
+      3.7 kW at 18:10 and reached 6.1 kWh between 17:00 and 19:12 (about 3.3 kWh after
+      sunset), until the schedule paused the miners at 19:00 to 19:10.
+    priority: P3
+    status: verified
+    source: "measured: HA history, 2026-10-05"
+    date: "2026-10-05"
+    tags: [sunset]
+
+  - id: energy.morning-curve
+    title: Morning rise
+    statement: The speed of the morning rise has not been measured yet.
+    priority: P3
+    status: assumed
+    source: "none; study pending, requirements doc §5.4"
+    date: "2026-10-05"
+    tags: [sunrise]
+    note: Throttling distorts the history. Use periods with import, the forecast, or actual PV.
+
+  - id: energy.pv-sum-unreliable
+    title: The PV sum drops out
+    statement: >
+      sensor.active_power_total reads unknown every few minutes through the evening, for
+      seconds to minutes at a time, probably when an inverter doesn't answer. It is fine as a
+      reference value, not as a control signal.
+    priority: P3
+    status: verified
+    source: "measured: HA history 17:00 to 20:00, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, alerts]
+
+  - id: energy.meter-dropouts
+    title: The meter drops out briefly
+    statement: >
+      sensor.power_meter_active_power was unavailable for about 35 seconds at 17:39 and again
+      around 18:43 on 2026-10-05. Such short gaps are normal and must not make the controller act.
+    priority: P3
+    status: verified
+    source: "measured: HA history, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, alerts]
+
+  - id: energy.transition-import-ok
+    title: Importing during transitions is fine
+    statement: >
+      Some grid import is acceptable at sunrise, at sunset and while clouds pass, even for
+      several minutes or longer. Production changes fast then and should not be chased.
+    priority: P3
+    status: decided
+    source: "requirements doc §0 point 9, §0.2 point 3"
+    date: "2026-10-05"
+    tags: [sunrise, sunset, cloud]
+
+  - id: energy.small-import-proves-use
+    title: A small steady import is the goal
+    statement: >
+      With no battery, a small constant grid import proves all available solar is being used.
+      At zero import a throttled inverter gives no sign that more is available.
+    priority: P3
+    status: decided
+    source: "requirements doc §0 point 4, §6.2"
+    date: "2026-10-05"
+    tags: [midday, allocation]
+
+  - id: energy.voltage-source
+    title: Which voltage to watch
+    statement: >
+      Mining below about 210 V is not recommended. No voltage sensor has been chosen yet;
+      the inverters and the meter both report it (the meter read 238.6 V on 2026-10-05).
+    priority: P3
+    status: assumed
+    source: "requirements doc §3.3; meter reading measured 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, voltage]
+    note: 'Open question: which entity, and a hard-stop threshold.'

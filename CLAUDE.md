@@ -23,6 +23,8 @@ custom_components/solar_smart_miner/   # HA integration source
   button.py            # button entity platform (Add to Dashboard, Ask AI now)
   protocols.py         # typed protocols for hass-miner entity reads
   const.py             # constants and configuration keys
+  knowledge/           # knowledge base: facts by priority/status + alert catalogue (YAML);
+                       #   format in its README, checked by tests/test_knowledge.py
   manifest.json        # HACS/HA integration manifest
 
 tests/                 # pytest test suite
@@ -35,6 +37,10 @@ docs/
                        #   implementing or debugging in documented areas.
 scripts/               # dev utilities (validate-frontmatter.py, etc.)
 ```
+
+## Knowledge Base
+
+`custom_components/solar_smart_miner/knowledge/` holds what we know about the site, the miners and the control rules as small, prioritised facts (P0 hard limit … P3 context) with a status (decided / verified / assumed / open / conflict), plus the alert scenarios. It is what the AI will later be given. **When a session settles or measures something, add or update the entry in the same commit** (put the evidence in `source`/`date`; change `status` rather than silently rewriting a statement; record disagreements as a `conflict`). Don't store secrets or tokens in it.
 
 ## Testing Policy
 

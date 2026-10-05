@@ -1,0 +1,435 @@
+# Edge cases that should not happen in normal operation. Read the README for the
+# severity levels and the safe actions. Every number is a first proposal to tune from the logs.
+#
+# Fields:
+#   severity     info | warning | critical
+#   category     energy | sensor | miner | control | ai | system
+#   condition    when it fires
+#   normal       what normal looks like, so the edge is clear
+#   not_alert    look-alikes that are normal and must not fire it
+#   thresholds   proposed numbers
+#   action       none | hold | freeze | step_down | pause_all (once decisions are applied)
+#   acts         who deals with it: rules | ai | human
+#   notify       log | dashboard | push (push repeats for critical until acknowledged)
+#   cooldown_min minutes before the same alert may notify again
+#   resolves_when what clears it
+#   related      knowledge entries that explain it
+status_note: all alerts are proposed; none exist in code yet
+
+# Things that look alarming and are normal. They never raise an alert.
+not_alerts:
+  - id: normal.small-import
+    what: A small, steady grid import while the miners run.
+    why: It is the goal in Solar-follow; it proves the solar is fully used.
+    related: [energy.small-import-proves-use, rule.small-import-target]
+  - id: normal.transition-import
+    what: Import for minutes or longer at sunrise, at sunset or while a cloud passes.
+    why: Production changes faster than the miners can follow, and chasing it costs more.
+    related: [energy.transition-import-ok, rule.transitions-tolerant]
+  - id: normal.inverters-power-limited
+    what: 'Inverters showing "Grid Connection: power limited".'
+    why: They hold output to the house load; it is their normal state while the miners run.
+    related: [site.zero-export]
+  - id: normal.miner-paused
+    what: A miner at no power, hashrate 0 and an unknown power sensor, with its pause switch off or its relay off.
+    why: It is stopped on purpose (by the controller or the schedule), not broken.
+    related: [miner.power-sensor-unknown-when-paused]
+  - id: normal.brief-dropout
+    what: The meter or the PV sum unavailable for a minute or two.
+    why: It happens most evenings and clears itself.
+    related: [energy.meter-dropouts, energy.pv-sum-unreliable]
+  - id: normal.hashrate-wobble
+    what: One miner's hashrate moving by 10 to 15% from minute to minute.
+    why: Normal noise at a steady power.
+    related: [miner.hashrate-noise]
+  - id: normal.hot-at-lowest-step
+    what: A miner too hot even at its lowest step.
+    why: Decided not to be the plugin's job; the Braiins OS cutoff handles it. At most a line in the decision trace.
+    related: [rule.temperature-is-braiins]
+  - id: normal.single-ai-error
+    what: One failed or slow AI request.
+    why: The rules decide; the AI only advises. Only a run of failures matters.
+
+alerts:
+  # ---- energy ---------------------------------------------------------------
+  - id: energy.sustained-import
+    title: Importing a lot for too long outside a transition
+    severity: warning
+    category: energy
+    condition: Grid import stays above the limit for the duration, and the sun is not rising or setting.
+    normal: Import near 0 W to a few hundred W while the miners run; larger import only at sunrise, sunset or under cloud.
+    not_alert: [normal.small-import, normal.transition-import]
+    thresholds: {import_w: 1500, minutes: 20, escalate_to_critical_minutes: 60}
+    action: step_down
+    acts: rules
+    notify: [log, dashboard, push]
+    cooldown_min: 120
+    resolves_when: Import is back under the limit for 10 minutes.
+    related: [energy.evening-curve]
+    note: >
+      This is what happened on 2026-10-05: the miners ran at 1300 W after sunset and imported
+      up to 3.7 kW for about 45 minutes, because nothing was applied. Once decisions are
+      applied the step-down should have acted long before this fires; the alert is the net under it.
+
+  - id: energy.night-consumption
+    title: Miners running with no sun
+    severity: critical
+    category: energy
+    condition: It is dark (sun below the horizon and PV near 0) and one or more miners still draw power.
+    normal: All miners stopped from shortly after sunset until after sunrise.
+    not_alert: [normal.transition-import]
+    thresholds: {pv_below_w: 100, miners_above_w: 500, minutes: 20}
+    action: pause_all
+    acts: rules
+    notify: [log, dashboard, push]
+    cooldown_min: 60
+    resolves_when: Every miner is stopped, or PV is back over the limit.
+    related: [energy.evening-curve, rule.stop-below-lowest-step]
+
+  - id: energy.low-voltage
+    title: Low supply voltage
+    severity: warning
+    category: energy
+    condition: Voltage averaged over the window is below the limit.
+    normal: Around 230 V (the meter read 238.6 V).
+    not_alert: [normal.brief-dropout]
+    thresholds: {volts: 210, window_s: 60, critical_volts: 200}
+    action: step_down
+    acts: rules
+    notify: [log, dashboard, push]
+    cooldown_min: 30
+    resolves_when: Average back above the limit for 5 minutes.
+    related: [rule.sustained-low-voltage, energy.voltage-source]
+    note: Becomes critical with pause_all below critical_volts. Needs the voltage sensor (open.voltage-sensor).
+
+  # ---- sensors --------------------------------------------------------------
+  - id: sensor.meter-lost
+    title: The grid meter has been gone too long
+    severity: warning
+    category: sensor
+    condition: The solar or meter entity stays unavailable beyond the dropout the controller tolerates.
+    normal: Dropouts of seconds to a minute or two.
+    not_alert: [normal.brief-dropout]
+    thresholds: {minutes: 10, critical_minutes: 30}
+    action: hold
+    acts: rules
+    notify: [log, dashboard, push]
+    cooldown_min: 60
+    resolves_when: The sensor reports a number for 2 minutes.
+    related: [rule.hold-on-sensor-drop, energy.meter-dropouts]
+    note: >
+      Becomes critical at critical_minutes with step_down: the controller cannot see the grid
+      and shouldn't keep miners at full power forever.
+
+  - id: sensor.inverter-fault
+    title: An inverter is not in a normal state in daylight
+    severity: warning
+    category: sensor
+    condition: During production hours an inverter reports a state that is not on-grid (power limited counts as on-grid), or its output is unavailable.
+    normal: 'On-grid, or "Grid Connection: power limited".'
+    not_alert: [normal.inverters-power-limited, normal.brief-dropout]
+    thresholds: {minutes: 15}
+    action: hold
+    acts: human
+    notify: [log, dashboard, push]
+    cooldown_min: 240
+    resolves_when: All inverters report a normal state.
+    related: [site.inverters, site.zero-export]
+
+  - id: sensor.pv-sum-flapping
+    title: The PV sum keeps dropping out
+    severity: info
+    category: sensor
+    condition: sensor.active_power_total is unknown for most of an hour in daylight.
+    normal: Occasional gaps of minutes in the evening.
+    not_alert: [normal.brief-dropout]
+    thresholds: {minutes_unknown_per_hour: 30}
+    action: none
+    acts: human
+    notify: [log, dashboard]
+    cooldown_min: 720
+    resolves_when: Back to occasional gaps.
+    related: [energy.pv-sum-unreliable]
+
+  # ---- miners ---------------------------------------------------------------
+  - id: miner.unreachable
+    title: A miner that should run can't be reached
+    severity: warning
+    category: miner
+    condition: The miner is meant to be running (pause switch on, relay on) but its power sensor stays unavailable.
+    normal: A paused or relay-off miner reads unknown; that is stopped, not unreachable.
+    not_alert: [normal.miner-paused, normal.brief-dropout]
+    thresholds: {minutes: 5}
+    action: hold
+    acts: human
+    notify: [log, dashboard, push]
+    cooldown_min: 120
+    resolves_when: The power sensor reports a number again.
+    related: [miner.power-sensor-unknown-when-paused]
+
+  - id: miner.all-unreachable
+    title: Every miner is unreachable
+    severity: critical
+    category: miner
+    condition: No miner answers although at least one should be running.
+    normal: At least one miner readable whenever any should run.
+    not_alert: [normal.miner-paused]
+    thresholds: {minutes: 5}
+    action: freeze
+    acts: human
+    notify: [log, dashboard, push]
+    cooldown_min: 30
+    resolves_when: At least one miner answers.
+    note: Usually the network or hass-miner, not the miners. Nothing sensible to decide while blind.
+
+  - id: miner.stop-not-followed
+    title: A stopped miner is still drawing power
+    severity: critical
+    category: miner
+    condition: A stop (pause or relay off) was ordered but the miner still draws power after the grace period.
+    normal: Power falls to 0 within about 25 seconds of a pause.
+    not_alert: []
+    thresholds: {grace_s: 120, power_above_w: 100}
+    action: pause_all
+    acts: human
+    notify: [log, dashboard, push]
+    cooldown_min: 15
+    resolves_when: The miner's power is under the limit.
+    related: [miner.pause-cost]
+    note: If a miner can't be stopped it will import all night. Try the other stop method if one is configured.
+
+  - id: miner.start-not-followed
+    title: A started miner isn't ramping
+    severity: warning
+    category: miner
+    condition: A start (resume or relay on) was ordered but the miner's power stays low after the grace period.
+    normal: About 1.4 kW within 90 seconds and near the limit by about 6 minutes.
+    not_alert: []
+    thresholds: {grace_minutes: 6, power_below_fraction_of_limit: 0.5}
+    action: hold
+    acts: human
+    notify: [log, dashboard, push]
+    cooldown_min: 120
+    resolves_when: The miner reaches over half its limit.
+    related: [miner.resume-cost]
+
+  - id: miner.power-off-target
+    title: Power far from the limit
+    severity: warning
+    category: miner
+    condition: After the tuning period a running miner's draw differs from its limit by more than the fraction, for the whole window.
+    normal: Draw 5 to 20 W under the limit.
+    not_alert: [normal.hashrate-wobble]
+    thresholds: {deviation_fraction: 0.15, minutes: 15, after_tuning: true}
+    action: hold
+    acts: human
+    notify: [log, dashboard]
+    cooldown_min: 240
+    resolves_when: Draw is back within the fraction.
+    related: [miner.draw-vs-limit]
+
+  - id: miner.hashrate-collapse
+    title: Power but no hashing
+    severity: warning
+    category: miner
+    condition: A miner draws most of its limit but its hashrate averaged over the window is far below the other miners at the same power.
+    normal: 47 to 66 TH/s at 1300 W, with noise.
+    not_alert: [normal.hashrate-wobble, normal.miner-paused]
+    thresholds: {power_above_fraction_of_limit: 0.8, hashrate_below_fraction_of_peers: 0.5, minutes: 15}
+    action: none
+    acts: human
+    notify: [log, dashboard, push]
+    cooldown_min: 480
+    resolves_when: Hashrate back near its peers for 15 minutes.
+    related: [miner.hashrate-noise]
+    note: A failed hashboard, a bad pool connection, or the miner stuck in tuning. Needs at least two miners to compare.
+
+  - id: miner.restart-storm
+    title: A miner is being restarted too often
+    severity: warning
+    category: miner
+    condition: One miner changes limit, stops or starts more than the allowed number of times in an hour, or restarts on its own.
+    normal: A handful of steps a day, one miner at a time.
+    not_alert: [normal.transition-import]
+    thresholds: {changes_per_hour: 4}
+    action: freeze
+    acts: rules
+    notify: [log, dashboard, push]
+    cooldown_min: 120
+    resolves_when: No change for an hour.
+    related: [miner.retune, rule.minimise-restarts]
+    note: The controller itself freezes that miner (hold) until the hour passes; this is a circuit breaker against flapping.
+
+  - id: miner.fleet-changed
+    title: The set of miners changed
+    severity: warning
+    category: miner
+    condition: The number of miners, or their names, differs from what the controller saw before.
+    normal: Brod1, Brod2 and Brod3, once each.
+    not_alert: []
+    thresholds: {}
+    action: hold
+    acts: human
+    notify: [log, dashboard, push]
+    cooldown_min: 1440
+    resolves_when: The change is acknowledged, or the fleet is back as before.
+    related: [miner.fleet]
+    note: Catches a duplicated device, a removed hass-miner entry or a renamed miner before plans are applied to the wrong one.
+
+  # ---- control --------------------------------------------------------------
+  - id: control.flapping
+    title: Decisions keep reversing
+    severity: warning
+    category: control
+    condition: The decision direction (up/down) flips more than the allowed number of times in the window.
+    normal: At most a reversal or two around a transition.
+    not_alert: [normal.transition-import]
+    thresholds: {reversals: 4, minutes: 30}
+    action: hold
+    acts: rules
+    notify: [log, dashboard]
+    cooldown_min: 120
+    resolves_when: No reversal for 30 minutes.
+    related: [rule.small-import-target, rule.asymmetric-reaction]
+    note: The band is probably too narrow; check it is wider than one step.
+
+  - id: control.apply-failed
+    title: A command didn't take
+    severity: critical
+    category: control
+    condition: A limit change, stop or start was sent but the entity didn't reach the value, or the service call failed.
+    normal: The state follows within seconds.
+    not_alert: []
+    thresholds: {grace_s: 60}
+    action: freeze
+    acts: human
+    notify: [log, dashboard, push]
+    cooldown_min: 15
+    resolves_when: The entity matches the last command, or the command is acknowledged.
+    note: Only exists once decisions are applied.
+
+  - id: control.schedule-conflict
+    title: The schedule automation is still on
+    severity: critical
+    category: control
+    condition: The integration is about to apply decisions while the fixed-hour schedule automation is still enabled.
+    normal: The schedule is off whenever applying is on.
+    not_alert: []
+    thresholds: {}
+    action: freeze
+    acts: human
+    notify: [log, dashboard, push]
+    cooldown_min: 60
+    resolves_when: The automation is off.
+    related: [rule.one-controller, site.schedule-automation]
+    note: The integration refuses to apply rather than fight the schedule. Needs the automation entity as an option.
+
+  - id: control.stuck-holding
+    title: Holding while clearly off target
+    severity: warning
+    category: control
+    condition: The controller has held for the whole window although import is well above the band, outside a transition and with no miner tuning.
+    normal: A hold only while within the band, tuning, or in a transition.
+    not_alert: [normal.transition-import]
+    thresholds: {minutes: 60, import_w: 1500}
+    action: step_down
+    acts: rules
+    notify: [log, dashboard, push]
+    cooldown_min: 240
+    resolves_when: Import is back inside the band.
+    related: [rule.ramp-lock, rule.no-step-up-while-tuning]
+    note: A watchdog on the hold rules themselves (a tuning flag or ramp lock that never clears).
+
+  # ---- ai -------------------------------------------------------------------
+  - id: ai.provider-failing
+    title: The AI provider keeps failing
+    severity: warning
+    category: ai
+    condition: A run of consecutive AI requests failed.
+    normal: Answers within a few seconds; the odd failure.
+    not_alert: [normal.single-ai-error]
+    thresholds: {consecutive_failures: 10, auth_or_credit_failures: 2}
+    action: none
+    acts: human
+    notify: [log, dashboard, push]
+    cooldown_min: 240
+    resolves_when: One successful answer.
+    note: A rejected key or no credit (401/402) is worth telling at once; rate limits and timeouts only after a run.
+
+  - id: ai.invalid-answers
+    title: The AI keeps giving unusable answers
+    severity: warning
+    category: ai
+    condition: Several answers in a row can't be parsed, name an unknown miner, or ask for a wattage that is not a step.
+    normal: A valid answer almost every time.
+    not_alert: [normal.single-ai-error]
+    thresholds: {consecutive: 5}
+    action: none
+    acts: human
+    notify: [log, dashboard]
+    cooldown_min: 480
+    resolves_when: A valid answer.
+    related: [rule.guard-above-ai, rule.power-steps]
+    note: Probably the model; try another. Once the AI has authority, its answers are ignored until it recovers.
+
+  - id: ai.persistent-disagreement
+    title: The AI disagrees with the rules for a long time
+    severity: info
+    category: ai
+    condition: The AI's proposal differs from the rules' plan on most requests for the window.
+    normal: Agreement most of the time, with short differences around transitions.
+    not_alert: [normal.transition-import]
+    thresholds: {minutes: 30, disagreement_fraction: 0.8}
+    action: none
+    acts: human
+    notify: [log, dashboard]
+    cooldown_min: 720
+    resolves_when: Agreement is back.
+    related: [open.ai-learning]
+    note: 'Not a fault: this is the evidence for improving the rules or the prompt.'
+
+  # ---- system ---------------------------------------------------------------
+  - id: system.coordinator-failing
+    title: The controller can't read the system
+    severity: critical
+    category: system
+    condition: The update cycle raises errors several times in a row.
+    normal: Every cycle completes.
+    not_alert: [normal.brief-dropout]
+    thresholds: {consecutive_failures: 5}
+    action: freeze
+    acts: human
+    notify: [log, dashboard, push]
+    cooldown_min: 30
+    resolves_when: A cycle completes.
+
+  - id: system.restarted
+    title: Home Assistant restarted
+    severity: info
+    category: system
+    condition: The integration was set up again while miners were running.
+    normal: Restarts in the middle of the day are rare.
+    not_alert: []
+    thresholds: {}
+    action: hold
+    acts: rules
+    notify: [log, dashboard]
+    cooldown_min: 0
+    resolves_when: Immediately.
+    related: [miner.tuning-not-exposed]
+    note: 'Remembered state is lost: when each limit last changed is unknown again, and counts as settled.'
+
+  - id: system.log-unwritable
+    title: The AI log can't be written
+    severity: warning
+    category: system
+    condition: Writing ai_log.jsonl fails repeatedly.
+    normal: One line appended per AI request.
+    not_alert: []
+    thresholds: {consecutive_failures: 5}
+    action: none
+    acts: human
+    notify: [log, dashboard]
+    cooldown_min: 1440
+    resolves_when: A write succeeds.
+    note: The decision history shown on the sensor still works from memory; only the file is missing.
