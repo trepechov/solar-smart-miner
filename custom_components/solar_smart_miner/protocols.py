@@ -36,6 +36,35 @@ class MinerSnapshot:
     hashrate_th: float | None = None
     efficiency_jth: float | None = None
     name: str = ""
+    # How the miner can be stopped and started again (see decision.py): a relay switch
+    # the user configured, else the miner's own hass-miner "active" switch (pause).
+    switch_entity_id: str | None = None
+    relay_entity_id: str | None = None
+    is_stopped: bool = False  # paused via its switch, or its relay is off
+    # Minutes since the power limit was last seen to change. A miner re-tunes for
+    # up to an hour after that, so None (never seen to change) counts as settled.
+    minutes_since_limit_change: float | None = None
+
+
+# MinerPlan.action values
+ACTION_SET_LIMIT = "set_limit"  # running miner: move to another power step
+ACTION_START = "start"  # stopped miner: switch on, then run at limit_w
+ACTION_STOP = "stop"  # running miner: not enough power even for the lowest step
+ACTION_HOLD = "hold"  # leave as is
+
+STOP_METHOD_RELAY = "relay"
+STOP_METHOD_PAUSE = "pause"
+
+
+@dataclass
+class MinerPlan:
+    """What the controller would do with one miner. Preview only — never applied."""
+
+    action: str
+    limit_w: float | None = None  # the power step to run at (set_limit / start)
+    reason: str = ""
+    method: str | None = None  # how a stop / start is done: relay or pause
+    target_entity_id: str | None = None  # the switch that does it
 
 
 @dataclass
@@ -44,7 +73,16 @@ class Decision:
 
     summary: str
     trace: list[str] = field(default_factory=list)
-    proposals: dict[str, float] = field(default_factory=dict)  # miner_id -> limit W
+    plans: dict[str, MinerPlan] = field(default_factory=dict)  # miner_id -> plan
+
+    @property
+    def proposals(self) -> dict[str, float]:
+        """miner_id -> power limit W, for the plans that set one."""
+        return {
+            mid: plan.limit_w
+            for mid, plan in self.plans.items()
+            if plan.action in (ACTION_SET_LIMIT, ACTION_START) and plan.limit_w is not None
+        }
 
 
 @dataclass

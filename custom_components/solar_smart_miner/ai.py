@@ -25,17 +25,23 @@ SYSTEM_PROMPT = (
     "change anything: you only say what you WOULD change.\n"
     "Reply with JSON only, no markdown, in exactly this shape:\n"
     '{"summary": "<one short sentence>", "actions": [{"miner": "<name>", '
-    '"action": "increase|reduce|hold", '
+    '"action": "increase|reduce|hold|stop|start", '
     '"reason": "excess_energy|not_enough_energy|voltage_limit|temperature_limit|battery_low|no_change|other", '
     '"note": "<few words>"}]}\n'
     "Give one action per miner. increase = raise its power limit because there is surplus "
     "energy. reduce = lower it because the available power is below what it draws, or "
-    "because of a limit (voltage, temperature, battery). hold = leave it.\n"
+    "because of a limit (voltage, temperature, battery). hold = leave it. stop = switch it "
+    "off because even the lowest power step is more than the available power (e.g. after "
+    "sunset). start = switch a stopped miner back on because there is room for it.\n"
+    "Power limits only ever move between fixed steps (900, 1100, 1300, 1500 W by default) "
+    "because a miner re-tunes for up to an hour after each change, and it should not be "
+    "changed while it is tuning: judge the proposal on that basis, never suggest other "
+    "wattages.\n"
     "The inverters may be power-limited (zero export), so actual PV can be far below the "
     "forecast: the forecast is what the panels could give, not power that is available."
 )
 
-ACTIONS = ("increase", "reduce", "hold")
+ACTIONS = ("increase", "reduce", "hold", "stop", "start")
 REASONS = (
     "excess_energy",
     "not_enough_energy",
@@ -45,7 +51,17 @@ REASONS = (
     "no_change",
     "other",
 )
-_ACTION_ALIASES = {"raise": "increase", "lower": "reduce", "decrease": "reduce", "keep": "hold"}
+_ACTION_ALIASES = {
+    "raise": "increase",
+    "lower": "reduce",
+    "decrease": "reduce",
+    "keep": "hold",
+    "pause": "stop",
+    "shutdown": "stop",
+    "off": "stop",
+    "resume": "start",
+    "on": "start",
+}
 
 MAX_RESPONSE_TOKENS = 800
 _MODELS_TIMEOUT = 5  # seconds; the model list is only a convenience for the options form

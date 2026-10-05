@@ -12,6 +12,13 @@ MIN_AI_INTERVAL = 10  # seconds
 ASK_AI_COOLDOWN = 10  # seconds; minimum gap between "Ask AI now" presses
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
+# Miners re-tune every time the power limit changes (14 min to an hour), so the limit
+# only ever moves between these steps. W; each miner uses the ones inside its own range.
+DEFAULT_POWER_STEPS = [900, 1100, 1300, 1500]
+DEFAULT_TUNING_SETTLE_MINUTES = 60  # after a limit change the miner is "tuning": no step up
+HOLD_TOLERANCE_W = 150  # a shortfall this small keeps the current step (avoids re-tuning)
+UP_MARGIN_W = 100  # spare power needed beyond a step's cost before moving up to it
+
 PROFILES = [
     {
         "name": "battery_focused",

@@ -65,12 +65,25 @@ def build_record(
                 "max_w": m.max_power_w,
                 "temp_c": m.temperature_c,
                 "hashrate_th": m.hashrate_th,
+                "stopped": m.is_stopped,
+                "min_since_limit_change": m.minutes_since_limit_change,
             }
             for m in snapshot.miners
         ],
         "rules": {
             "summary": decision.summary if decision else None,
             "proposals_w": {names.get(k, k): v for k, v in decision.proposals.items()}
+            if decision
+            else {},
+            "plans": {
+                names.get(k, k): {
+                    "action": plan.action,
+                    "limit_w": plan.limit_w,
+                    "method": plan.method,
+                    "reason": plan.reason,
+                }
+                for k, plan in decision.plans.items()
+            }
             if decision
             else {},
         },

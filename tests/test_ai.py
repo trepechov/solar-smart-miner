@@ -317,3 +317,20 @@ def test_system_prompt_defines_the_action_and_reason_vocabulary() -> None:
 
     for word in (*ACTIONS, *REASONS):
         assert word in SYSTEM_PROMPT
+
+
+def test_parse_advice_understands_stop_and_start_and_their_aliases() -> None:
+    _, actions = parse_advice(
+        '{"summary": "s", "actions": ['
+        '{"miner": "A", "action": "stop", "reason": "not_enough_energy"},'
+        '{"miner": "B", "action": "Pause"},'
+        '{"miner": "C", "action": "resume", "reason": "excess_energy"}]}'
+    )
+
+    assert [a["action"] for a in actions] == ["stop", "stop", "start"]
+
+
+def test_system_prompt_explains_steps_tuning_and_stopping() -> None:
+    assert "stop" in SYSTEM_PROMPT and "start" in SYSTEM_PROMPT
+    assert "re-tunes" in SYSTEM_PROMPT
+    assert "900, 1100, 1300, 1500" in SYSTEM_PROMPT

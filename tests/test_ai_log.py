@@ -11,10 +11,12 @@ from custom_components.solar_smart_miner.ai_log import (
     summarise,
 )
 from custom_components.solar_smart_miner.protocols import (
+    ACTION_SET_LIMIT,
     AiAdvice,
     CoordinatorSnapshot,
     Decision,
     EnergySnapshot,
+    MinerPlan,
     MinerSnapshot,
 )
 
@@ -50,7 +52,8 @@ def _snapshot() -> CoordinatorSnapshot:
             )
         ],
         decision=Decision(
-            summary="Solar-max: budget 3,845 W", proposals={"192.168.1.101": 1280.0}
+            summary="Solar-max: budget 3,845 W",
+            plans={"192.168.1.101": MinerPlan(ACTION_SET_LIMIT, limit_w=1100.0, reason="budget")},
         ),
     )
 
@@ -86,8 +89,12 @@ def test_record_captures_inputs_forecast_miners_rules_and_prompt() -> None:
     assert rec["miners"][0]["limit_w"] == 1300.0
     assert rec["rules"] == {
         "summary": "Solar-max: budget 3,845 W",
-        "proposals_w": {"Brod1": 1280.0},
+        "proposals_w": {"Brod1": 1100.0},
+        "plans": {
+            "Brod1": {"action": "set_limit", "limit_w": 1100.0, "method": None, "reason": "budget"}
+        },
     }
+    assert rec["miners"][0]["stopped"] is False
     assert rec["prompt"] == "the prompt"
     assert rec["ts"]
 
