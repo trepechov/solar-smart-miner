@@ -550,14 +550,16 @@ async def test_ai_sensor_shows_the_response_and_details(hass) -> None:
     sensor = _ai_sensor(hass, advice=_advice())
 
     assert sensor.native_value == "Looks sensible."
-    assert sensor.extra_state_attributes == {
-        "preview_only": True,
-        "response": "Looks sensible.",
-        "error": None,
-        "model": "x/y:free",
-        "requested_at": "2026-10-05T10:00:00+00:00",
-        "latency_s": 1.5,
-    }
+    attrs = sensor.extra_state_attributes
+    assert attrs["preview_only"] is True
+    assert attrs["response"] == "Looks sensible."
+    assert attrs["error"] is None
+    assert attrs["model"] == "x/y:free"
+    assert attrs["requested_at"] == "2026-10-05T10:00:00+00:00"
+    assert attrs["latency_s"] == 1.5
+    assert attrs["actions"] == []
+    assert attrs["history"] == []
+    assert attrs["log_file"].endswith("ai_log.jsonl")
 
 
 async def test_ai_sensor_truncates_state_but_keeps_full_response(hass) -> None:
@@ -579,7 +581,8 @@ async def test_ai_sensor_waits_for_first_answer(hass) -> None:
     sensor = _ai_sensor(hass, advice=None)
 
     assert sensor.native_value == "Waiting for the first answer"
-    assert sensor.extra_state_attributes == {"preview_only": True}
+    assert sensor.extra_state_attributes["preview_only"] is True
+    assert "response" not in sensor.extra_state_attributes
 
 
 async def test_ai_sensor_off_without_key_or_when_disabled(hass) -> None:
@@ -588,4 +591,19 @@ async def test_ai_sensor_off_without_key_or_when_disabled(hass) -> None:
 
 
 async def test_ai_sensor_keeps_bulky_response_out_of_recorder() -> None:
-    assert "response" in AiAdviceSensor._unrecorded_attributes
+    for attr in ("response", "actions", "history"):
+        assert attr in AiAdviceSensor._unrecorded_attributes
+
+
+async def test_ai_sensor_state_prefers_the_summary_and_exposes_actions_and_history(hass) -> None:
+    actions = [{"miner": "Brod1", "action": "reduce", "reason": "not_enough_energy", "note": ""}]
+    sensor = _ai_sensor(
+        hass, advice=_advice(text="full text", summary="Sun is going down", actions=actions)
+    )
+    sensor.coordinator.ai_log.history.appendleft({"time": "18:00:00", "summary": "x", "actions": []})
+
+    assert sensor.native_value == "Sun is going down"
+    attrs = sensor.extra_state_attributes
+    assert attrs["response"] == "full text"
+    assert attrs["actions"] == actions
+    assert attrs["history"] == [{"time": "18:00:00", "summary": "x", "actions": []}]

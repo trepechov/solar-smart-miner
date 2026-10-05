@@ -337,3 +337,55 @@ async def test_dashboard_card_shows_ai_advice_in_markdown_not_entity_list(hass) 
     ai_entity = next(s.entity_id for s in hass.states.async_all("sensor") if "ai_advice" in s.entity_id)
     assert f"state_attr('{ai_entity}', 'response')" in message
     assert f"  - {ai_entity}" not in message
+
+
+async def test_dashboard_card_has_an_ai_log_of_recent_answers_with_actions(hass) -> None:
+    from homeassistant.components import persistent_notification as pn
+
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    entry = _make_entry(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    button_id = next(s.entity_id for s in hass.states.async_all("button") if "add_to_dashboard" in s.entity_id)
+
+    await hass.services.async_call("button", "press", {"entity_id": button_id}, blocking=True)
+
+    message = pn._async_get_or_create_notifications(hass)[f"{DOMAIN}_add_to_dashboard"]["message"]
+    ai_entity = next(s.entity_id for s in hass.states.async_all("sensor") if "ai_advice" in s.entity_id)
+    assert "AI log (latest first)" in message
+    assert f"state_attr('{ai_entity}', 'history')" in message
+    assert "{{ a.miner }} {{ a.action }} ({{ a.reason }})" in message
+
+
+async def test_dashboard_card_renders_the_ai_log(hass) -> None:
+    """The markdown card is a Jinja template: render it for real, not just grep it."""
+    import yaml
+    from homeassistant.helpers.template import Template
+
+    from custom_components.solar_smart_miner.button import _decision_log_card
+
+    hass.states.async_set("sensor.log", "Solar-max", {"trace": ["READ"], "history": []})
+    hass.states.async_set(
+        "sensor.ai",
+        "Sun is setting",
+        {
+            "response": "Sun is setting | Brod1: reduce (not_enough_energy)",
+            "history": [
+                {
+                    "time": "18:30:15",
+                    "summary": "Sun is setting",
+                    "error": None,
+                    "actions": [{"miner": "Brod1", "action": "reduce", "reason": "not_enough_energy"}],
+                },
+                {"time": "18:29:15", "summary": "", "error": "Rate limited by OpenRouter", "actions": []},
+            ],
+        },
+    )
+    card = yaml.safe_load("\n".join(_decision_log_card("sensor.log", "sensor.ai")))[0]
+
+    text = Template(card["content"], hass).async_render()
+
+    assert "AI log (latest first)" in text
+    assert "`18:30:15` Sun is setting · Brod1 reduce (not_enough_energy)" in text
+    assert "`18:29:15` Rate limited by OpenRouter" in text

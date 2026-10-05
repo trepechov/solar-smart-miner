@@ -52,6 +52,18 @@ CONF_GRID_ENTITY = "grid_consumption_entity"  # house consumption, miners includ
 CONF_OPENROUTER_KEY = "openrouter_api_key"
 CONF_OPENROUTER_MODEL = "openrouter_model"
 CONF_BATTERY_ENTITY = "battery_soc_entity"
+# Reference sensors: shown to the AI and written to its log, never used by the rules.
+CONF_PV_ENTITY = "pv_power_entity"
+CONF_FORECAST_NOW_ENTITY = "forecast_power_now_entity"
+CONF_FORECAST_NEXT_HOUR_ENTITY = "forecast_power_next_hour_entity"
+CONF_FORECAST_REMAINING_ENTITY = "forecast_energy_remaining_entity"
+REFERENCE_ENTITY_KEYS = (
+    CONF_BATTERY_ENTITY,
+    CONF_PV_ENTITY,
+    CONF_FORECAST_NOW_ENTITY,
+    CONF_FORECAST_NEXT_HOUR_ENTITY,
+    CONF_FORECAST_REMAINING_ENTITY,
+)
 CONF_TEMP_CEILING = "temp_ceiling"
 CONF_BATTERY_FLOOR = "battery_floor"
 CONF_PROFILE = "profile"
@@ -183,14 +195,16 @@ def _step1_schema(
 
 
 def _sensors_schema(current: dict[str, Any]) -> vol.Schema:
-    """Options: entities only. The optional battery field can be cleared."""
+    """Options: entities only. The optional fields can be cleared."""
     return vol.Schema(
         {
             **_sensor_fields(current),
-            vol.Optional(
-                CONF_BATTERY_ENTITY,
-                description={"suggested_value": current.get(CONF_BATTERY_ENTITY)},
-            ): EntitySelector(EntitySelectorConfig(domain="sensor")),
+            **{
+                vol.Optional(key, description={"suggested_value": current.get(key)}): EntitySelector(
+                    EntitySelectorConfig(domain="sensor")
+                )
+                for key in REFERENCE_ENTITY_KEYS
+            },
         }
     )
 
@@ -466,7 +480,10 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
             errors = _validate_entities(self.hass, user_input)
             if not errors:
                 house = (user_input.get(CONF_GRID_ENTITY) or "").strip()
-                battery = (user_input.get(CONF_BATTERY_ENTITY) or "").strip()
+                reference = {
+                    key: (user_input.get(key) or "").strip() or None
+                    for key in REFERENCE_ENTITY_KEYS
+                }
                 self.hass.config_entries.async_update_entry(
                     self._config_entry,
                     data={
@@ -474,7 +491,7 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
                         CONF_SOLAR_ENTITY: user_input[CONF_SOLAR_ENTITY],
                         CONF_SOLAR_ENTITY_TYPE: user_input[CONF_SOLAR_ENTITY_TYPE],
                         CONF_GRID_ENTITY: house or None,
-                        CONF_BATTERY_ENTITY: battery or None,
+                        **reference,
                     },
                 )
                 # Options are unchanged; the data update above triggers the reload.

@@ -21,16 +21,21 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .ai import async_ask, build_messages
+from .ai_log import AiLog, build_record, complete_record
 from .config_flow import (
     CONF_AI_ENABLED,
     CONF_AI_INTERVAL,
     CONF_BATTERY_ENTITY,
     CONF_BATTERY_FLOOR,
+    CONF_FORECAST_NEXT_HOUR_ENTITY,
+    CONF_FORECAST_NOW_ENTITY,
+    CONF_FORECAST_REMAINING_ENTITY,
     CONF_GRID_ENTITY,
     CONF_OPENROUTER_KEY,
     CONF_OPENROUTER_MODEL,
     CONF_POLLING_INTERVAL,
     CONF_PROFILE,
+    CONF_PV_ENTITY,
     CONF_SOLAR_ENTITY,
     CONF_SOLAR_ENTITY_TYPE,
     CONF_TEMP_CEILING,
@@ -91,6 +96,19 @@ def _parse_power_w(state_obj) -> float | None:
     return value
 
 
+def _parse_energy_kwh(state_obj) -> float | None:
+    """Like _parse_state_float, but converts Wh/MWh readings to kWh."""
+    value = _parse_state_float(state_obj)
+    if value is None:
+        return None
+    unit = state_obj.attributes.get("unit_of_measurement")
+    if unit == "Wh":
+        return value / 1000
+    if unit == "MWh":
+        return value * 1000
+    return value
+
+
 def _find_entity(entities, domain: str, suffix: str):
     return next(
         (e for e in entities if e.domain == domain and e.unique_id.endswith(suffix)),
@@ -109,6 +127,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         )
         self._entry = entry
         self._history: deque[dict[str, str]] = deque(maxlen=DECISION_HISTORY_SIZE)
+        self.ai_log = AiLog(hass)
         self._ai_advice: AiAdvice | None = None
         self._ai_busy = False
         self._ai_last_request: float | None = None  # time.monotonic()
@@ -168,7 +187,15 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         if battery_entity_id:
             battery_pct = _parse_state_float(self.hass.states.get(battery_entity_id))
 
+        def _reference(key: str, parse):
+            entity_id = (data.get(key) or "").strip()
+            return parse(self.hass.states.get(entity_id)) if entity_id else None
+
         return EnergySnapshot(
+            pv_power_w=_reference(CONF_PV_ENTITY, _parse_power_w),
+            forecast_now_w=_reference(CONF_FORECAST_NOW_ENTITY, _parse_power_w),
+            forecast_next_hour_w=_reference(CONF_FORECAST_NEXT_HOUR_ENTITY, _parse_power_w),
+            forecast_remaining_kwh=_reference(CONF_FORECAST_REMAINING_ENTITY, _parse_energy_kwh),
             solar_production_w=solar_w,
             grid_consumption_w=house_w,
             battery_soc_pct=battery_pct,
@@ -307,19 +334,20 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
 
     def _start_ai_request(self, snapshot: CoordinatorSnapshot) -> None:
         options = self._entry.options
-        messages = build_messages(
-            snapshot,
-            profile=options.get(CONF_PROFILE, DEFAULT_PROFILE),
-            temp_ceiling=float(options.get(CONF_TEMP_CEILING, DEFAULT_TEMP_CEILING)),
-            battery_floor=float(options.get(CONF_BATTERY_FLOOR, DEFAULT_BATTERY_FLOOR)),
-        )
+        settings = {
+            "profile": options.get(CONF_PROFILE, DEFAULT_PROFILE),
+            "temp_ceiling": float(options.get(CONF_TEMP_CEILING, DEFAULT_TEMP_CEILING)),
+            "battery_floor": float(options.get(CONF_BATTERY_FLOOR, DEFAULT_BATTERY_FLOOR)),
+        }
+        messages = build_messages(snapshot, **settings)
+        record = build_record(snapshot, messages, **settings)
         self._ai_busy = True
         self._ai_last_request = time.monotonic()
         self._entry.async_create_background_task(
-            self.hass, self._async_run_ai(messages), name=f"{DOMAIN}_ai_advice"
+            self.hass, self._async_run_ai(messages, record), name=f"{DOMAIN}_ai_advice"
         )
 
-    async def _async_run_ai(self, messages: list[dict[str, str]]) -> None:
+    async def _async_run_ai(self, messages: list[dict[str, str]], record: dict) -> None:
         data = self._entry.data
         try:
             advice = await async_ask(
@@ -335,6 +363,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         else:
             _LOGGER.debug("AI advice from %s in %.1f s", advice.model, advice.latency_s)
         self._ai_advice = advice
+        await self.ai_log.async_append(complete_record(record, advice))
         if self.data is not None:
             self.data.ai_advice = advice
             self.async_update_listeners()

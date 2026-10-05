@@ -124,6 +124,12 @@ def _decision_log_card(entity_id: str, ai_entity_id: str | None = None) -> list[
             "",
             "      **AI advice**",
             f"      {{{{ state_attr('{ai_entity_id}', 'response') or states('{ai_entity_id}') }}}}",
+            "",
+            "      **AI log (latest first)**",
+            f"      {{% for h in (state_attr('{ai_entity_id}', 'history') or [])[:8] %}}",
+            "      - `{{ h.time }}` {{ h.error or h.summary }}"
+            "{% for a in h.actions %} · {{ a.miner }} {{ a.action }} ({{ a.reason }}){% endfor %}",
+            "      {% endfor %}",
         ]
         if ai_entity_id
         else []

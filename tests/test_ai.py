@@ -10,6 +10,8 @@ from custom_components.solar_smart_miner.ai import (
     async_ask,
     async_free_models,
     build_messages,
+    format_advice,
+    parse_advice,
 )
 from custom_components.solar_smart_miner.const import OPENROUTER_API_URL
 from custom_components.solar_smart_miner.protocols import (
@@ -214,3 +216,104 @@ async def test_free_models_falls_back_when_nothing_is_free(hass, aioclient_mock)
     assert await async_free_models(async_get_clientsession(hass)) == [
         (m, m) for m in FALLBACK_FREE_MODELS
     ]
+
+
+# --- request body ------------------------------------------------------------
+
+
+async def test_ask_asks_for_low_reasoning_and_a_roomy_cap(hass, aioclient_mock) -> None:
+    """Reasoning models (gpt-oss) otherwise burn the cap thinking and truncate the answer."""
+    from custom_components.solar_smart_miner.ai import MAX_RESPONSE_TOKENS
+    from custom_components.solar_smart_miner.const import DEFAULT_AI_TIMEOUT
+
+    aioclient_mock.post(OPENROUTER_API_URL, json={"choices": [{"message": {"content": "ok"}}]})
+    await async_ask(async_get_clientsession(hass), api_key="k", model="m", messages=MESSAGES)
+
+    payload = aioclient_mock.mock_calls[0][2]
+    assert payload["reasoning"] == {"effort": "low"}
+    assert payload["max_tokens"] == MAX_RESPONSE_TOKENS >= 800
+    assert DEFAULT_AI_TIMEOUT >= 40
+
+
+# --- structured answers --------------------------------------------------------
+
+STRUCTURED = (
+    '{"summary": "Sun is setting", "actions": ['
+    '{"miner": "Brod1", "action": "reduce", "reason": "not_enough_energy", "note": "dusk"},'
+    '{"miner": "Brod2", "action": "increase", "reason": "excess_energy"}]}'
+)
+
+
+def test_parse_advice_reads_summary_and_actions() -> None:
+    summary, actions = parse_advice(STRUCTURED)
+
+    assert summary == "Sun is setting"
+    assert actions == [
+        {"miner": "Brod1", "action": "reduce", "reason": "not_enough_energy", "note": "dusk"},
+        {"miner": "Brod2", "action": "increase", "reason": "excess_energy", "note": ""},
+    ]
+
+
+def test_parse_advice_tolerates_code_fences_and_prose() -> None:
+    summary, actions = parse_advice(f"Sure!\n```json\n{STRUCTURED}\n```\nHope that helps.")
+
+    assert summary == "Sun is setting"
+    assert len(actions) == 2
+
+
+def test_parse_advice_normalises_aliases_and_unknown_reasons() -> None:
+    _, actions = parse_advice(
+        '{"summary": "s", "actions": [{"miner": "A", "action": "Lower", "reason": "vibes"}]}'
+    )
+
+    assert actions[0]["action"] == "reduce"
+    assert actions[0]["reason"] == "other"
+
+
+def test_parse_advice_skips_malformed_actions() -> None:
+    _, actions = parse_advice(
+        '{"summary": "s", "actions": ["junk", {"action": "hold"}, {"miner": "A"}]}'
+    )
+
+    assert actions == [{"miner": "A", "action": "hold", "reason": "other", "note": ""}]
+
+
+def test_parse_advice_returns_nothing_for_plain_text_or_bad_json() -> None:
+    assert parse_advice("Looks sensible.") == ("", [])
+    assert parse_advice("{not json}") == ("", [])
+    assert parse_advice("[1, 2]") == ("", [])
+
+
+def test_format_advice_is_one_readable_line() -> None:
+    summary, actions = parse_advice(STRUCTURED)
+
+    assert format_advice(summary, actions) == (
+        "Sun is setting | Brod1: reduce (not_enough_energy) | Brod2: increase (excess_energy)"
+    )
+
+
+async def test_ask_keeps_structured_actions_and_the_raw_reply(hass, aioclient_mock) -> None:
+    aioclient_mock.post(OPENROUTER_API_URL, json={"choices": [{"message": {"content": STRUCTURED}}]})
+
+    advice = await async_ask(async_get_clientsession(hass), api_key="k", model="m", messages=MESSAGES)
+
+    assert advice.summary == "Sun is setting"
+    assert [a["miner"] for a in advice.actions] == ["Brod1", "Brod2"]
+    assert advice.raw == STRUCTURED
+    assert "Brod1: reduce (not_enough_energy)" in advice.text
+
+
+async def test_ask_falls_back_to_plain_text_when_reply_is_not_json(hass, aioclient_mock) -> None:
+    aioclient_mock.post(OPENROUTER_API_URL, json={"choices": [{"message": {"content": "All good."}}]})
+
+    advice = await async_ask(async_get_clientsession(hass), api_key="k", model="m", messages=MESSAGES)
+
+    assert advice.text == "All good."
+    assert advice.summary == "" and advice.actions == []
+
+
+def test_system_prompt_defines_the_action_and_reason_vocabulary() -> None:
+    from custom_components.solar_smart_miner.ai import ACTIONS, REASONS
+
+    for word in (*ACTIONS, *REASONS):
+        assert word in SYSTEM_PROMPT

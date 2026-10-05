@@ -73,12 +73,16 @@
       },
       "edit_sensors": {
         "title": "Solar Smart Miner — Sensors",
-        "description": "Change the entities chosen during setup. Leave the house consumption sensor empty if you only have a net grid meter. Saving reloads the integration.",
+        "description": "Change the entities chosen during setup. Leave the house consumption sensor empty if you only have a net grid meter. The last four are reference sensors: they are shown to the AI and written to its log, and the rules don't use them. Saving reloads the integration.",
         "data": {
           "solar_production_entity": "Solar production or net grid power sensor",
           "solar_entity_type": "What does that sensor measure?",
           "grid_consumption_entity": "House consumption sensor (optional)",
-          "battery_soc_entity": "Battery SOC sensor (optional)"
+          "battery_soc_entity": "Battery SOC sensor (optional)",
+          "pv_power_entity": "Actual PV output, W (optional)",
+          "forecast_power_now_entity": "Forecast: PV power now, W (optional)",
+          "forecast_power_next_hour_entity": "Forecast: PV power next hour, W (optional)",
+          "forecast_energy_remaining_entity": "Forecast: PV energy left today, kWh (optional)"
         }
       },
       "edit_ai": {

@@ -15,6 +15,11 @@ class EnergySnapshot:
     mock_consumption: bool = False
     grid_net_w: float | None = None  # + exporting to grid, - importing
     available_for_miners_w: float | None = None  # power miners could draw without importing
+    # Reference readings, shown to the AI and written to its log. Not used by the rules.
+    pv_power_w: float | None = None  # actual PV output (may be curtailed by the inverters)
+    forecast_now_w: float | None = None  # forecast: what the panels could give right now
+    forecast_next_hour_w: float | None = None
+    forecast_remaining_kwh: float | None = None  # forecast: energy still to come today
 
 
 @dataclass
@@ -51,6 +56,9 @@ class AiAdvice:
     requested_at: str  # ISO timestamp
     latency_s: float
     error: str | None = None
+    summary: str = ""  # one-line verdict (empty if the answer wasn't structured)
+    actions: list[dict[str, str]] = field(default_factory=list)  # miner / action / reason / note
+    raw: str = ""  # the model's reply exactly as received
 
 
 @dataclass

@@ -136,3 +136,9 @@ def add_hass_miner(hass):
         return created
 
     return _add
+
+
+@pytest.fixture(autouse=True)
+def isolated_ai_log_dir(tmp_path, monkeypatch):
+    """The AI log lives under the HA config dir; keep tests out of the shared one."""
+    monkeypatch.setattr("custom_components.solar_smart_miner.ai_log.LOG_DIR", str(tmp_path / "ai"))

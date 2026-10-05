@@ -907,3 +907,127 @@ async def test_negative_production_reading_is_floored_at_zero(hass) -> None:
 
     assert snapshot.energy.solar_production_w == 0.0
     assert snapshot.energy.solar_fault is False
+
+
+# ---------------------------------------------------------------------------
+# AI decision log + reference sensors (PV actual, forecast)
+# ---------------------------------------------------------------------------
+
+
+async def test_every_ai_answer_is_logged_with_inputs_and_answer(hass, mock_openrouter) -> None:
+    import json
+
+    from custom_components.solar_smart_miner.protocols import AiAdvice
+
+    mock_openrouter.return_value = AiAdvice(
+        text="Sun is setting | Brod1: reduce (not_enough_energy)",
+        model="m/x",
+        requested_at="t",
+        latency_s=0.5,
+        summary="Sun is setting",
+        actions=[{"miner": "Brod1", "action": "reduce", "reason": "not_enough_energy", "note": ""}],
+        raw="{}",
+    )
+    coordinator = SolarMinerCoordinator(hass, _ai_entry(hass))
+
+    await _refresh(hass, coordinator)
+
+    entry = json.loads(coordinator.ai_log.path.read_text().splitlines()[0])
+    assert entry["ai"]["actions"][0]["reason"] == "not_enough_energy"
+    assert entry["model"] == "m/x"
+    assert entry["inputs"]["solar_w"] == 2000.0
+    assert entry["rules"]["summary"]
+    assert "READ" in entry["prompt"]
+    assert coordinator.ai_log.history[0]["summary"] == "Sun is setting"
+
+
+async def test_failed_ai_requests_are_logged_too(hass, mock_openrouter) -> None:
+    import json
+
+    from custom_components.solar_smart_miner.protocols import AiAdvice
+
+    mock_openrouter.return_value = AiAdvice(
+        text="", model="m", requested_at="t", latency_s=0.1, error="Rate limited by OpenRouter"
+    )
+    coordinator = SolarMinerCoordinator(hass, _ai_entry(hass))
+
+    await _refresh(hass, coordinator)
+
+    entry = json.loads(coordinator.ai_log.path.read_text().splitlines()[0])
+    assert entry["error"] == "Rate limited by OpenRouter"
+    assert coordinator.ai_log.history[0]["error"] == "Rate limited by OpenRouter"
+
+
+async def test_nothing_is_logged_when_ai_is_off(hass, mock_openrouter) -> None:
+    coordinator = SolarMinerCoordinator(hass, _ai_entry(hass, key=""))
+
+    await _refresh(hass, coordinator)
+
+    assert not coordinator.ai_log.path.exists()
+
+
+async def test_reference_sensors_are_read_into_the_snapshot(hass) -> None:
+    from custom_components.solar_smart_miner.config_flow import (
+        CONF_FORECAST_NEXT_HOUR_ENTITY,
+        CONF_FORECAST_NOW_ENTITY,
+        CONF_FORECAST_REMAINING_ENTITY,
+        CONF_PV_ENTITY,
+    )
+
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set("sensor.pv", "3.9", {"unit_of_measurement": "kW"})
+    hass.states.async_set("sensor.fc_now", "9888", {"unit_of_measurement": "W"})
+    hass.states.async_set("sensor.fc_next", "9039")
+    hass.states.async_set("sensor.fc_left", "28037", {"unit_of_measurement": "Wh"})
+    entry = _make_entry(hass)
+    hass.config_entries.async_update_entry(
+        entry,
+        data={
+            **entry.data,
+            CONF_PV_ENTITY: "sensor.pv",
+            CONF_FORECAST_NOW_ENTITY: "sensor.fc_now",
+            CONF_FORECAST_NEXT_HOUR_ENTITY: "sensor.fc_next",
+            CONF_FORECAST_REMAINING_ENTITY: "sensor.fc_left",
+        },
+    )
+
+    energy = (await SolarMinerCoordinator(hass, entry)._async_update_data()).energy
+
+    assert energy.pv_power_w == pytest.approx(3900.0)  # kW converted
+    assert energy.forecast_now_w == pytest.approx(9888.0)
+    assert energy.forecast_next_hour_w == pytest.approx(9039.0)
+    assert energy.forecast_remaining_kwh == pytest.approx(28.037)  # Wh converted
+
+
+async def test_reference_sensors_are_optional_and_tolerate_unavailable(hass) -> None:
+    from custom_components.solar_smart_miner.config_flow import CONF_PV_ENTITY
+
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set("sensor.pv", "unavailable")
+    entry = _make_entry(hass)
+
+    energy = (await SolarMinerCoordinator(hass, entry)._async_update_data()).energy
+    assert energy.pv_power_w is None and energy.forecast_now_w is None
+
+    hass.config_entries.async_update_entry(entry, data={**entry.data, CONF_PV_ENTITY: "sensor.pv"})
+    energy = (await SolarMinerCoordinator(hass, entry)._async_update_data()).energy
+    assert energy.pv_power_w is None
+
+
+async def test_reference_sensors_reach_the_ai_prompt_but_not_the_rules(hass, mock_openrouter) -> None:
+    from custom_components.solar_smart_miner.config_flow import CONF_FORECAST_NOW_ENTITY
+
+    entry = _ai_entry(hass)
+    hass.states.async_set("sensor.fc_now", "9888")
+    base = SolarMinerCoordinator(hass, entry)
+    await _refresh(hass, base)
+    plain = base.data.decision.proposals
+    hass.config_entries.async_update_entry(
+        entry, data={**entry.data, CONF_FORECAST_NOW_ENTITY: "sensor.fc_now"}
+    )
+    coordinator = SolarMinerCoordinator(hass, entry)
+
+    await _refresh(hass, coordinator)
+
+    assert "Forecast PV now: 9,888 W" in mock_openrouter.await_args.kwargs["messages"][1]["content"]
+    assert coordinator.data.decision.proposals == plain

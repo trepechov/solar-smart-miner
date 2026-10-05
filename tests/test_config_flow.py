@@ -672,3 +672,28 @@ async def test_options_flow_edit_settings_keeps_ai_options(hass: HomeAssistant) 
     assert entry.options[CONF_POLLING_INTERVAL] == 30
     assert entry.options[CONF_AI_ENABLED] is False
     assert entry.options[CONF_AI_INTERVAL] == 1800
+
+
+async def test_options_flow_edit_sensors_saves_and_clears_reference_sensors(hass: HomeAssistant) -> None:
+    from custom_components.solar_smart_miner.config_flow import (
+        CONF_FORECAST_NEXT_HOUR_ENTITY,
+        CONF_FORECAST_NOW_ENTITY,
+        CONF_FORECAST_REMAINING_ENTITY,
+        CONF_PV_ENTITY,
+    )
+
+    entry = _make_entry(hass)
+    refs = {
+        CONF_PV_ENTITY: "sensor.pv",
+        CONF_FORECAST_NOW_ENTITY: "sensor.fc_now",
+        CONF_FORECAST_NEXT_HOUR_ENTITY: "sensor.fc_next",
+        CONF_FORECAST_REMAINING_ENTITY: "sensor.fc_left",
+    }
+    for eid in (NET_METER_ENTITY, HOUSE_ENTITY, *refs.values()):
+        hass.states.async_set(eid, "100")
+
+    await _get_options_flow_result(hass, entry, sensors_input={**_sensors_input(), **refs})
+    assert {k: entry.data[k] for k in refs} == refs
+
+    await _get_options_flow_result(hass, entry, sensors_input=_sensors_input())
+    assert all(entry.data[k] is None for k in refs)

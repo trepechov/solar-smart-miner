@@ -211,7 +211,7 @@ class AiAdviceSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:robot-outline"
-    _unrecorded_attributes = frozenset({"response"})
+    _unrecorded_attributes = frozenset({"response", "actions", "history"})
 
     def __init__(self, coordinator: SolarMinerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
@@ -228,21 +228,27 @@ class AiAdviceSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
             return "Waiting for the first answer"
         if advice.error:
             return f"Error: {advice.error}"[:255]
-        return advice.text[:255]
+        return (advice.summary or advice.text)[:255]
 
     @property
     def extra_state_attributes(self) -> dict | None:
-        advice = self.coordinator.data.ai_advice if self.coordinator.data else None
-        if advice is None:
-            return {"preview_only": True}
-        return {
+        log = self.coordinator.ai_log
+        attrs: dict = {
             "preview_only": True,
-            "response": advice.text,
-            "error": advice.error,
-            "model": advice.model,
-            "requested_at": advice.requested_at,
-            "latency_s": advice.latency_s,
+            "history": list(log.history),
+            "log_file": str(log.path),
         }
+        advice = self.coordinator.data.ai_advice if self.coordinator.data else None
+        if advice is not None:
+            attrs.update(
+                response=advice.text,
+                actions=advice.actions,
+                error=advice.error,
+                model=advice.model,
+                requested_at=advice.requested_at,
+                latency_s=advice.latency_s,
+            )
+        return attrs
 
 
 class BatterySocSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):

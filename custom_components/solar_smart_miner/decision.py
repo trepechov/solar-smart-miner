@@ -42,6 +42,14 @@ def _describe_energy(energy: EnergySnapshot) -> list[str]:
         lines.append(f"Battery: {energy.battery_soc_pct:.0f}%")
     lines.append(f"Miners drawing: {_w(energy.miner_consumption_sum_w)}")
     lines.append(f"Available for miners: {_w(energy.available_for_miners_w)}")
+    if energy.pv_power_w is not None:
+        lines.append(f"Actual PV output: {_w(energy.pv_power_w)}")
+    if energy.forecast_now_w is not None:
+        lines.append(f"Forecast PV now: {_w(energy.forecast_now_w)}")
+    if energy.forecast_next_hour_w is not None:
+        lines.append(f"Forecast PV next hour: {_w(energy.forecast_next_hour_w)}")
+    if energy.forecast_remaining_kwh is not None:
+        lines.append(f"Forecast PV left today: {energy.forecast_remaining_kwh:,.1f} kWh")
     return lines
 
 

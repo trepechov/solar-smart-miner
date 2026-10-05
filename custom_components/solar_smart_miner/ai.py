@@ -6,6 +6,7 @@ sensor. Nothing it says is applied to the miners.
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from datetime import UTC, datetime
@@ -21,9 +22,30 @@ SYSTEM_PROMPT = (
     "You are the advisor for Solar Smart Miner, a Home Assistant controller that sets "
     "power limits on ASIC bitcoin miners so they run on surplus solar power. You are "
     "shown the current readings and the rule-based controller's proposal. You cannot "
-    "change anything. Reply in at most three short sentences: say whether the proposal "
-    "looks sensible and flag any concern. Plain text, no markdown."
+    "change anything: you only say what you WOULD change.\n"
+    "Reply with JSON only, no markdown, in exactly this shape:\n"
+    '{"summary": "<one short sentence>", "actions": [{"miner": "<name>", '
+    '"action": "increase|reduce|hold", '
+    '"reason": "excess_energy|not_enough_energy|voltage_limit|temperature_limit|battery_low|no_change|other", '
+    '"note": "<few words>"}]}\n'
+    "Give one action per miner. increase = raise its power limit because there is surplus "
+    "energy. reduce = lower it because the available power is below what it draws, or "
+    "because of a limit (voltage, temperature, battery). hold = leave it.\n"
+    "The inverters may be power-limited (zero export), so actual PV can be far below the "
+    "forecast: the forecast is what the panels could give, not power that is available."
 )
+
+ACTIONS = ("increase", "reduce", "hold")
+REASONS = (
+    "excess_energy",
+    "not_enough_energy",
+    "voltage_limit",
+    "temperature_limit",
+    "battery_low",
+    "no_change",
+    "other",
+)
+_ACTION_ALIASES = {"raise": "increase", "lower": "reduce", "decrease": "reduce", "keep": "hold"}
 
 MAX_RESPONSE_TOKENS = 800
 _MODELS_TIMEOUT = 5  # seconds; the model list is only a convenience for the options form
@@ -52,6 +74,46 @@ def build_messages(
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user},
     ]
+
+
+def parse_advice(text: str) -> tuple[str, list[dict[str, str]]]:
+    """Split the model's reply into (summary, actions).
+
+    Models sometimes wrap the JSON in a code fence or add prose around it, so the
+    first {...} block is used. A reply that isn't the requested JSON gives
+    ("", []): the caller then shows the raw text instead.
+    """
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end <= start:
+        return "", []
+    try:
+        data = json.loads(text[start : end + 1])
+    except ValueError:
+        return "", []
+    if not isinstance(data, dict):
+        return "", []
+    actions: list[dict[str, str]] = []
+    for item in data.get("actions") or []:
+        if not isinstance(item, dict) or not item.get("miner"):
+            continue
+        action = str(item.get("action") or "hold").strip().lower()
+        reason = str(item.get("reason") or "other").strip().lower()
+        actions.append(
+            {
+                "miner": str(item["miner"]),
+                "action": _ACTION_ALIASES.get(action, action),
+                "reason": reason if reason in REASONS else "other",
+                "note": str(item.get("note") or "")[:120],
+            }
+        )
+    return str(data.get("summary") or "").strip(), actions
+
+
+def format_advice(summary: str, actions: list[dict[str, str]]) -> str:
+    """One readable text for the sensor and dashboard."""
+    parts = [summary] if summary else []
+    parts += [f"{a['miner']}: {a['action']} ({a['reason']})" for a in actions]
+    return " | ".join(parts)
 
 
 def _error_message(status: int, body: object) -> str:
@@ -125,7 +187,10 @@ async def async_ask(
         text = ""
     if not text:
         return _result(error="The model returned an empty answer")
-    return _result(text=text)
+    summary, actions = parse_advice(text)
+    advice = _result(text=format_advice(summary, actions) if (summary or actions) else text)
+    advice.summary, advice.actions, advice.raw = summary, actions, text
+    return advice
 
 
 async def async_free_models(session: aiohttp.ClientSession) -> list[tuple[str, str]]:

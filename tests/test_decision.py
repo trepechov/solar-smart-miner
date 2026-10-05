@@ -100,3 +100,28 @@ def test_no_miners() -> None:
 def test_summary_names_proposals() -> None:
     summary = _decide(_snapshot(1600.0)).summary
     assert summary == "Solar-max: budget 1,600 W → M-a 800 W, M-b 800 W"
+
+
+def test_trace_lists_pv_and_forecast_readings_only_when_present() -> None:
+    plain = _decide(_snapshot(1000.0)).trace
+    assert not any(line.startswith(("Actual PV", "Forecast PV")) for line in plain)
+
+    trace = _decide(
+        _snapshot(
+            1000.0,
+            pv_power_w=3926.0,
+            forecast_now_w=9888.0,
+            forecast_next_hour_w=9039.0,
+            forecast_remaining_kwh=28.04,
+        )
+    ).trace
+    assert "Actual PV output: 3,926 W" in trace
+    assert "Forecast PV now: 9,888 W" in trace
+    assert "Forecast PV next hour: 9,039 W" in trace
+    assert "Forecast PV left today: 28.0 kWh" in trace
+
+
+def test_pv_and_forecast_never_change_the_proposal() -> None:
+    plain = _decide(_snapshot(1555.0)).proposals
+    with_ref = _decide(_snapshot(1555.0, pv_power_w=100.0, forecast_now_w=99999.0)).proposals
+    assert plain == with_ref

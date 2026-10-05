@@ -98,7 +98,7 @@ Open **Settings → Devices & services → Solar Smart Miner → Configure**. Sa
 
 | Section | What you can change |
 |---|---|
-| **Sensors** | Solar / net-meter entity and what it measures, house consumption (optional), battery SOC (optional) |
+| **Sensors** | Solar / net-meter entity and what it measures, house consumption (optional), battery SOC (optional), and reference sensors for the AI log: actual PV output and the solar forecast (all optional) |
 | **AI (OpenRouter)** | Turn the AI on or off, API key (shown hidden), model, seconds between AI requests |
 | **Settings** | Profile, polling interval, temperature ceiling, battery floor, dry-run, Telegram, development mocks |
 
@@ -107,6 +107,14 @@ Open **Settings → Devices & services → Solar Smart Miner → Configure**. Sa
 The model dropdown lists the **free** text models OpenRouter currently offers, fetched when you open the form (any other model id can be typed in). The default, `openrouter/free`, lets OpenRouter pick an available free model, so it keeps working when individual free models are retired.
 
 The AI is **advisory only**: every few minutes it is sent the current readings and the rule-based proposal, and its short comment appears on the **AI advice** sensor (full text in the `response` attribute) and in the dashboard card. Nothing it says changes the miners. Press **Ask AI now** to ask on demand. Free models allow only a limited number of requests per day, so the default interval is 15 minutes (minimum 60 s).
+
+#### AI decision log
+
+The AI answers in a fixed shape: a one-line summary plus, for each miner, an action (`increase`, `reduce` or `hold`) and a reason (`excess_energy`, `not_enough_energy`, `voltage_limit`, `temperature_limit`, `battery_low`, `no_change` or `other`). These are what it *would* do; nothing is applied.
+
+Every request is appended to `<HA config>/solar_smart_miner/ai_log.jsonl`, one JSON object per line: the readings it was given (solar, grid, house, miners, battery), the actual PV output and the forecast (now / next hour / energy left today, if you set those sensors), each miner's state, the rule-based proposal, the exact prompt, and the AI's answer and actions. The file rotates at 5 MB and keeps two older files. Read it with `jq` or any text editor, e.g. `jq -c '{ts, pv: .inputs.pv_actual_w, fc: .inputs.forecast_now_w, ai: .ai.actions}' ai_log.jsonl`.
+
+The last 20 entries are also on the **AI advice** sensor (`history` and `actions` attributes) and in the card from **Add to dashboard** under *AI log*.
 
 ## Profiles
 
