@@ -172,13 +172,14 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 continue
             miner_ip: str = hm_entry.data.get("ip", "")
             miner_id = miner_ip or hm_entry.entry_id
-            devices = device_registry.async_entries_for_config_entry(dr, hm_entry.entry_id)
-            device = devices[0] if devices else None
-            name = (device.name_by_user or device.name) if device else None
-            name = name or hm_entry.title or miner_id
-
             entities = entity_registry.async_entries_for_config_entry(er, hm_entry.entry_id)
             power_entry = _find_entity(entities, "sensor", _UID_POWER)
+
+            # hass-miner entries can accumulate empty duplicate devices, so take
+            # the name from the device that actually owns the miner's entities.
+            device = dr.async_get(power_entry.device_id) if power_entry and power_entry.device_id else None
+            name = (device.name_by_user or device.name) if device else None
+            name = name or hm_entry.title or miner_id
             temp_entry = _find_entity(entities, "sensor", _UID_TEMPERATURE)
             limit_entry = _find_entity(entities, "number", _UID_POWER_LIMIT)
             hashrate_entry = _find_entity(entities, "sensor", _UID_HASHRATE)

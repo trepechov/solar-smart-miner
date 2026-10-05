@@ -683,3 +683,23 @@ async def test_coordinator_hashrate_none_when_state_unavailable(hass, add_hass_m
     snapshot = await coord._async_update_data()
 
     assert snapshot.miners[0].hashrate_th is None
+
+
+async def test_coordinator_ignores_empty_duplicate_devices(hass, add_hass_miner) -> None:
+    """The name comes from the device owning the miner's entities, not any device."""
+    from homeassistant.helpers import device_registry as dr_module
+
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    entry = _make_entry(hass)
+    miner_reg = add_hass_miner(MINER_IP, name="Real")
+    dr = dr_module.async_get(hass)
+    stale = dr.async_get_or_create(
+        config_entry_id=miner_reg["entry"].entry_id,
+        identifiers={("miner", "stale")},
+        name="Stale duplicate",
+    )
+    dr.async_update_device(stale.id, name_by_user="Stale renamed")
+
+    snapshot = await SolarMinerCoordinator(hass, entry)._async_update_data()
+
+    assert snapshot.miners[0].name == "Real"
