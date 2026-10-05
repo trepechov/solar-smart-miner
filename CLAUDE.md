@@ -12,9 +12,13 @@ Home Assistant custom integration that controls ASIC Bitcoin miners based on sol
 custom_components/solar_smart_miner/   # HA integration source
   __init__.py          # platform setup and entry point
   config_flow.py       # setup wizard and options flow
-  coordinator.py       # DataUpdateCoordinator — fetches solar/grid/battery/miner state
-  sensor.py            # sensor entity platform (hub + per-miner sensors)
-  button.py            # button entity platform (Add to Dashboard)
+  coordinator.py       # DataUpdateCoordinator — fetches solar/grid/battery/miner state,
+                       #   builds the decision preview, schedules AI advice requests
+  decision.py          # rule-based decision preview (proposals are never applied yet)
+  ai.py                # OpenRouter client: prompt, chat completion, free-model list
+  sensor.py            # sensor entity platform (hub + per-miner sensors, decision log, AI advice)
+  select.py            # profile select entity
+  button.py            # button entity platform (Add to Dashboard, Ask AI now)
   protocols.py         # typed protocols for hass-miner entity reads
   const.py             # constants and configuration keys
   manifest.json        # HACS/HA integration manifest

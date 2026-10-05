@@ -80,14 +80,33 @@ scp -r custom_components/solar_smart_miner/ ha-user@ha-host:/config/custom_compo
 
 ## Configuration
 
-The integration is configured entirely through the Home Assistant UI config flow:
+### First setup
 
-1. Enter your OpenRouter API key and select a model
-2. Map your solar production entity (required), grid consumption entity (required), and battery SOC entity (optional)
-3. Select the miners to manage (discovered from hass-miner)
-4. Set safety thresholds (temperature ceiling, battery SOC floor)
-5. Choose a starting profile and whether to begin in dry-run mode
-6. Optionally enter your Telegram bot token and chat ID
+The integration is set up through the Home Assistant UI config flow:
+
+1. Map your solar entity: either a solar **production** sensor, or a **net grid meter** (set the sign convention: + export or + import). Optionally add a house-consumption sensor (miners included) — it isn't needed when you have a net grid meter.
+2. Optionally paste an [OpenRouter](https://openrouter.ai) API key and pick a model. Without a key the controller still runs, rule-based.
+3. Optionally add a battery SOC sensor.
+4. Set safety thresholds (temperature ceiling, battery SOC floor).
+5. Choose a starting profile and polling interval.
+
+Miners are not configured here: every miner set up in [hass-miner](https://github.com/Schnitzel/hass-miner) is picked up automatically.
+
+### Changing settings later
+
+Open **Settings → Devices & services → Solar Smart Miner → Configure**. Saving any section reloads the integration; no restart is needed.
+
+| Section | What you can change |
+|---|---|
+| **Sensors** | Solar / net-meter entity and what it measures, house consumption (optional), battery SOC (optional) |
+| **AI (OpenRouter)** | Turn the AI on or off, API key (shown hidden), model, seconds between AI requests |
+| **Settings** | Profile, polling interval, temperature ceiling, battery floor, dry-run, Telegram, development mocks |
+
+### AI advice (OpenRouter)
+
+The model dropdown lists the **free** text models OpenRouter currently offers, fetched when you open the form (any other model id can be typed in). The default, `openrouter/free`, lets OpenRouter pick an available free model, so it keeps working when individual free models are retired.
+
+The AI is **advisory only**: every few minutes it is sent the current readings and the rule-based proposal, and its short comment appears on the **AI advice** sensor (full text in the `response` attribute) and in the dashboard card. Nothing it says changes the miners. Press **Ask AI now** to ask on demand. Free models allow only a limited number of requests per day, so the default interval is 15 minutes (minimum 60 s).
 
 ## Profiles
 
@@ -108,7 +127,7 @@ The following overrides run before every AI decision and cannot be bypassed — 
 
 ## Decision log
 
-Every agent decision — including the model's reasoning, the energy snapshot it saw, and the power limit it chose — is written to the HA log. In dry-run mode this is the primary output; in live mode it runs alongside actual miner changes.
+The **Decision log** sensor shows what the controller read, how it reasoned and what it *would* set for each miner (a preview — nothing is applied yet). The state is the one-line summary; the `trace`, `proposals` and `history` attributes hold the detail. Use the **Add to dashboard** button for a ready-made card that also shows the AI advice.
 
 ## Development
 
