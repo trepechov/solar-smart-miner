@@ -9,7 +9,6 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.solar_smart_miner.button import AddToDashboardButton, async_setup_entry
 from custom_components.solar_smart_miner.config_flow import (
     CONF_GRID_ENTITY,
-    CONF_MINERS,
     CONF_POLLING_INTERVAL,
     CONF_SOLAR_ENTITY,
 )
@@ -33,7 +32,6 @@ def _make_entry(hass):
         data={
             CONF_SOLAR_ENTITY: SOLAR_ENTITY,
             CONF_GRID_ENTITY: GRID_ENTITY,
-            CONF_MINERS: [],
         },
         options={
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
@@ -253,3 +251,38 @@ async def test_press_excludes_non_sensor_entities(hass) -> None:
     message: str = mock_pn.call_args.args[1]
     assert "button." not in message
     assert "sensor.solar_production" in message
+
+
+async def test_press_includes_profile_select_and_decision_log_card(hass) -> None:
+    from homeassistant.helpers import device_registry as dr, entity_registry as er
+    import yaml
+
+    entry = _make_entry(hass)
+    hub = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, entry.entry_id)},
+        name=entry.title,
+    )
+    entity_reg = er.async_get(hass)
+    for domain, uid in (
+        ("sensor", "x_solar_production"),
+        ("select", "x_profile"),
+        ("sensor", "x_decision_log"),
+    ):
+        entity_reg.async_get_or_create(
+            domain, DOMAIN, uid, config_entry=entry, device_id=hub.id,
+            suggested_object_id=uid,
+        )
+
+    button = AddToDashboardButton(entry)
+    button.hass = hass
+    with patch(PN_MODULE) as mock_pn:
+        await button.async_press()
+
+    message: str = mock_pn.call_args.args[1]
+    card = yaml.safe_load(message.split("```yaml\n")[1].split("\n```")[0])
+    assert card["type"] == "vertical-stack"
+    entities_card, log_card = card["cards"]
+    assert entities_card["entities"] == ["select.x_profile", "sensor.x_solar_production"]
+    assert log_card["type"] == "markdown"
+    assert "sensor.x_decision_log" in log_card["content"]

@@ -50,13 +50,18 @@ class AddToDashboardButton(ButtonEntity):
             _LOGGER.warning("Hub device not found; cannot generate dashboard card")
             return
 
-        entity_ids = sorted(
-            e.entity_id
+        hub_entities = [
+            e
             for e in er.entities.values()
             if e.device_id == hub_device.id
-            and e.domain == "sensor"
+            and e.domain in ("sensor", "select")
             and e.platform == DOMAIN
+        ]
+        log_entity_id = next(
+            (e.entity_id for e in hub_entities if e.unique_id.endswith("_decision_log")),
+            None,
         )
+        entity_ids = sorted(e.entity_id for e in hub_entities if e.entity_id != log_entity_id)
 
         if not entity_ids:
             pn_create(
@@ -70,6 +75,11 @@ class AddToDashboardButton(ButtonEntity):
         lines = ["type: entities", f"title: {self._entry.title}", "entities:"]
         for eid in entity_ids:
             lines.append(f"  - {eid}")
+        if log_entity_id:
+            lines = ["type: vertical-stack", "cards:"] + [
+                ("  - " if i == 0 else "    ") + line for i, line in enumerate(lines)
+            ]
+            lines += _decision_log_card(log_entity_id)
         yaml_card = "\n".join(lines)
 
         pn_create(
@@ -82,3 +92,22 @@ class AddToDashboardButton(ButtonEntity):
             title="Solar Smart Miner — Add to Dashboard",
             notification_id=f"{DOMAIN}_add_to_dashboard",
         )
+
+
+def _decision_log_card(entity_id: str) -> list[str]:
+    """Markdown card (as vertical-stack child lines) rendering the decision trace."""
+    return [
+        "  - type: markdown",
+        "    title: Decision log (preview — not applied)",
+        "    content: |",
+        f"      **{{{{ states('{entity_id}') }}}}**",
+        "",
+        f"      {{% for line in state_attr('{entity_id}', 'trace') or [] %}}",
+        "      {{ '**' ~ line ~ '**' if line.isupper() else '- ' ~ line }}",
+        "      {% endfor %}",
+        "",
+        "      **Recent changes**",
+        f"      {{% for h in state_attr('{entity_id}', 'history') or [] %}}",
+        "      - `{{ h.time }}` {{ h.summary }}",
+        "      {% endfor %}",
+    ]

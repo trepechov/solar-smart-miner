@@ -2,7 +2,8 @@ from __future__ import annotations
 
 DOMAIN = "solar_smart_miner"
 
-DEFAULT_POLLING_INTERVAL = 300  # seconds; minimum 60
+DEFAULT_POLLING_INTERVAL = 15  # seconds
+MIN_POLLING_INTERVAL = 1  # seconds; hass-miner itself refreshes every 10 s
 DEFAULT_TEMP_CEILING = 80  # °C
 DEFAULT_BATTERY_FLOOR = 20  # % SOC
 DEFAULT_AI_TIMEOUT = 10  # seconds; OpenRouter call timeout
@@ -61,6 +62,7 @@ PROFILES = [
 ]
 
 PROFILE_NAMES = [p["name"] for p in PROFILES]
+PROFILES_BY_NAME = {p["name"]: p for p in PROFILES}
 DEFAULT_PROFILE = "solar_max"
 
 # Mock solar mode — development only
@@ -71,3 +73,15 @@ CONF_MOCK_SOLAR_ENTITY = "mock_solar_entity"
 CONF_MOCK_CONSUMPTION_ENABLED = "mock_consumption_enabled"
 
 HASS_MINER_PLATFORM = "miner"  # domain of the hass-miner integration (github.com/Schnitzel/hass-miner)
+
+# What the configured "solar" entity actually measures.
+SOLAR_ENTITY_TYPE_PRODUCTION = "production"  # PV output, >= 0
+SOLAR_ENTITY_TYPE_NET_EXPORT = "grid_net_export"  # grid meter: + export, - import
+SOLAR_ENTITY_TYPE_NET_IMPORT = "grid_net_import"  # grid meter: + import, - export
+SOLAR_ENTITY_TYPES = [
+    SOLAR_ENTITY_TYPE_PRODUCTION,
+    SOLAR_ENTITY_TYPE_NET_EXPORT,
+    SOLAR_ENTITY_TYPE_NET_IMPORT,
+]
+
+DECISION_HISTORY_SIZE = 20  # decision-log entries kept on the sensor

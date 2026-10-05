@@ -1,14 +1,11 @@
 """Config flow for Solar Smart Miner.
 
-Note: The plan specified ConfigSubentryFlow for miner management (introduced in HA 2025.2).
-The installed pytest-homeassistant-custom-component pins HA to 2025.1.4, so miners are stored
-as a list in config entry data instead. The production integration can be migrated to subentries
-once the minimum HA version is bumped to 2025.2+.
+Miners are not configured here: the coordinator manages every miner set up in
+hass-miner automatically.
 """
 from __future__ import annotations
 
 import hashlib
-from ipaddress import AddressValueError, IPv4Address
 from typing import Any
 
 import voluptuous as vol
@@ -20,6 +17,7 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
@@ -37,11 +35,16 @@ from .const import (
     DEFAULT_PROFILE,
     DEFAULT_TEMP_CEILING,
     DOMAIN,
-    PROFILE_NAMES,
+    MIN_POLLING_INTERVAL,
+    PROFILES,
+    SOLAR_ENTITY_TYPE_NET_EXPORT,
+    SOLAR_ENTITY_TYPE_NET_IMPORT,
+    SOLAR_ENTITY_TYPE_PRODUCTION,
 )
 
 CONF_SOLAR_ENTITY = "solar_production_entity"
-CONF_GRID_ENTITY = "grid_consumption_entity"
+CONF_SOLAR_ENTITY_TYPE = "solar_entity_type"
+CONF_GRID_ENTITY = "grid_consumption_entity"  # house consumption, miners included
 CONF_OPENROUTER_KEY = "openrouter_api_key"
 CONF_OPENROUTER_MODEL = "openrouter_model"
 CONF_BATTERY_ENTITY = "battery_soc_entity"
@@ -52,10 +55,6 @@ CONF_POLLING_INTERVAL = "polling_interval"
 CONF_DRY_RUN = "dry_run"
 CONF_TELEGRAM_TOKEN = "telegram_bot_token"
 CONF_TELEGRAM_CHAT_ID = "telegram_chat_id"
-CONF_MINERS = "miners"
-
-CONF_MINER_NAME = "miner_name"
-CONF_MINER_IP = "miner_ip"
 
 DEFAULT_OPENROUTER_MODEL = "anthropic/claude-haiku-4-5"
 
@@ -68,31 +67,85 @@ def _entity_exists(hass: HomeAssistant, entity_id: str) -> bool:
     return hass.states.get(entity_id) is not None
 
 
-def _validate_ip(ip_str: str) -> bool:
-    try:
-        IPv4Address(ip_str)
-        return True
-    except (AddressValueError, ValueError):
-        return False
+def _validate_entities(hass: HomeAssistant, user_input: dict[str, Any]) -> dict[str, str]:
+    errors: dict[str, str] = {}
+    if not _entity_exists(hass, user_input[CONF_SOLAR_ENTITY]):
+        errors[CONF_SOLAR_ENTITY] = "solar_entity_not_found"
+    elif not _entity_exists(hass, user_input[CONF_GRID_ENTITY]):
+        errors[CONF_GRID_ENTITY] = "grid_entity_not_found"
+    return errors
 
 
-def _step1_schema() -> vol.Schema:
-    return vol.Schema(
-        {
-            vol.Required(CONF_SOLAR_ENTITY): EntitySelector(
-                EntitySelectorConfig(domain="sensor")
-            ),
-            vol.Required(CONF_GRID_ENTITY): EntitySelector(
-                EntitySelectorConfig(domain="sensor")
-            ),
-            vol.Required(CONF_OPENROUTER_KEY): TextSelector(
-                TextSelectorConfig(type=TextSelectorType.PASSWORD)
-            ),
-            vol.Required(CONF_OPENROUTER_MODEL, default=DEFAULT_OPENROUTER_MODEL): TextSelector(
-                TextSelectorConfig(type=TextSelectorType.TEXT)
-            ),
-        }
+_PROFILE_SELECTOR = SelectSelector(
+    SelectSelectorConfig(
+        options=[SelectOptionDict(value=p["name"], label=p["display_name"]) for p in PROFILES],
+        mode=SelectSelectorMode.DROPDOWN,
     )
+)
+
+_SOLAR_ENTITY_TYPE_SELECTOR = SelectSelector(
+    SelectSelectorConfig(
+        options=[
+            SelectOptionDict(
+                value=SOLAR_ENTITY_TYPE_PRODUCTION, label="Solar production (always ≥ 0)"
+            ),
+            SelectOptionDict(
+                value=SOLAR_ENTITY_TYPE_NET_EXPORT,
+                label="Net grid power (+ export / − import)",
+            ),
+            SelectOptionDict(
+                value=SOLAR_ENTITY_TYPE_NET_IMPORT,
+                label="Net grid power (+ import / − export)",
+            ),
+        ],
+        mode=SelectSelectorMode.DROPDOWN,
+    )
+)
+
+_POLLING_SELECTOR = NumberSelector(
+    NumberSelectorConfig(
+        min=MIN_POLLING_INTERVAL,
+        max=3600,
+        step=1,
+        unit_of_measurement="s",
+        mode=NumberSelectorMode.BOX,
+    )
+)
+
+
+def _step1_schema(current: dict[str, Any] | None = None) -> vol.Schema:
+    """Sensor + AI settings. With `current`, pre-fills from an existing entry."""
+    current = current or {}
+    schema: dict = {
+        vol.Required(
+            CONF_SOLAR_ENTITY, default=current.get(CONF_SOLAR_ENTITY, vol.UNDEFINED)
+        ): EntitySelector(EntitySelectorConfig(domain="sensor")),
+        vol.Required(
+            CONF_SOLAR_ENTITY_TYPE,
+            default=current.get(CONF_SOLAR_ENTITY_TYPE, SOLAR_ENTITY_TYPE_PRODUCTION),
+        ): _SOLAR_ENTITY_TYPE_SELECTOR,
+        vol.Required(
+            CONF_GRID_ENTITY, default=current.get(CONF_GRID_ENTITY, vol.UNDEFINED)
+        ): EntitySelector(EntitySelectorConfig(domain="sensor")),
+    }
+    if current:
+        # suggested_value (not default) so the optional battery field can be cleared.
+        schema[
+            vol.Optional(
+                CONF_BATTERY_ENTITY,
+                description={"suggested_value": current.get(CONF_BATTERY_ENTITY)},
+            )
+        ] = EntitySelector(EntitySelectorConfig(domain="sensor"))
+    schema[
+        vol.Required(CONF_OPENROUTER_KEY, default=current.get(CONF_OPENROUTER_KEY, vol.UNDEFINED))
+    ] = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
+    schema[
+        vol.Required(
+            CONF_OPENROUTER_MODEL,
+            default=current.get(CONF_OPENROUTER_MODEL, DEFAULT_OPENROUTER_MODEL),
+        )
+    ] = TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT))
+    return vol.Schema(schema)
 
 
 def _step2_schema() -> vol.Schema:
@@ -131,27 +184,8 @@ def _step4_schema(
 ) -> vol.Schema:
     return vol.Schema(
         {
-            vol.Required(CONF_PROFILE, default=profile): SelectSelector(
-                SelectSelectorConfig(options=PROFILE_NAMES, mode=SelectSelectorMode.DROPDOWN)
-            ),
-            vol.Required(CONF_POLLING_INTERVAL, default=polling_interval): NumberSelector(
-                NumberSelectorConfig(
-                    min=60, max=3600, step=60, unit_of_measurement="s", mode=NumberSelectorMode.BOX
-                )
-            ),
-        }
-    )
-
-
-def _miner_schema() -> vol.Schema:
-    return vol.Schema(
-        {
-            vol.Required(CONF_MINER_NAME): TextSelector(
-                TextSelectorConfig(type=TextSelectorType.TEXT)
-            ),
-            vol.Required(CONF_MINER_IP): TextSelector(
-                TextSelectorConfig(type=TextSelectorType.TEXT)
-            ),
+            vol.Required(CONF_PROFILE, default=profile): _PROFILE_SELECTOR,
+            vol.Required(CONF_POLLING_INTERVAL, default=polling_interval): _POLLING_SELECTOR,
         }
     )
 
@@ -161,21 +195,11 @@ def _options_schema(options: dict) -> vol.Schema:
         vol.Required(CONF_DRY_RUN, default=options.get(CONF_DRY_RUN, False)): bool,
         vol.Required(
             CONF_PROFILE, default=options.get(CONF_PROFILE, DEFAULT_PROFILE)
-        ): SelectSelector(
-            SelectSelectorConfig(options=PROFILE_NAMES, mode=SelectSelectorMode.DROPDOWN)
-        ),
+        ): _PROFILE_SELECTOR,
         vol.Required(
             CONF_POLLING_INTERVAL,
             default=options.get(CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL),
-        ): NumberSelector(
-            NumberSelectorConfig(
-                min=60,
-                max=3600,
-                step=60,
-                unit_of_measurement="s",
-                mode=NumberSelectorMode.BOX,
-            )
-        ),
+        ): _POLLING_SELECTOR,
         vol.Required(
             CONF_TEMP_CEILING,
             default=options.get(CONF_TEMP_CEILING, DEFAULT_TEMP_CEILING),
@@ -244,11 +268,7 @@ class SolarSmartMinerConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             solar = user_input[CONF_SOLAR_ENTITY]
             grid = user_input[CONF_GRID_ENTITY]
-
-            if not _entity_exists(self.hass, solar):
-                errors[CONF_SOLAR_ENTITY] = "solar_entity_not_found"
-            elif not _entity_exists(self.hass, grid):
-                errors[CONF_GRID_ENTITY] = "grid_entity_not_found"
+            errors = _validate_entities(self.hass, user_input)
 
             if not errors:
                 unique_id = _stable_unique_id(solar, grid)
@@ -257,10 +277,12 @@ class SolarSmartMinerConfigFlow(ConfigFlow, domain=DOMAIN):
 
                 self._data = {
                     CONF_SOLAR_ENTITY: solar,
+                    CONF_SOLAR_ENTITY_TYPE: user_input.get(
+                        CONF_SOLAR_ENTITY_TYPE, SOLAR_ENTITY_TYPE_PRODUCTION
+                    ),
                     CONF_GRID_ENTITY: grid,
                     CONF_OPENROUTER_KEY: user_input[CONF_OPENROUTER_KEY],
                     CONF_OPENROUTER_MODEL: user_input[CONF_OPENROUTER_MODEL],
-                    CONF_MINERS: [],
                 }
                 return await self.async_step_optional_sensors()
 
@@ -319,7 +341,7 @@ class SolarSmartMinerConfigFlow(ConfigFlow, domain=DOMAIN):
 class SolarSmartMinerOptionsFlow(OptionsFlow):
     def __init__(self, config_entry: ConfigEntry) -> None:
         self._config_entry = config_entry
-        # Pre-fill with current options so add_miner can save without going through edit_settings.
+        # Pre-fill with current options so edit_sensors can save without changing them.
         self._pending_options: dict[str, Any] = dict(config_entry.options)
 
     async def async_step_init(
@@ -327,7 +349,7 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         return self.async_show_menu(
             step_id="init",
-            menu_options=["edit_settings", "add_miner"],
+            menu_options=["edit_settings", "edit_sensors"],
         )
 
     async def async_step_edit_settings(
@@ -362,39 +384,33 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
             data_schema=_options_schema(self._config_entry.options),
         )
 
-    async def async_step_add_miner(
+    async def async_step_edit_sensors(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Add a miner by name and IP. Submitting blank fields saves without adding."""
+        """Change the entities and AI credentials chosen during setup."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            name = user_input.get(CONF_MINER_NAME, "").strip()
-            ip = user_input.get(CONF_MINER_IP, "").strip()
-
-            if not name and not ip:
-                return self.async_create_entry(data=self._pending_options)
-
-            if not _validate_ip(ip):
-                errors[CONF_MINER_IP] = "invalid_ip"
-
+            errors = _validate_entities(self.hass, user_input)
             if not errors:
-                miners: list[dict[str, str]] = list(
-                    self._config_entry.data.get(CONF_MINERS, [])
-                )
-                miners.append({CONF_MINER_NAME: name, CONF_MINER_IP: ip})
+                battery = (user_input.get(CONF_BATTERY_ENTITY) or "").strip()
                 self.hass.config_entries.async_update_entry(
                     self._config_entry,
-                    data={**self._config_entry.data, CONF_MINERS: miners},
+                    data={
+                        **self._config_entry.data,
+                        CONF_SOLAR_ENTITY: user_input[CONF_SOLAR_ENTITY],
+                        CONF_SOLAR_ENTITY_TYPE: user_input[CONF_SOLAR_ENTITY_TYPE],
+                        CONF_GRID_ENTITY: user_input[CONF_GRID_ENTITY],
+                        CONF_BATTERY_ENTITY: battery or None,
+                        CONF_OPENROUTER_KEY: user_input[CONF_OPENROUTER_KEY],
+                        CONF_OPENROUTER_MODEL: user_input[CONF_OPENROUTER_MODEL],
+                    },
                 )
-                # Reload so sensor.py picks up the new miner's entities on next setup.
-                self.hass.async_create_task(
-                    self.hass.config_entries.async_reload(self._config_entry.entry_id)
-                )
+                # Options are unchanged; the data update above triggers the reload.
                 return self.async_create_entry(data=self._pending_options)
 
         return self.async_show_form(
-            step_id="add_miner",
-            data_schema=_miner_schema(),
+            step_id="edit_sensors",
+            data_schema=_step1_schema(dict(self._config_entry.data)),
             errors=errors,
         )

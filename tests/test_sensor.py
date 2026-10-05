@@ -7,7 +7,6 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.solar_smart_miner.config_flow import (
     CONF_BATTERY_ENTITY,
     CONF_GRID_ENTITY,
-    CONF_MINERS,
     CONF_POLLING_INTERVAL,
     CONF_SOLAR_ENTITY,
 )
@@ -42,7 +41,6 @@ def _make_entry(hass, battery_entity: str = ""):
     data = {
         CONF_SOLAR_ENTITY: SOLAR_ENTITY,
         CONF_GRID_ENTITY: GRID_ENTITY,
-        CONF_MINERS: [],
     }
     if battery_entity:
         data[CONF_BATTERY_ENTITY] = battery_entity
@@ -113,7 +111,7 @@ async def test_sensor_native_value_none_when_coordinator_data_none(hass) -> None
 async def test_sensor_unique_id_uses_entry_id_fallback(hass) -> None:
     entry = MockConfigEntry(
         domain=DOMAIN,
-        data={CONF_SOLAR_ENTITY: SOLAR_ENTITY, CONF_GRID_ENTITY: GRID_ENTITY, CONF_MINERS: []},
+        data={CONF_SOLAR_ENTITY: SOLAR_ENTITY, CONF_GRID_ENTITY: GRID_ENTITY},
         options={
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
             CONF_MOCK_SOLAR_ENABLED: False,
@@ -228,7 +226,7 @@ async def test_grid_sensor_not_created_when_entity_absent(hass) -> None:
     """GridConsumptionSensor is only added when CONF_GRID_ENTITY is configured."""
     entry = MockConfigEntry(
         domain=DOMAIN,
-        data={CONF_SOLAR_ENTITY: SOLAR_ENTITY, CONF_MINERS: []},
+        data={CONF_SOLAR_ENTITY: SOLAR_ENTITY},
         options={
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
             CONF_MOCK_SOLAR_ENABLED: False,
@@ -435,10 +433,10 @@ async def test_miner_sensor_unique_id_format(hass) -> None:
 
 
 async def test_zero_miners_creates_no_per_miner_entities(hass) -> None:
-    """No per-miner entities created when CONF_MINERS is empty."""
+    """No per-miner entities created when hass-miner has no miners."""
     from homeassistant.helpers import entity_registry as er_module
 
-    entry = _make_entry(hass)  # CONF_MINERS=[]
+    entry = _make_entry(hass)
     hass.states.async_set(SOLAR_ENTITY, "2000")
     hass.states.async_set(GRID_ENTITY, "1500")
 
@@ -455,29 +453,13 @@ async def test_zero_miners_creates_no_per_miner_entities(hass) -> None:
     assert len(miner_sensor_entities) == 0
 
 
-async def test_two_miners_creates_ten_per_miner_entities(hass) -> None:
-    """Covers AE1 (partial): 2 miners × 5 metrics = 10 per-miner entities."""
+async def test_two_miners_creates_ten_per_miner_entities(hass, add_hass_miner) -> None:
+    """Covers AE1 (partial): 2 hass-miner miners × 5 metrics = 10 per-miner entities."""
     from homeassistant.helpers import entity_registry as er_module
 
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            CONF_SOLAR_ENTITY: SOLAR_ENTITY,
-            CONF_GRID_ENTITY: GRID_ENTITY,
-            CONF_BATTERY_ENTITY: BATTERY_ENTITY,
-            CONF_MINERS: [
-                {"miner_name": "ASIC 1", "miner_ip": "192.168.1.10"},
-                {"miner_name": "ASIC 2", "miner_ip": "192.168.1.11"},
-            ],
-        },
-        options={
-            CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
-            CONF_MOCK_SOLAR_ENABLED: False,
-            CONF_MOCK_CONSUMPTION_ENABLED: False,
-        },
-        version=1,
-    )
-    entry.add_to_hass(hass)
+    entry = _make_entry(hass, battery_entity=BATTERY_ENTITY)
+    add_hass_miner("192.168.1.10", name="ASIC 1")
+    add_hass_miner("192.168.1.11", name="ASIC 2")
     hass.states.async_set(SOLAR_ENTITY, "2000")
     hass.states.async_set(GRID_ENTITY, "1500")
     hass.states.async_set(BATTERY_ENTITY, "75")
@@ -487,5 +469,45 @@ async def test_two_miners_creates_ten_per_miner_entities(hass) -> None:
 
     er = er_module.async_get(hass)
     our_entities = [e for e in er.entities.values() if e.platform == DOMAIN]
-    # 1 button + 4 hub-level sensors (solar, grid, battery, total consumption) + 10 per-miner = 15
-    assert len(our_entities) == 15
+    # 1 button + 1 select + 7 hub sensors (solar, house, battery, total miners,
+    # grid export, available for miners, decision log) + 10 per-miner = 19
+    assert len(our_entities) == 19
+
+
+async def test_miner_added_after_setup_gets_sensors(hass, add_hass_miner) -> None:
+    """hass-miner can load after us; its miners must still get sensors."""
+    from homeassistant.helpers import entity_registry as er_module
+
+    entry = _make_entry(hass)
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    add_hass_miner("192.168.1.10", name="Late miner")
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    er = er_module.async_get(hass)
+    miner_entities = [
+        e for e in er.entities.values()
+        if e.platform == DOMAIN and "192_168_1_10" in e.unique_id
+    ]
+    assert len(miner_entities) == len(_MINER_METRICS)
+
+
+async def test_decision_log_sensor_exposes_trace(hass, add_hass_miner) -> None:
+    entry = _make_entry(hass)
+    add_hass_miner("192.168.1.10", name="ASIC 1")
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = next(
+        s for s in hass.states.async_all("sensor") if s.entity_id.endswith("decision_log")
+    )
+    assert state.attributes["preview_only"] is True
+    assert state.attributes["trace"][0] == "READ"
+    assert "ASIC 1" in state.attributes["proposals"]
+    assert len(state.state) <= 255

@@ -13,14 +13,12 @@ from custom_components.solar_smart_miner.config_flow import (
     CONF_BATTERY_FLOOR,
     CONF_DRY_RUN,
     CONF_GRID_ENTITY,
-    CONF_MINER_IP,
-    CONF_MINER_NAME,
-    CONF_MINERS,
     CONF_OPENROUTER_KEY,
     CONF_OPENROUTER_MODEL,
     CONF_POLLING_INTERVAL,
     CONF_PROFILE,
     CONF_SOLAR_ENTITY,
+    CONF_SOLAR_ENTITY_TYPE,
     CONF_TEMP_CEILING,
     DEFAULT_OPENROUTER_MODEL,
 )
@@ -32,13 +30,16 @@ from custom_components.solar_smart_miner.const import (
     DEFAULT_PROFILE,
     DEFAULT_TEMP_CEILING,
     DOMAIN,
+    SOLAR_ENTITY_TYPE_NET_EXPORT,
+    SOLAR_ENTITY_TYPE_PRODUCTION,
 )
 
 SOLAR_ENTITY = "sensor.solar_power"
 GRID_ENTITY = "sensor.grid_consumption"
 API_KEY = "sk-or-test-key"
-MINER_IP = "192.168.1.100"
-MINER_NAME = "ASIC 1"
+NET_METER_ENTITY = "sensor.grid_net_power"
+HOUSE_ENTITY = "sensor.house_consumption"
+BATTERY_ENTITY = "sensor.battery_soc"
 
 
 def _mock_solar_state(hass: HomeAssistant) -> None:
@@ -117,7 +118,7 @@ async def test_complete_flow_creates_entry(hass: HomeAssistant) -> None:
     assert data[CONF_GRID_ENTITY] == GRID_ENTITY
     assert data[CONF_OPENROUTER_KEY] == API_KEY
     assert data[CONF_OPENROUTER_MODEL] == DEFAULT_OPENROUTER_MODEL
-    assert data[CONF_MINERS] == []
+    assert data[CONF_SOLAR_ENTITY_TYPE] == SOLAR_ENTITY_TYPE_PRODUCTION
     assert data[CONF_BATTERY_ENTITY] is None
 
     options = result["options"]
@@ -262,40 +263,29 @@ async def _get_options_flow_result(
     hass: HomeAssistant,
     entry: MockConfigEntry,
     options_input: dict | None = None,
-    miner_input: dict | None = None,
+    sensors_input: dict | None = None,
 ) -> dict:
     """Drive the OptionsFlow through the menu and return the final result.
 
     Pass options_input to navigate the "edit_settings" path.
-    Pass miner_input to navigate the "add_miner" path.
+    Pass sensors_input to navigate the "edit_sensors" path.
     """
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["type"] == FlowResultType.MENU
     assert result["step_id"] == "init"
 
-    if miner_input is not None:
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {"next_step_id": "add_miner"}
-        )
-        assert result["type"] == FlowResultType.FORM
-        assert result["step_id"] == "add_miner"
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], miner_input
-        )
-    else:
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {"next_step_id": "edit_settings"}
-        )
-        assert result["type"] == FlowResultType.FORM
-        assert result["step_id"] == "edit_settings"
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], options_input
-        )
-
-    return result
+    step_id = "edit_sensors" if sensors_input is not None else "edit_settings"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": step_id}
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == step_id
+    return await hass.config_entries.options.async_configure(
+        result["flow_id"], sensors_input if sensors_input is not None else options_input
+    )
 
 
-def _make_entry(hass: HomeAssistant, miners: list | None = None) -> MockConfigEntry:
+def _make_entry(hass: HomeAssistant) -> MockConfigEntry:
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
@@ -304,7 +294,6 @@ def _make_entry(hass: HomeAssistant, miners: list | None = None) -> MockConfigEn
             CONF_OPENROUTER_KEY: API_KEY,
             CONF_OPENROUTER_MODEL: DEFAULT_OPENROUTER_MODEL,
             CONF_BATTERY_ENTITY: None,
-            CONF_MINERS: miners or [],
         },
         options={
             CONF_DRY_RUN: False,
@@ -357,56 +346,80 @@ async def test_options_flow_changes_profile(hass: HomeAssistant) -> None:
     assert result["data"][CONF_PROFILE] == "battery_focused"
 
 
-async def test_options_flow_add_miner_stores_in_data(hass: HomeAssistant) -> None:
-    """Happy path: add miner via add_miner menu path → stored in config entry data."""
-    entry = _make_entry(hass)
+def _sensors_input(**overrides) -> dict:
+    return {
+        CONF_SOLAR_ENTITY: NET_METER_ENTITY,
+        CONF_SOLAR_ENTITY_TYPE: SOLAR_ENTITY_TYPE_NET_EXPORT,
+        CONF_GRID_ENTITY: HOUSE_ENTITY,
+        CONF_BATTERY_ENTITY: BATTERY_ENTITY,
+        CONF_OPENROUTER_KEY: "sk-or-new-key",
+        CONF_OPENROUTER_MODEL: "openai/gpt-5-mini",
+        **overrides,
+    }
 
-    result = await _get_options_flow_result(
-        hass,
-        entry,
-        miner_input={CONF_MINER_NAME: MINER_NAME, CONF_MINER_IP: MINER_IP},
-    )
+
+async def test_options_flow_edit_sensors_updates_entry_data(hass: HomeAssistant) -> None:
+    """Entities and credentials chosen at setup can be changed afterwards."""
+    entry = _make_entry(hass)
+    for eid in (NET_METER_ENTITY, HOUSE_ENTITY, BATTERY_ENTITY):
+        hass.states.async_set(eid, "100")
+
+    result = await _get_options_flow_result(hass, entry, sensors_input=_sensors_input())
+
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    miners = entry.data[CONF_MINERS]
-    assert len(miners) == 1
-    assert miners[0][CONF_MINER_NAME] == MINER_NAME
-    assert miners[0][CONF_MINER_IP] == MINER_IP
-    await hass.async_block_till_done()  # drain the reload task scheduled by async_step_add_miner
+    assert entry.data[CONF_SOLAR_ENTITY] == NET_METER_ENTITY
+    assert entry.data[CONF_SOLAR_ENTITY_TYPE] == SOLAR_ENTITY_TYPE_NET_EXPORT
+    assert entry.data[CONF_GRID_ENTITY] == HOUSE_ENTITY
+    assert entry.data[CONF_BATTERY_ENTITY] == BATTERY_ENTITY
+    assert entry.data[CONF_OPENROUTER_KEY] == "sk-or-new-key"
+    assert entry.data[CONF_OPENROUTER_MODEL] == "openai/gpt-5-mini"
+    # Runtime options are left untouched.
+    assert entry.options[CONF_PROFILE] == DEFAULT_PROFILE
 
 
-async def test_options_flow_add_miner_invalid_ip(hass: HomeAssistant) -> None:
-    """Edge case: invalid IP in add_miner step → error, no miner stored."""
+async def test_options_flow_edit_sensors_can_clear_battery(hass: HomeAssistant) -> None:
     entry = _make_entry(hass)
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert result["type"] == FlowResultType.MENU
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"next_step_id": "add_miner"}
+    hass.config_entries.async_update_entry(
+        entry, data={**entry.data, CONF_BATTERY_ENTITY: BATTERY_ENTITY}
     )
-    assert result["step_id"] == "add_miner"
+    for eid in (NET_METER_ENTITY, HOUSE_ENTITY):
+        hass.states.async_set(eid, "100")
+    sensors_input = _sensors_input()
+    del sensors_input[CONF_BATTERY_ENTITY]
 
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {CONF_MINER_NAME: MINER_NAME, CONF_MINER_IP: "not-an-ip"},
-    )
+    await _get_options_flow_result(hass, entry, sensors_input=sensors_input)
+
+    assert entry.data[CONF_BATTERY_ENTITY] is None
+
+
+async def test_options_flow_edit_sensors_rejects_missing_entity(hass: HomeAssistant) -> None:
+    entry = _make_entry(hass)
+    hass.states.async_set(HOUSE_ENTITY, "100")  # net meter entity does not exist
+
+    result = await _get_options_flow_result(hass, entry, sensors_input=_sensors_input())
+
     assert result["type"] == FlowResultType.FORM
-    assert result["step_id"] == "add_miner"
-    assert "miner_ip" in result["errors"]
-    assert result["errors"]["miner_ip"] == "invalid_ip"
-    assert entry.data[CONF_MINERS] == []
+    assert result["errors"] == {CONF_SOLAR_ENTITY: "solar_entity_not_found"}
+    assert entry.data[CONF_SOLAR_ENTITY] == SOLAR_ENTITY
 
 
-async def test_options_flow_add_miner_blank_saves_without_adding(hass: HomeAssistant) -> None:
-    """Happy path: blank miner fields in add_miner step saves without adding a miner."""
+async def test_options_flow_accepts_one_second_polling(hass: HomeAssistant) -> None:
     entry = _make_entry(hass)
 
     result = await _get_options_flow_result(
         hass,
         entry,
-        miner_input={CONF_MINER_NAME: "", CONF_MINER_IP: ""},
+        options_input={
+            CONF_DRY_RUN: False,
+            CONF_PROFILE: DEFAULT_PROFILE,
+            CONF_POLLING_INTERVAL: 1,
+            CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
+            CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
+        },
     )
+
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert entry.data[CONF_MINERS] == []
+    assert result["data"][CONF_POLLING_INTERVAL] == 1
 
 
 async def test_options_flow_telegram_credentials_stored(hass: HomeAssistant) -> None:

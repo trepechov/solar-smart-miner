@@ -4,18 +4,12 @@ from __future__ import annotations
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, UnitOfPower, UnitOfTemperature
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .config_flow import (
-    CONF_BATTERY_ENTITY,
-    CONF_GRID_ENTITY,
-    CONF_MINER_IP,
-    CONF_MINER_NAME,
-    CONF_MINERS,
-)
+from .config_flow import CONF_BATTERY_ENTITY, CONF_GRID_ENTITY
 from .const import DOMAIN
 from .coordinator import SolarMinerCoordinator
 from .protocols import MinerSnapshot
@@ -37,6 +31,9 @@ async def async_setup_entry(
     entities: list[SensorEntity] = [
         TotalMinerConsumptionSensor(coordinator, entry),
         SolarProductionSensor(coordinator, entry),
+        NetGridPowerSensor(coordinator, entry),
+        AvailableForMinersSensor(coordinator, entry),
+        DecisionLogSensor(coordinator, entry),
     ]
 
     if entry.data.get(CONF_GRID_ENTITY, ""):
@@ -45,13 +42,30 @@ async def async_setup_entry(
     if entry.data.get(CONF_BATTERY_ENTITY, ""):
         entities.append(BatterySocSensor(coordinator, entry))
 
-    for miner_conf in entry.data.get(CONF_MINERS, []):
-        miner_ip: str = miner_conf.get(CONF_MINER_IP, "")
-        miner_name: str = miner_conf.get(CONF_MINER_NAME, miner_ip)
-        for metric in _MINER_METRICS:
-            entities.append(MinerSensor(coordinator, entry, miner_ip, miner_name, metric))
-
     async_add_entities(entities)
+
+    # Miners come from hass-miner and can appear after startup (hass-miner may
+    # load later, or a miner is added there), so add their sensors as they show up.
+    known_miner_ids: set[str] = set()
+
+    @callback
+    def _add_new_miners() -> None:
+        if coordinator.data is None:
+            return
+        new_entities = []
+        for miner in coordinator.data.miners:
+            if miner.miner_id in known_miner_ids:
+                continue
+            known_miner_ids.add(miner.miner_id)
+            new_entities.extend(
+                MinerSensor(coordinator, entry, miner.miner_id, miner.name, metric)
+                for metric in _MINER_METRICS
+            )
+        if new_entities:
+            async_add_entities(new_entities)
+
+    _add_new_miners()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new_miners))
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +119,7 @@ class GridConsumptionSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEnti
     def __init__(self, coordinator: SolarMinerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.unique_id or entry.entry_id}_grid_consumption"
-        self._attr_name = "Grid consumption"
+        self._attr_name = "House consumption"
         self._attr_device_info = _hub_device_info(entry)
 
     @property
@@ -113,6 +127,82 @@ class GridConsumptionSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEnti
         if self.coordinator.data is None:
             return None
         return self.coordinator.data.energy.grid_consumption_w
+
+
+class NetGridPowerSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
+    """Grid balance: positive = exporting, negative = importing."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+
+    def __init__(self, coordinator: SolarMinerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.unique_id or entry.entry_id}_grid_net"
+        self._attr_name = "Grid export"
+        self._attr_device_info = _hub_device_info(entry)
+
+    @property
+    def native_value(self) -> float | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.energy.grid_net_w
+
+
+class AvailableForMinersSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
+    """Power the miners could draw without importing from the grid."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+
+    def __init__(self, coordinator: SolarMinerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.unique_id or entry.entry_id}_available_for_miners"
+        self._attr_name = "Available for miners"
+        self._attr_device_info = _hub_device_info(entry)
+
+    @property
+    def native_value(self) -> float | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.energy.available_for_miners_w
+
+
+class DecisionLogSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
+    """Latest decision summary; the full reasoning trace lives in attributes."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:text-box-search-outline"
+    # Refreshed every poll — keep the bulky attributes out of the recorder DB.
+    _unrecorded_attributes = frozenset({"trace", "history", "proposals"})
+
+    def __init__(self, coordinator: SolarMinerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.unique_id or entry.entry_id}_decision_log"
+        self._attr_name = "Decision log"
+        self._attr_device_info = _hub_device_info(entry)
+
+    @property
+    def native_value(self) -> str | None:
+        if self.coordinator.data is None or self.coordinator.data.decision is None:
+            return None
+        return self.coordinator.data.decision.summary[:255]
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        data = self.coordinator.data
+        if data is None or data.decision is None:
+            return None
+        names = {m.miner_id: m.name for m in data.miners}
+        return {
+            "preview_only": True,
+            "trace": data.decision.trace,
+            "proposals": {names.get(mid, mid): w for mid, w in data.decision.proposals.items()},
+            "history": data.decision_history,
+        }
 
 
 class BatterySocSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
@@ -184,16 +274,16 @@ class MinerSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
         self,
         coordinator: SolarMinerCoordinator,
         entry: ConfigEntry,
-        miner_ip: str,
+        miner_id: str,
         miner_name: str,
         metric: dict,
     ) -> None:
         super().__init__(coordinator)
-        ip_slug = miner_ip.replace(".", "_")
-        self._miner_ip = miner_ip
+        id_slug = miner_id.replace(".", "_")
+        self._miner_id = miner_id
         self._metric_key: str = metric["key"]
         self._attr_unique_id = (
-            f"{entry.unique_id or entry.entry_id}_{ip_slug}_{metric['key']}"
+            f"{entry.unique_id or entry.entry_id}_{id_slug}_{metric['key']}"
         )
         self._attr_name = f"{miner_name} {metric['label']}"
         self._attr_device_class = metric["device_class"]
@@ -206,7 +296,7 @@ class MinerSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
         if self.coordinator.data is None:
             return None
         miner: MinerSnapshot | None = next(
-            (m for m in self.coordinator.data.miners if m.ip == self._miner_ip),
+            (m for m in self.coordinator.data.miners if m.miner_id == self._miner_id),
             None,
         )
         if miner is None or not miner.is_available:

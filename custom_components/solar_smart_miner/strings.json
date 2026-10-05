@@ -3,10 +3,11 @@
     "step": {
       "user": {
         "title": "Solar Smart Miner — Solar & Grid Setup",
-        "description": "Select the HA entities that report solar production and grid consumption, then provide your OpenRouter credentials.",
+        "description": "Pick the sensor that reports solar production — or your net grid meter — and the sensor that reports total house consumption (miners included), then provide your OpenRouter credentials.",
         "data": {
-          "solar_production_entity": "Solar production sensor",
-          "grid_consumption_entity": "Grid consumption sensor",
+          "solar_production_entity": "Solar production or net grid power sensor",
+          "solar_entity_type": "What does that sensor measure?",
+          "grid_consumption_entity": "House consumption sensor",
           "openrouter_api_key": "OpenRouter API key",
           "openrouter_model": "OpenRouter model"
         }
@@ -36,8 +37,8 @@
       }
     },
     "error": {
-      "solar_entity_not_found": "Solar production entity not found in Home Assistant. Check the entity ID.",
-      "grid_entity_not_found": "Grid consumption entity not found in Home Assistant. Check the entity ID."
+      "solar_entity_not_found": "Solar / grid power entity not found in Home Assistant. Check the entity ID.",
+      "grid_entity_not_found": "House consumption entity not found in Home Assistant. Check the entity ID."
     },
     "abort": {
       "already_configured": "This solar + grid entity pair is already configured."
@@ -49,12 +50,13 @@
         "title": "Solar Smart Miner — Options",
         "menu_options": {
           "edit_settings": "Edit settings",
-          "add_miner": "Add a miner"
-        }
+          "edit_sensors": "Sensors & AI credentials"
+        },
+        "description": "Miners are picked up automatically from hass-miner."
       },
       "edit_settings": {
         "title": "Solar Smart Miner — Edit Settings",
-        "description": "Adjust runtime settings. Changes take effect on the next coordinator poll — no restart required.",
+        "description": "Adjust runtime settings. Saving reloads the integration — no restart required.",
         "data": {
           "dry_run": "Dry-run mode (log decisions without applying them)",
           "profile": "Active profile",
@@ -68,17 +70,22 @@
           "mock_consumption_enabled": "Use total miner power as mock grid consumption (development only)"
         }
       },
-      "add_miner": {
-        "title": "Add Miner",
-        "description": "Enter the display name and LAN IP address of the miner to add.",
+      "edit_sensors": {
+        "title": "Solar Smart Miner — Sensors & AI",
+        "description": "Change the entities and OpenRouter settings chosen during setup. Saving reloads the integration.",
         "data": {
-          "miner_name": "Display name",
-          "miner_ip": "Miner IP address"
+          "solar_production_entity": "Solar production or net grid power sensor",
+          "solar_entity_type": "What does that sensor measure?",
+          "grid_consumption_entity": "House consumption sensor",
+          "openrouter_api_key": "OpenRouter API key",
+          "openrouter_model": "OpenRouter model",
+          "battery_soc_entity": "Battery SOC sensor (optional)"
         }
       }
     },
     "error": {
-      "invalid_ip": "Invalid IPv4 address. Please enter a valid IP (e.g. 192.168.1.100)."
+      "solar_entity_not_found": "Solar / grid power entity not found in Home Assistant. Check the entity ID.",
+      "grid_entity_not_found": "House consumption entity not found in Home Assistant. Check the entity ID."
     }
   }
 }
