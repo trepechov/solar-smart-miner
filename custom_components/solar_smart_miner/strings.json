@@ -97,7 +97,7 @@
         "data_description": {
           "openrouter_api_key": "Stored hidden. Clear it to turn the AI off.",
           "openrouter_model": "Free models are listed; you can also type any OpenRouter model id. 'openrouter/free' picks an available free model for you.",
-          "ai_interval": "Free models allow only a limited number of requests per day, so keep this long (default 900 s)."
+          "ai_interval": "Default 60 s, minimum 10 s. Free models allow only a limited number of requests per day, so a short interval may need a paid model."
         }
       }
     },

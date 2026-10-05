@@ -783,10 +783,25 @@ async def test_ai_interval_has_a_floor(hass, mock_openrouter) -> None:
     coordinator = SolarMinerCoordinator(hass, _ai_entry(hass, options={CONF_AI_INTERVAL: 1}))
     await _refresh(hass, coordinator)
 
-    coordinator._ai_last_request = time.monotonic() - 30  # < 60 s minimum
+    coordinator._ai_last_request = time.monotonic() - 5  # < 10 s minimum
     await _refresh(hass, coordinator)
 
     assert mock_openrouter.await_count == 1
+
+
+async def test_ai_default_interval_is_a_minute(hass, mock_openrouter) -> None:
+    import time
+
+    coordinator = SolarMinerCoordinator(hass, _ai_entry(hass))
+    await _refresh(hass, coordinator)
+
+    coordinator._ai_last_request = time.monotonic() - 30
+    await _refresh(hass, coordinator)
+    assert mock_openrouter.await_count == 1
+
+    coordinator._ai_last_request = time.monotonic() - 61
+    await _refresh(hass, coordinator)
+    assert mock_openrouter.await_count == 2
 
 
 async def test_ai_not_asked_without_key(hass, mock_openrouter) -> None:
@@ -1031,3 +1046,4 @@ async def test_reference_sensors_reach_the_ai_prompt_but_not_the_rules(hass, moc
 
     assert "Forecast PV now: 9,888 W" in mock_openrouter.await_args.kwargs["messages"][1]["content"]
     assert coordinator.data.decision.proposals == plain
+

@@ -106,7 +106,7 @@ Open **Settings → Devices & services → Solar Smart Miner → Configure**. Sa
 
 The model dropdown lists the **free** text models OpenRouter currently offers, fetched when you open the form (any other model id can be typed in). The default, `openrouter/free`, lets OpenRouter pick an available free model, so it keeps working when individual free models are retired.
 
-The AI is **advisory only**: every few minutes it is sent the current readings and the rule-based proposal, and its short comment appears on the **AI advice** sensor (full text in the `response` attribute) and in the dashboard card. Nothing it says changes the miners. Press **Ask AI now** to ask on demand. Free models allow only a limited number of requests per day, so the default interval is 15 minutes (minimum 60 s).
+The AI is **advisory only**: every few minutes it is sent the current readings and the rule-based proposal, and its short comment appears on the **AI advice** sensor (full text in the `response` attribute) and in the dashboard card. Nothing it says changes the miners. Press **Ask AI now** to ask on demand. The default interval is 60 s (minimum 10 s). Free models allow only a limited number of requests per day, so a short interval may need a paid model or a longer interval.
 
 #### AI decision log
 
