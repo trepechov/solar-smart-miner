@@ -607,3 +607,18 @@ async def test_ai_sensor_state_prefers_the_summary_and_exposes_actions_and_histo
     assert attrs["response"] == "full text"
     assert attrs["actions"] == actions
     assert attrs["history"] == [{"time": "18:00:00", "summary": "x", "actions": []}]
+
+
+async def test_decision_log_exposes_the_plans_with_actions(hass, add_hass_miner) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    add_hass_miner("192.168.1.50", name="ASIC 1", active="on")
+    entry = _make_entry(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = next(s for s in hass.states.async_all("sensor") if "decision_log" in s.entity_id)
+
+    plan = state.attributes["plans"]["ASIC 1"]
+    assert set(plan) == {"action", "limit_w", "method", "reason"}
+    assert plan["action"] in {"set_limit", "hold", "stop", "start"}

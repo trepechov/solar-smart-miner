@@ -35,9 +35,12 @@ from .const import (
     DEFAULT_AI_INTERVAL,
     DEFAULT_BATTERY_FLOOR,
     DEFAULT_POLLING_INTERVAL,
+    DEFAULT_POWER_STEPS,
     DEFAULT_PROFILE,
     DEFAULT_TEMP_CEILING,
+    DEFAULT_TUNING_SETTLE_MINUTES,
     DOMAIN,
+    HASS_MINER_PLATFORM,
     MIN_AI_INTERVAL,
     MIN_POLLING_INTERVAL,
     PROFILES,
@@ -73,6 +76,11 @@ CONF_TELEGRAM_TOKEN = "telegram_bot_token"
 CONF_TELEGRAM_CHAT_ID = "telegram_chat_id"
 CONF_AI_ENABLED = "ai_enabled"
 CONF_AI_INTERVAL = "ai_interval"
+CONF_POWER_STEPS = "power_steps"  # list[int] in options; typed as "900, 1100, 1300, 1500"
+CONF_TUNING_SETTLE = "tuning_settle_minutes"
+CONF_MINER_RELAYS = "miner_relays"  # options: {miner id (its IP): relay switch entity id}
+CONF_MINER = "miner"  # form field: which miner the relay below belongs to
+CONF_RELAY_ENTITY = "relay_entity"
 
 # Routes to whichever free model is up, so it survives free models being rotated out.
 DEFAULT_OPENROUTER_MODEL = "openrouter/free"
@@ -142,6 +150,21 @@ _POLLING_SELECTOR = NumberSelector(
         mode=NumberSelectorMode.BOX,
     )
 )
+
+
+def parse_power_steps(text: str) -> list[int] | None:
+    """"900, 1100 1300" -> [900, 1100, 1300]; None if it isn't a list of plausible watts."""
+    try:
+        values = sorted({int(part) for part in text.replace(",", " ").split()})
+    except ValueError:
+        return None
+    if not values or any(not 100 <= v <= 10000 for v in values):
+        return None
+    return values
+
+
+def _format_power_steps(steps: list[int] | None) -> str:
+    return ", ".join(str(step) for step in (steps or DEFAULT_POWER_STEPS))
 
 
 def _model_selector(options: list[SelectOptionDict]) -> SelectSelector:
@@ -304,6 +327,17 @@ def _options_schema(options: dict) -> vol.Schema:
                 min=0, max=80, step=1, unit_of_measurement="%", mode=NumberSelectorMode.BOX
             )
         ),
+        vol.Required(
+            CONF_POWER_STEPS, default=_format_power_steps(options.get(CONF_POWER_STEPS))
+        ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT)),
+        vol.Required(
+            CONF_TUNING_SETTLE,
+            default=options.get(CONF_TUNING_SETTLE, DEFAULT_TUNING_SETTLE_MINUTES),
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=0, max=240, step=1, unit_of_measurement="min", mode=NumberSelectorMode.BOX
+            )
+        ),
         vol.Optional(
             CONF_TELEGRAM_TOKEN, default=options.get(CONF_TELEGRAM_TOKEN, "")
         ): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
@@ -433,15 +467,22 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         return self.async_show_menu(
             step_id="init",
-            menu_options=["edit_sensors", "edit_ai", "edit_settings"],
+            menu_options=["edit_sensors", "edit_miners", "edit_ai", "edit_settings"],
         )
 
     async def async_step_edit_settings(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
         if user_input is not None:
+            steps = parse_power_steps(user_input[CONF_POWER_STEPS])
+            if steps is None:
+                errors[CONF_POWER_STEPS] = "invalid_power_steps"
+        if user_input is not None and not errors:
             self._pending_options.update(
                 {
+                    CONF_POWER_STEPS: steps,
+                    CONF_TUNING_SETTLE: int(user_input[CONF_TUNING_SETTLE]),
                     CONF_DRY_RUN: user_input[CONF_DRY_RUN],
                     CONF_PROFILE: user_input[CONF_PROFILE],
                     CONF_POLLING_INTERVAL: int(user_input[CONF_POLLING_INTERVAL]),
@@ -467,7 +508,57 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
 
         return self.async_show_form(
             step_id="edit_settings",
-            data_schema=_options_schema(self._config_entry.options),
+            data_schema=_options_schema(
+                {**self._config_entry.options, **(user_input or {})}
+                if errors
+                else self._config_entry.options
+            ),
+            errors=errors,
+        )
+
+    def _miner_choices(self) -> list[SelectOptionDict]:
+        """Every miner set up in hass-miner, named as the controller names it."""
+        from .coordinator import miner_display_name
+
+        return [
+            SelectOptionDict(value=miner_id, label=name)
+            for miner_id, name in miner_display_name(self.hass)
+        ]
+
+    async def async_step_edit_miners(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """How a miner is stopped: a relay switch, or (left empty) its own pause switch."""
+        relays: dict[str, str] = dict(self._pending_options.get(CONF_MINER_RELAYS) or {})
+        choices = self._miner_choices()
+
+        if user_input is not None:
+            relay = (user_input.get(CONF_RELAY_ENTITY) or "").strip()
+            if relay:
+                relays[user_input[CONF_MINER]] = relay
+            else:
+                relays.pop(user_input[CONF_MINER], None)
+            self._pending_options[CONF_MINER_RELAYS] = relays
+            return self.async_create_entry(data=self._pending_options)
+
+        names = {c["value"]: c["label"] for c in choices}
+        current = (
+            "\n".join(f"{names.get(mid, mid)} → {entity}" for mid, entity in relays.items())
+            or "none: every miner is stopped with its own pause switch"
+        )
+        return self.async_show_form(
+            step_id="edit_miners",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_MINER): SelectSelector(
+                        SelectSelectorConfig(options=choices, mode=SelectSelectorMode.DROPDOWN)
+                    ),
+                    vol.Optional(CONF_RELAY_ENTITY): EntitySelector(
+                        EntitySelectorConfig(domain=["switch", "input_boolean"])
+                    ),
+                }
+            ),
+            description_placeholders={"current": current},
         )
 
     async def async_step_edit_sensors(

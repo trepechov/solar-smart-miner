@@ -178,7 +178,7 @@ class DecisionLogSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
     _attr_has_entity_name = True
     _attr_icon = "mdi:text-box-search-outline"
     # Refreshed every poll — keep the bulky attributes out of the recorder DB.
-    _unrecorded_attributes = frozenset({"trace", "history", "proposals"})
+    _unrecorded_attributes = frozenset({"trace", "history", "proposals", "plans"})
 
     def __init__(self, coordinator: SolarMinerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
@@ -202,6 +202,15 @@ class DecisionLogSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
             "preview_only": True,
             "trace": data.decision.trace,
             "proposals": {names.get(mid, mid): w for mid, w in data.decision.proposals.items()},
+            "plans": {
+                names.get(mid, mid): {
+                    "action": plan.action,
+                    "limit_w": plan.limit_w,
+                    "method": plan.method,
+                    "reason": plan.reason,
+                }
+                for mid, plan in data.decision.plans.items()
+            },
             "history": data.decision_history,
         }
 

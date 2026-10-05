@@ -50,6 +50,7 @@
         "title": "Solar Smart Miner — Options",
         "menu_options": {
           "edit_sensors": "Sensors",
+          "edit_miners": "Miner stop method",
           "edit_ai": "AI (OpenRouter)",
           "edit_settings": "Settings"
         },
@@ -68,7 +69,13 @@
           "telegram_chat_id": "Telegram chat ID (optional)",
           "mock_solar_enabled": "Use Forecast.Solar as mock solar data (development only)",
           "mock_solar_entity": "Forecast.Solar power sensor (mock source)",
-          "mock_consumption_enabled": "Use total miner power as mock grid consumption (development only)"
+          "mock_consumption_enabled": "Use total miner power as mock grid consumption (development only)",
+          "power_steps": "Power steps, W (comma separated)",
+          "tuning_settle_minutes": "Minutes a miner is assumed to be tuning after a limit change"
+        },
+        "data_description": {
+          "power_steps": "A miner re-tunes for up to an hour after each power-limit change, so limits only ever move between these steps. Each miner uses the steps inside its own range. Default: 900, 1100, 1300, 1500.",
+          "tuning_settle_minutes": "The miners don't report their tuning state, so it is estimated as the time since the limit last changed. While a miner is tuning it is not stepped up (stepping down and stopping are still allowed)."
         }
       },
       "edit_sensors": {
@@ -99,11 +106,20 @@
           "openrouter_model": "Free models are listed; you can also type any OpenRouter model id. 'openrouter/free' picks an available free model for you.",
           "ai_interval": "Default 60 s, minimum 10 s. Free models allow only a limited number of requests per day, so a short interval may need a paid model."
         }
+      },
+      "edit_miners": {
+        "title": "Solar Smart Miner — Miner stop method",
+        "description": "When there is not enough power even for the lowest step, a miner is stopped. By default that is done with the miner's own pause switch. If a miner is cut off with a relay instead, pick the miner and its relay switch here; leave the relay empty to go back to the pause switch. Save once per miner.\n\nCurrently:\n{current}",
+        "data": {
+          "miner": "Miner",
+          "relay_entity": "Relay switch (optional)"
+        }
       }
     },
     "error": {
       "solar_entity_not_found": "Solar / grid power entity not found in Home Assistant. Check the entity ID.",
-      "grid_entity_not_found": "House consumption entity not found in Home Assistant. Check the entity ID."
+      "grid_entity_not_found": "House consumption entity not found in Home Assistant. Check the entity ID.",
+      "invalid_power_steps": "Enter whole watts between 100 and 10000, separated by commas, e.g. 900, 1100, 1300, 1500."
     }
   }
 }

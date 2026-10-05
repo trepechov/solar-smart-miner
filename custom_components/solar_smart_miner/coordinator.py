@@ -34,11 +34,14 @@ from .config_flow import (
     CONF_OPENROUTER_KEY,
     CONF_OPENROUTER_MODEL,
     CONF_POLLING_INTERVAL,
+    CONF_MINER_RELAYS,
+    CONF_POWER_STEPS,
     CONF_PROFILE,
     CONF_PV_ENTITY,
     CONF_SOLAR_ENTITY,
     CONF_SOLAR_ENTITY_TYPE,
     CONF_TEMP_CEILING,
+    CONF_TUNING_SETTLE,
     DEFAULT_OPENROUTER_MODEL,
 )
 from .const import (
@@ -50,8 +53,10 @@ from .const import (
     DEFAULT_AI_INTERVAL,
     DEFAULT_BATTERY_FLOOR,
     DEFAULT_POLLING_INTERVAL,
+    DEFAULT_POWER_STEPS,
     DEFAULT_PROFILE,
     DEFAULT_TEMP_CEILING,
+    DEFAULT_TUNING_SETTLE_MINUTES,
     DOMAIN,
     HASS_MINER_PLATFORM,
     MIN_AI_INTERVAL,
@@ -70,6 +75,7 @@ _UID_TEMPERATURE = "-temperature"
 _UID_POWER_LIMIT = "-power_limit"
 _UID_HASHRATE = "-hashrate"
 _UID_EFFICIENCY = "-efficiency"
+_UID_ACTIVE = "-active"  # the switch that pauses / resumes mining
 
 
 def _parse_state_float(state_obj) -> float | None:
@@ -116,6 +122,25 @@ def _find_entity(entities, domain: str, suffix: str):
     )
 
 
+def miner_display_name(hass: HomeAssistant) -> list[tuple[str, str]]:
+    """(miner id, name) for every enabled hass-miner entry, named like the controller does."""
+    dr = device_registry.async_get(hass)
+    er = entity_registry.async_get(hass)
+    result = []
+    for hm_entry in hass.config_entries.async_entries(HASS_MINER_PLATFORM):
+        if hm_entry.disabled_by is not None:
+            continue
+        miner_id = hm_entry.data.get("ip", "") or hm_entry.entry_id
+        entities = entity_registry.async_entries_for_config_entry(er, hm_entry.entry_id)
+        power_entry = _find_entity(entities, "sensor", _UID_POWER)
+        device = (
+            dr.async_get(power_entry.device_id) if power_entry and power_entry.device_id else None
+        )
+        name = (device.name_by_user or device.name) if device else None
+        result.append((miner_id, name or hm_entry.title or miner_id))
+    return result
+
+
 class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         interval = int(entry.options.get(CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL))
@@ -131,6 +156,8 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         self._ai_advice: AiAdvice | None = None
         self._ai_busy = False
         self._ai_last_request: float | None = None  # time.monotonic()
+        # miner id -> (power limit last seen, time.monotonic() when it changed or None)
+        self._limit_seen: dict[str, tuple[float | None, float | None]] = {}
 
     async def _async_read_energy(self) -> EnergySnapshot:
         options = self._entry.options
@@ -227,6 +254,8 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             limit_entry = _find_entity(entities, "number", _UID_POWER_LIMIT)
             hashrate_entry = _find_entity(entities, "sensor", _UID_HASHRATE)
             efficiency_entry = _find_entity(entities, "sensor", _UID_EFFICIENCY)
+            active_entry = _find_entity(entities, "switch", _UID_ACTIVE)
+            relay_entity_id = (self._entry.options.get(CONF_MINER_RELAYS) or {}).get(miner_id) or None
 
             def _state(reg_entry):
                 return self.hass.states.get(reg_entry.entity_id) if reg_entry else None
@@ -241,7 +270,13 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
 
             power_w = _parse_power_w(_state(power_entry))
             is_available = power_w is not None
-            if not is_available:
+            switch_state = _state(active_entry)
+            relay_state = self.hass.states.get(relay_entity_id) if relay_entity_id else None
+            is_stopped = (switch_state is not None and switch_state.state == "off") or (
+                relay_state is not None and relay_state.state == "off"
+            )
+            power_limit_w = _parse_state_float(limit_state)
+            if not is_available and not is_stopped:
                 _LOGGER.warning("Miner %s (%s): power entity unavailable", name, miner_id)
 
             snapshots.append(
@@ -250,7 +285,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                     ip=miner_ip,
                     name=name,
                     power_w=power_w,
-                    power_limit_w=_parse_state_float(limit_state),
+                    power_limit_w=power_limit_w,
                     min_power_w=float(min_power_w) if min_power_w is not None else None,
                     max_power_w=float(max_power_w) if max_power_w is not None else None,
                     temperature_c=_parse_state_float(_state(temp_entry)),
@@ -258,10 +293,31 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                     power_limit_entity_id=limit_entry.entity_id if limit_entry else None,
                     hashrate_th=_parse_state_float(_state(hashrate_entry)),
                     efficiency_jth=_parse_state_float(_state(efficiency_entry)),
+                    switch_entity_id=active_entry.entity_id if active_entry else None,
+                    relay_entity_id=relay_entity_id,
+                    is_stopped=is_stopped,
+                    minutes_since_limit_change=self._minutes_since_limit_change(
+                        miner_id, power_limit_w
+                    ),
                 )
             )
 
         return snapshots
+
+    def _minutes_since_limit_change(self, miner_id: str, limit_w: float | None) -> float | None:
+        """Minutes since the miner's power limit was seen to change (None: never seen to).
+
+        hass-miner doesn't expose the tuning state, so this stands in for it: a miner
+        re-tunes for up to an hour after a change. A limit that was already set when we
+        started watching has an unknown age, which counts as settled.
+        """
+        now = time.monotonic()
+        last_limit, changed = self._limit_seen.get(miner_id, (None, None))
+        if limit_w is not None:
+            if last_limit is not None and last_limit != limit_w:
+                changed = now
+            self._limit_seen[miner_id] = (limit_w, changed)
+        return None if changed is None else (now - changed) / 60
 
     async def _async_apply_power_limit(
         self, snapshot: MinerSnapshot, limit_w: float, dry_run: bool
@@ -408,6 +464,10 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             profile=options.get(CONF_PROFILE, DEFAULT_PROFILE),
             temp_ceiling=float(options.get(CONF_TEMP_CEILING, DEFAULT_TEMP_CEILING)),
             battery_floor=float(options.get(CONF_BATTERY_FLOOR, DEFAULT_BATTERY_FLOOR)),
+            power_steps=list(options.get(CONF_POWER_STEPS) or DEFAULT_POWER_STEPS),
+            tuning_settle_minutes=float(
+                options.get(CONF_TUNING_SETTLE, DEFAULT_TUNING_SETTLE_MINUTES)
+            ),
         )
         # Only record changes, so the history reads as a log of what shifted.
         if not self._history or self._history[0]["summary"] != decision.summary:

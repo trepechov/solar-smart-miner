@@ -1047,3 +1047,103 @@ async def test_reference_sensors_reach_the_ai_prompt_but_not_the_rules(hass, moc
     assert "Forecast PV now: 9,888 W" in mock_openrouter.await_args.kwargs["messages"][1]["content"]
     assert coordinator.data.decision.proposals == plain
 
+
+# ---------------------------------------------------------------------------
+# Stop / start (pause switch or relay), tuning, power steps
+# ---------------------------------------------------------------------------
+
+
+async def _update(hass, entry):
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    return await SolarMinerCoordinator(hass, entry)._async_update_data()
+
+
+async def test_miner_exposes_its_pause_switch(hass, add_hass_miner) -> None:
+    reg = add_hass_miner(MINER_IP, active="on")
+
+    miner = (await _update(hass, _make_entry(hass))).miners[0]
+
+    assert miner.switch_entity_id == reg["active"].entity_id
+    assert miner.is_stopped is False
+    assert miner.relay_entity_id is None
+
+
+async def test_a_paused_miner_is_stopped_not_unavailable(hass, add_hass_miner, caplog) -> None:
+    add_hass_miner(MINER_IP, power="unavailable", active="off")
+
+    miner = (await _update(hass, _make_entry(hass))).miners[0]
+
+    assert miner.is_stopped is True
+    assert miner.is_available is False
+    assert "power entity unavailable" not in caplog.text
+
+
+async def test_an_unreachable_miner_is_not_stopped(hass, add_hass_miner, caplog) -> None:
+    add_hass_miner(MINER_IP, power="unavailable", active="on")
+
+    miner = (await _update(hass, _make_entry(hass))).miners[0]
+
+    assert miner.is_stopped is False
+    assert "power entity unavailable" in caplog.text
+
+
+async def test_a_relay_that_is_off_means_stopped(hass, add_hass_miner) -> None:
+    from custom_components.solar_smart_miner.config_flow import CONF_MINER_RELAYS
+
+    add_hass_miner(MINER_IP, power="unavailable", active="unavailable")
+    hass.states.async_set("switch.relay_1", "off")
+    entry = _make_entry(hass, options={CONF_MINER_RELAYS: {MINER_IP: "switch.relay_1"}})
+
+    miner = (await _update(hass, entry)).miners[0]
+
+    assert miner.relay_entity_id == "switch.relay_1"
+    assert miner.is_stopped is True
+
+
+async def test_a_relay_that_is_on_does_not_mean_stopped(hass, add_hass_miner) -> None:
+    from custom_components.solar_smart_miner.config_flow import CONF_MINER_RELAYS
+
+    add_hass_miner(MINER_IP, active="on")
+    hass.states.async_set("switch.relay_1", "on")
+    entry = _make_entry(hass, options={CONF_MINER_RELAYS: {MINER_IP: "switch.relay_1"}})
+
+    assert (await _update(hass, entry)).miners[0].is_stopped is False
+
+
+async def test_limit_change_time_is_unknown_until_a_change_is_seen(hass, add_hass_miner, monkeypatch) -> None:
+    import time as time_module
+
+    now = [1000.0]
+    monkeypatch.setattr(time_module, "monotonic", lambda: now[0])
+    reg = add_hass_miner(MINER_IP, limit="1300")
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    coordinator = SolarMinerCoordinator(hass, _make_entry(hass))
+
+    assert (await coordinator._async_update_data()).miners[0].minutes_since_limit_change is None
+
+    now[0] += 600  # unchanged limit: still unknown
+    assert (await coordinator._async_update_data()).miners[0].minutes_since_limit_change is None
+
+    hass.states.async_set(reg["power_limit"].entity_id, "1100", {"min": 500.0, "max": 3500.0})
+    assert (await coordinator._async_update_data()).miners[0].minutes_since_limit_change == 0
+
+    now[0] += 15 * 60
+    assert (await coordinator._async_update_data()).miners[0].minutes_since_limit_change == pytest.approx(15)
+
+
+async def test_power_steps_and_tuning_options_drive_the_decision(hass, add_hass_miner) -> None:
+    from custom_components.solar_smart_miner.config_flow import CONF_POWER_STEPS, CONF_TUNING_SETTLE
+
+    add_hass_miner(MINER_IP, limit="700", power="690", limit_attrs={"min": 500.0, "max": 3500.0})
+    options = {CONF_POWER_STEPS: [700, 1000], CONF_TUNING_SETTLE: 30}
+    entry = _make_entry(hass, options=options)
+
+    # Plenty of budget (the 1,500 W grid sensor is the house, miners included).
+    hass.states.async_set(SOLAR_ENTITY, "5000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    decision = (await SolarMinerCoordinator(hass, entry)._async_update_data()).decision
+
+    assert list(decision.proposals.values()) == [1000.0]  # only the configured steps
+    assert any("Power steps: 700, 1,000 W" in line for line in decision.trace)

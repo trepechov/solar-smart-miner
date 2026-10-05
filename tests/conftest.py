@@ -89,6 +89,7 @@ def add_hass_miner(hass):
         limit_attrs: dict | None = None,
         hashrate: str | None = None,
         efficiency: str | None = None,
+        active: str | None = None,
         entry_data: dict | None = None,
     ) -> dict:
         mac = f"00:00:00:00:00:{next(counter):02x}"
@@ -133,6 +134,8 @@ def add_hass_miner(hass):
             reg("sensor", "hashrate", hashrate)
         if efficiency is not None:
             reg("sensor", "efficiency", efficiency)
+        if active is not None:  # the pause / resume switch
+            reg("switch", "active", active)
         return created
 
     return _add

@@ -697,3 +697,124 @@ async def test_options_flow_edit_sensors_saves_and_clears_reference_sensors(hass
 
     await _get_options_flow_result(hass, entry, sensors_input=_sensors_input())
     assert all(entry.data[k] is None for k in refs)
+
+
+# ---------------------------------------------------------------------------
+# Power steps, tuning time and the miner stop method
+# ---------------------------------------------------------------------------
+
+
+def test_parse_power_steps() -> None:
+    from custom_components.solar_smart_miner.config_flow import parse_power_steps
+
+    assert parse_power_steps("900, 1100, 1300,1500") == [900, 1100, 1300, 1500]
+    assert parse_power_steps("1500 900  1100 900") == [900, 1100, 1500]  # sorted, de-duplicated
+    for bad in ("", "abc", "900, x", "50", "20000", "12.5"):
+        assert parse_power_steps(bad) is None, bad
+
+
+async def test_settings_save_power_steps_and_tuning_time(hass: HomeAssistant) -> None:
+    from custom_components.solar_smart_miner.config_flow import CONF_POWER_STEPS, CONF_TUNING_SETTLE
+
+    entry = _make_entry(hass)
+    result = await _get_options_flow_result(
+        hass,
+        entry,
+        options_input={
+            CONF_DRY_RUN: False,
+            CONF_PROFILE: DEFAULT_PROFILE,
+            CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
+            CONF_TEMP_CEILING: 80,
+            CONF_BATTERY_FLOOR: 20,
+            CONF_POWER_STEPS: "1000, 1200 1400",
+            CONF_TUNING_SETTLE: 20,
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_POWER_STEPS] == [1000, 1200, 1400]
+    assert entry.options[CONF_TUNING_SETTLE] == 20
+
+
+async def test_settings_default_to_the_agreed_steps(hass: HomeAssistant) -> None:
+    from custom_components.solar_smart_miner.config_flow import CONF_POWER_STEPS, CONF_TUNING_SETTLE
+
+    entry = _make_entry(hass)
+    await _get_options_flow_result(hass, entry, options_input={})
+
+    assert entry.options[CONF_POWER_STEPS] == [900, 1100, 1300, 1500]
+    assert entry.options[CONF_TUNING_SETTLE] == 60
+
+
+async def test_settings_reject_unusable_power_steps_and_keep_the_form(hass: HomeAssistant) -> None:
+    from custom_components.solar_smart_miner.config_flow import CONF_POWER_STEPS
+
+    entry = _make_entry(hass)
+    result = await _get_options_flow_result(
+        hass, entry, options_input={CONF_POWER_STEPS: "fast, faster"}
+    )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"] == {CONF_POWER_STEPS: "invalid_power_steps"}
+    assert CONF_POWER_STEPS not in entry.options
+
+
+async def _open_miners_step(hass, entry):
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert "edit_miners" in result["menu_options"]
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "edit_miners"}
+    )
+    assert result["step_id"] == "edit_miners"
+    return result
+
+
+async def test_miners_step_lists_miners_by_name_and_stores_a_relay(hass, add_hass_miner) -> None:
+    from custom_components.solar_smart_miner.config_flow import (
+        CONF_MINER,
+        CONF_MINER_RELAYS,
+        CONF_RELAY_ENTITY,
+    )
+
+    add_hass_miner("192.168.1.101", name="Brod1")
+    add_hass_miner("192.168.1.102", name="Brod2")
+    hass.states.async_set("switch.relay_brod2", "on")
+    entry = _make_entry(hass)
+
+    form = await _open_miners_step(hass, entry)
+    choices = form["data_schema"].schema[CONF_MINER].config["options"]
+    assert {(c["value"], c["label"]) for c in choices} == {
+        ("192.168.1.101", "Brod1"),
+        ("192.168.1.102", "Brod2"),
+    }
+    assert form["description_placeholders"]["current"].startswith("none")
+
+    result = await hass.config_entries.options.async_configure(
+        form["flow_id"], {CONF_MINER: "192.168.1.102", CONF_RELAY_ENTITY: "switch.relay_brod2"}
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_MINER_RELAYS] == {"192.168.1.102": "switch.relay_brod2"}
+    # Everything else in the options is kept.
+    assert entry.options[CONF_PROFILE] == DEFAULT_PROFILE
+
+
+async def test_miners_step_clears_a_relay_and_shows_the_current_ones(hass, add_hass_miner) -> None:
+    from custom_components.solar_smart_miner.config_flow import (
+        CONF_MINER,
+        CONF_MINER_RELAYS,
+    )
+
+    add_hass_miner("192.168.1.101", name="Brod1")
+    entry = _make_entry(hass)
+    hass.config_entries.async_update_entry(
+        entry,
+        options={**entry.options, CONF_MINER_RELAYS: {"192.168.1.101": "switch.r1"}},
+    )
+
+    form = await _open_miners_step(hass, entry)
+    assert "Brod1 → switch.r1" in form["description_placeholders"]["current"]
+
+    await hass.config_entries.options.async_configure(form["flow_id"], {CONF_MINER: "192.168.1.101"})
+
+    assert entry.options[CONF_MINER_RELAYS] == {}
