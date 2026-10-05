@@ -136,7 +136,8 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             else:
                 entity_type = data.get(CONF_SOLAR_ENTITY_TYPE, SOLAR_ENTITY_TYPE_PRODUCTION)
                 if entity_type == SOLAR_ENTITY_TYPE_PRODUCTION:
-                    solar_w = reading
+                    # Inverters can report a small negative standby draw at night.
+                    solar_w = max(reading, 0.0)
                 elif entity_type == SOLAR_ENTITY_TYPE_NET_IMPORT:
                     grid_net_w = -reading
                 else:

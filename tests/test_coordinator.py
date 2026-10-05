@@ -703,3 +703,17 @@ async def test_coordinator_ignores_empty_duplicate_devices(hass, add_hass_miner)
     snapshot = await SolarMinerCoordinator(hass, entry)._async_update_data()
 
     assert snapshot.miners[0].name == "Real"
+
+
+# --- solar production floor ---------------------------------------------------
+
+
+async def test_negative_production_reading_is_floored_at_zero(hass) -> None:
+    """Inverters report a small negative standby draw at night."""
+    hass.states.async_set(SOLAR_ENTITY, "-10")
+    entry = _make_entry(hass)
+
+    snapshot = await SolarMinerCoordinator(hass, entry)._async_update_data()
+
+    assert snapshot.energy.solar_production_w == 0.0
+    assert snapshot.energy.solar_fault is False
