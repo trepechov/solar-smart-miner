@@ -14,7 +14,8 @@ custom_components/solar_smart_miner/   # HA integration source
   config_flow.py       # setup wizard and options flow
   coordinator.py       # DataUpdateCoordinator — fetches solar/grid/battery/miner state,
                        #   builds the decision preview, schedules AI advice requests
-  decision.py          # rule-based decision preview (proposals are never applied yet)
+  decision.py          # rule-based decision preview: power steps, stop/start plans, tuning
+                       #   awareness (plans are never applied yet)
   ai.py                # OpenRouter client: prompt, chat completion, JSON answer parsing, free-model list
   ai_log.py            # JSONL log of every AI request (inputs, rule proposal, AI actions) + widget history
   sensor.py            # sensor entity platform (hub + per-miner sensors, decision log, AI advice)
@@ -54,6 +55,7 @@ Uses `pytest-homeassistant-custom-component` — keep the HA test harness versio
 ## Key Concepts
 
 - **Coordinator** (`coordinator.py`) reads hass-miner entities from `hass.states` by matching unit-of-measurement when device class is absent. All entity data flows through a `MinerSnapshot` dataclass.
+- **Power steps** (`const.DEFAULT_POWER_STEPS`): miners re-tune for up to an hour after each limit change, so limits only move between fixed steps and are never arbitrary watts. Stopping a miner is a separate plan action (relay or pause switch), not a power limit.
 - **Hub device** (`DeviceInfo` with `identifiers`) groups all integration entities under one HA dashboard card.
 - **Sensor entities** subclass `CoordinatorEntity`; per-miner sensors are generated from a `MINER_METRICS` descriptor list.
 - **hass-miner** is the sibling integration that talks to the physical miners; this integration reads its exposed entities.

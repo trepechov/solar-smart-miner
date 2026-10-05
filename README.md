@@ -99,8 +99,9 @@ Open **Settings → Devices & services → Solar Smart Miner → Configure**. Sa
 | Section | What you can change |
 |---|---|
 | **Sensors** | Solar / net-meter entity and what it measures, house consumption (optional), battery SOC (optional), and reference sensors for the AI log: actual PV output and the solar forecast (all optional) |
+| **Miner stop method** | Per miner: the relay switch that cuts it off (empty = use the miner's own pause switch) |
 | **AI (OpenRouter)** | Turn the AI on or off, API key (shown hidden), model, seconds between AI requests |
-| **Settings** | Profile, polling interval, temperature ceiling, battery floor, dry-run, Telegram, development mocks |
+| **Settings** | Profile, power steps, tuning time, polling interval, temperature ceiling, battery floor, dry-run, Telegram, development mocks |
 
 ### AI advice (OpenRouter)
 
@@ -125,13 +126,24 @@ The last 20 entries are also on the **AI advice** sensor (`history` and `actions
 | **Grid-agnostic** | Use solar surplus freely and supplement with grid without penalty; optimise for hashrate |
 | **Grid-independent** | Never draw net power from the grid; cap miner wattage to (production − base consumption) |
 
+## Power steps, stopping and tuning
+
+A miner re-tunes itself for 14 minutes to an hour after every power-limit change, and only reaches its best efficiency once that is done. So the controller never asks for an arbitrary wattage: limits move only between **power steps**, **900, 1100, 1300 and 1500 W** by default (Configure → Settings; each miner uses the steps inside its own range).
+
+- **Starting from where the miner is.** The plan begins at each miner's current step. A shortfall of up to 150 W keeps the current step, and stepping up needs 100 W of spare power on top of the step's cost, so small wobbles in the budget change nothing.
+- **Stopping.** When the budget is below the lowest step the miner is **stopped**, not just turned down to a minimum. How is configured per miner under Configure → Miner stop method: a **relay** switch (for miners cut off with a relay) or, when none is set, the miner's own **pause** switch (`switch.<miner>_active` from hass-miner). A stopped miner is started again when its lowest step plus the margin fits. A miner with neither is dropped to its lowest step instead.
+- **Tuning.** hass-miner doesn't report the tuning state, so it is estimated: a miner is assumed to be tuning for the configured number of minutes (default 60) after its limit last changed. While tuning it is never stepped up; stepping down and stopping are still allowed. A limit that was already set when Home Assistant started counts as settled.
+- **Filling order.** A running miner is stepped up to its top step before another miner is started.
+
+These are plans only for now: the decision log and the AI advice show what would be done, and nothing is applied to the miners yet.
+
 ## Safety layer
 
 The following overrides run before every AI decision and cannot be bypassed — not even by dry-run mode:
 
-- **Temperature ceiling** — if any miner exceeds the configured board/chip temperature, it is stopped or throttled immediately
-- **Battery SOC floor** — if battery drops below the configured %, all miners stop immediately
-- **Solar fault** — if the solar entity enters an unavailable or error state, all miners stop until it recovers
+- **Temperature ceiling** — if any miner exceeds the configured board/chip temperature, it is dropped to its lowest power step
+- **Battery SOC floor** — if battery drops below the configured %, all miners are stopped
+- **Solar fault** — if the solar entity is unavailable, every miner is held as it is: a short sensor drop must not make the miners re-tune
 
 ## Decision log
 
