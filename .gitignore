@@ -39,3 +39,6 @@ Thumbs.db
 # IDEs
 .idea/
 .vscode/
+
+# Local secrets folder (HA API token etc.)
+secrets/
