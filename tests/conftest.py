@@ -50,6 +50,24 @@ def mock_openrouter():
         yield mock
 
 
+@pytest.fixture(autouse=True)
+def mock_openrouter_models():
+    """The options form lists OpenRouter's free models; serve a fixed list offline."""
+    with (
+        patch(
+            "custom_components.solar_smart_miner.config_flow.async_free_models",
+            AsyncMock(
+                return_value=[
+                    ("openrouter/free", "Free Models Router"),
+                    ("test/free:free", "Test Free"),
+                ]
+            ),
+        ),
+        patch("custom_components.solar_smart_miner.config_flow.async_get_clientsession"),
+    ):
+        yield
+
+
 @pytest.fixture
 def add_hass_miner(hass):
     """Factory that registers a miner the way hass-miner does.

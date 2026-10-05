@@ -11,6 +11,7 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     EntitySelector,
     EntitySelectorConfig,
@@ -26,15 +27,18 @@ from homeassistant.helpers.selector import (
     TextSelectorType,
 )
 
+from .ai import async_free_models
 from .const import (
     CONF_MOCK_CONSUMPTION_ENABLED,
     CONF_MOCK_SOLAR_ENABLED,
     CONF_MOCK_SOLAR_ENTITY,
+    DEFAULT_AI_INTERVAL,
     DEFAULT_BATTERY_FLOOR,
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_PROFILE,
     DEFAULT_TEMP_CEILING,
     DOMAIN,
+    MIN_AI_INTERVAL,
     MIN_POLLING_INTERVAL,
     PROFILES,
     SOLAR_ENTITY_TYPE_NET_EXPORT,
@@ -72,11 +76,23 @@ def _entity_exists(hass: HomeAssistant, entity_id: str) -> bool:
 
 def _validate_entities(hass: HomeAssistant, user_input: dict[str, Any]) -> dict[str, str]:
     errors: dict[str, str] = {}
+    house = (user_input.get(CONF_GRID_ENTITY) or "").strip()
     if not _entity_exists(hass, user_input[CONF_SOLAR_ENTITY]):
         errors[CONF_SOLAR_ENTITY] = "solar_entity_not_found"
-    elif not _entity_exists(hass, user_input[CONF_GRID_ENTITY]):
+    elif house and not _entity_exists(hass, house):
         errors[CONF_GRID_ENTITY] = "grid_entity_not_found"
     return errors
+
+
+async def _async_model_options(hass: HomeAssistant, current_model: str | None) -> list[SelectOptionDict]:
+    """Free OpenRouter models for the dropdown; the current choice is always listed."""
+    models = await async_free_models(async_get_clientsession(hass))
+    if current_model and current_model not in {model_id for model_id, _ in models}:
+        models.insert(0, (current_model, current_model))
+    return [
+        SelectOptionDict(value=model_id, label=label if label == model_id else f"{label} ({model_id})")
+        for model_id, label in models
+    ]
 
 
 _PROFILE_SELECTOR = SelectSelector(
@@ -116,10 +132,16 @@ _POLLING_SELECTOR = NumberSelector(
 )
 
 
-def _step1_schema(current: dict[str, Any] | None = None) -> vol.Schema:
-    """Sensor + AI settings. With `current`, pre-fills from an existing entry."""
-    current = current or {}
-    schema: dict = {
+def _model_selector(options: list[SelectOptionDict]) -> SelectSelector:
+    # custom_value: any OpenRouter model id works, not just the free ones listed.
+    return SelectSelector(
+        SelectSelectorConfig(options=options, custom_value=True, mode=SelectSelectorMode.DROPDOWN)
+    )
+
+
+def _sensor_fields(current: dict[str, Any]) -> dict:
+    """Solar / house entity pickers. Both are suggested (not defaulted) so house can be cleared."""
+    return {
         vol.Required(
             CONF_SOLAR_ENTITY, default=current.get(CONF_SOLAR_ENTITY, vol.UNDEFINED)
         ): EntitySelector(EntitySelectorConfig(domain="sensor")),
@@ -127,28 +149,73 @@ def _step1_schema(current: dict[str, Any] | None = None) -> vol.Schema:
             CONF_SOLAR_ENTITY_TYPE,
             default=current.get(CONF_SOLAR_ENTITY_TYPE, SOLAR_ENTITY_TYPE_PRODUCTION),
         ): _SOLAR_ENTITY_TYPE_SELECTOR,
-        vol.Required(
-            CONF_GRID_ENTITY, default=current.get(CONF_GRID_ENTITY, vol.UNDEFINED)
+        vol.Optional(
+            CONF_GRID_ENTITY, description={"suggested_value": current.get(CONF_GRID_ENTITY)}
         ): EntitySelector(EntitySelectorConfig(domain="sensor")),
     }
-    if current:
-        # suggested_value (not default) so the optional battery field can be cleared.
-        schema[
+
+
+def _ai_key_field(current: dict[str, Any]) -> dict:
+    return {
+        vol.Optional(
+            CONF_OPENROUTER_KEY, description={"suggested_value": current.get(CONF_OPENROUTER_KEY)}
+        ): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+    }
+
+
+def _model_field(current: dict[str, Any], model_options: list[SelectOptionDict]) -> dict:
+    return {
+        vol.Required(
+            CONF_OPENROUTER_MODEL,
+            default=current.get(CONF_OPENROUTER_MODEL) or DEFAULT_OPENROUTER_MODEL,
+        ): _model_selector(model_options),
+    }
+
+
+def _step1_schema(
+    model_options: list[SelectOptionDict], current: dict[str, Any] | None = None
+) -> vol.Schema:
+    """Initial setup: sensors + OpenRouter credentials."""
+    current = current or {}
+    return vol.Schema(
+        {**_sensor_fields(current), **_ai_key_field(current), **_model_field(current, model_options)}
+    )
+
+
+def _sensors_schema(current: dict[str, Any]) -> vol.Schema:
+    """Options: entities only. The optional battery field can be cleared."""
+    return vol.Schema(
+        {
+            **_sensor_fields(current),
             vol.Optional(
                 CONF_BATTERY_ENTITY,
                 description={"suggested_value": current.get(CONF_BATTERY_ENTITY)},
-            )
-        ] = EntitySelector(EntitySelectorConfig(domain="sensor"))
-    schema[
-        vol.Required(CONF_OPENROUTER_KEY, default=current.get(CONF_OPENROUTER_KEY, vol.UNDEFINED))
-    ] = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
-    schema[
-        vol.Required(
-            CONF_OPENROUTER_MODEL,
-            default=current.get(CONF_OPENROUTER_MODEL, DEFAULT_OPENROUTER_MODEL),
-        )
-    ] = TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT))
-    return vol.Schema(schema)
+            ): EntitySelector(EntitySelectorConfig(domain="sensor")),
+        }
+    )
+
+
+def _ai_schema(
+    data: dict[str, Any], options: dict[str, Any], model_options: list[SelectOptionDict]
+) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(CONF_AI_ENABLED, default=options.get(CONF_AI_ENABLED, True)): bool,
+            **_ai_key_field(data),
+            **_model_field(data, model_options),
+            vol.Required(
+                CONF_AI_INTERVAL, default=options.get(CONF_AI_INTERVAL, DEFAULT_AI_INTERVAL)
+            ): NumberSelector(
+                NumberSelectorConfig(
+                    min=MIN_AI_INTERVAL,
+                    max=86400,
+                    step=1,
+                    unit_of_measurement="s",
+                    mode=NumberSelectorMode.BOX,
+                )
+            ),
+        }
+    )
 
 
 def _step2_schema() -> vol.Schema:
@@ -270,7 +337,7 @@ class SolarSmartMinerConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             solar = user_input[CONF_SOLAR_ENTITY]
-            grid = user_input[CONF_GRID_ENTITY]
+            grid = (user_input.get(CONF_GRID_ENTITY) or "").strip()
             errors = _validate_entities(self.hass, user_input)
 
             if not errors:
@@ -283,15 +350,15 @@ class SolarSmartMinerConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_SOLAR_ENTITY_TYPE: user_input.get(
                         CONF_SOLAR_ENTITY_TYPE, SOLAR_ENTITY_TYPE_PRODUCTION
                     ),
-                    CONF_GRID_ENTITY: grid,
-                    CONF_OPENROUTER_KEY: user_input[CONF_OPENROUTER_KEY],
+                    CONF_GRID_ENTITY: grid or None,
+                    CONF_OPENROUTER_KEY: (user_input.get(CONF_OPENROUTER_KEY) or "").strip(),
                     CONF_OPENROUTER_MODEL: user_input[CONF_OPENROUTER_MODEL],
                 }
                 return await self.async_step_optional_sensors()
 
         return self.async_show_form(
             step_id="user",
-            data_schema=_step1_schema(),
+            data_schema=_step1_schema(await _async_model_options(self.hass, None)),
             errors=errors,
         )
 
@@ -344,7 +411,7 @@ class SolarSmartMinerConfigFlow(ConfigFlow, domain=DOMAIN):
 class SolarSmartMinerOptionsFlow(OptionsFlow):
     def __init__(self, config_entry: ConfigEntry) -> None:
         self._config_entry = config_entry
-        # Pre-fill with current options so edit_sensors can save without changing them.
+        # Pre-fill with current options so a step can save without dropping the others.
         self._pending_options: dict[str, Any] = dict(config_entry.options)
 
     async def async_step_init(
@@ -352,20 +419,22 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         return self.async_show_menu(
             step_id="init",
-            menu_options=["edit_settings", "edit_sensors"],
+            menu_options=["edit_sensors", "edit_ai", "edit_settings"],
         )
 
     async def async_step_edit_settings(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
-            self._pending_options = {
-                CONF_DRY_RUN: user_input[CONF_DRY_RUN],
-                CONF_PROFILE: user_input[CONF_PROFILE],
-                CONF_POLLING_INTERVAL: int(user_input[CONF_POLLING_INTERVAL]),
-                CONF_TEMP_CEILING: int(user_input[CONF_TEMP_CEILING]),
-                CONF_BATTERY_FLOOR: int(user_input[CONF_BATTERY_FLOOR]),
-            }
+            self._pending_options.update(
+                {
+                    CONF_DRY_RUN: user_input[CONF_DRY_RUN],
+                    CONF_PROFILE: user_input[CONF_PROFILE],
+                    CONF_POLLING_INTERVAL: int(user_input[CONF_POLLING_INTERVAL]),
+                    CONF_TEMP_CEILING: int(user_input[CONF_TEMP_CEILING]),
+                    CONF_BATTERY_FLOOR: int(user_input[CONF_BATTERY_FLOOR]),
+                }
+            )
             token = user_input.get(CONF_TELEGRAM_TOKEN, "").strip()
             chat_id = user_input.get(CONF_TELEGRAM_CHAT_ID, "").strip()
             self._pending_options[CONF_TELEGRAM_TOKEN] = token if token else None
@@ -390,12 +459,13 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
     async def async_step_edit_sensors(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Change the entities and AI credentials chosen during setup."""
+        """Change the solar / house / battery entities chosen during setup."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
             errors = _validate_entities(self.hass, user_input)
             if not errors:
+                house = (user_input.get(CONF_GRID_ENTITY) or "").strip()
                 battery = (user_input.get(CONF_BATTERY_ENTITY) or "").strip()
                 self.hass.config_entries.async_update_entry(
                     self._config_entry,
@@ -403,10 +473,8 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
                         **self._config_entry.data,
                         CONF_SOLAR_ENTITY: user_input[CONF_SOLAR_ENTITY],
                         CONF_SOLAR_ENTITY_TYPE: user_input[CONF_SOLAR_ENTITY_TYPE],
-                        CONF_GRID_ENTITY: user_input[CONF_GRID_ENTITY],
+                        CONF_GRID_ENTITY: house or None,
                         CONF_BATTERY_ENTITY: battery or None,
-                        CONF_OPENROUTER_KEY: user_input[CONF_OPENROUTER_KEY],
-                        CONF_OPENROUTER_MODEL: user_input[CONF_OPENROUTER_MODEL],
                     },
                 )
                 # Options are unchanged; the data update above triggers the reload.
@@ -414,6 +482,37 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
 
         return self.async_show_form(
             step_id="edit_sensors",
-            data_schema=_step1_schema(dict(self._config_entry.data)),
+            data_schema=_sensors_schema(dict(self._config_entry.data)),
             errors=errors,
+        )
+
+    async def async_step_edit_ai(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """OpenRouter key (hidden), model and how often the AI is asked."""
+        data = dict(self._config_entry.data)
+
+        if user_input is not None:
+            self._pending_options.update(
+                {
+                    CONF_AI_ENABLED: user_input[CONF_AI_ENABLED],
+                    CONF_AI_INTERVAL: int(user_input[CONF_AI_INTERVAL]),
+                }
+            )
+            # One update for both so the integration reloads once.
+            self.hass.config_entries.async_update_entry(
+                self._config_entry,
+                data={
+                    **data,
+                    CONF_OPENROUTER_KEY: (user_input.get(CONF_OPENROUTER_KEY) or "").strip(),
+                    CONF_OPENROUTER_MODEL: user_input[CONF_OPENROUTER_MODEL],
+                },
+                options=self._pending_options,
+            )
+            return self.async_create_entry(data=self._pending_options)
+
+        model_options = await _async_model_options(self.hass, data.get(CONF_OPENROUTER_MODEL))
+        return self.async_show_form(
+            step_id="edit_ai",
+            data_schema=_ai_schema(data, self._config_entry.options, model_options),
         )

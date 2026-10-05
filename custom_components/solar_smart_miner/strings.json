@@ -3,13 +3,13 @@
     "step": {
       "user": {
         "title": "Solar Smart Miner — Solar & Grid Setup",
-        "description": "Pick the sensor that reports solar production — or your net grid meter — and the sensor that reports total house consumption (miners included), then provide your OpenRouter credentials.",
+        "description": "Pick the sensor that reports solar production — or your net grid meter. The house consumption sensor (miners included) is optional: skip it if you only have a net grid meter. The OpenRouter key and model are optional too; without a key the controller still runs rule-based.",
         "data": {
           "solar_production_entity": "Solar production or net grid power sensor",
           "solar_entity_type": "What does that sensor measure?",
-          "grid_consumption_entity": "House consumption sensor",
-          "openrouter_api_key": "OpenRouter API key",
-          "openrouter_model": "OpenRouter model"
+          "grid_consumption_entity": "House consumption sensor (optional)",
+          "openrouter_api_key": "OpenRouter API key (optional)",
+          "openrouter_model": "OpenRouter model (free models listed; any model id works)"
         }
       },
       "optional_sensors": {
@@ -49,10 +49,11 @@
       "init": {
         "title": "Solar Smart Miner — Options",
         "menu_options": {
-          "edit_settings": "Edit settings",
-          "edit_sensors": "Sensors & AI credentials"
+          "edit_sensors": "Sensors",
+          "edit_ai": "AI (OpenRouter)",
+          "edit_settings": "Settings"
         },
-        "description": "Miners are picked up automatically from hass-miner."
+        "description": "Miners are picked up automatically from hass-miner. Saving any section reloads the integration — no restart required."
       },
       "edit_settings": {
         "title": "Solar Smart Miner — Edit Settings",
@@ -71,15 +72,28 @@
         }
       },
       "edit_sensors": {
-        "title": "Solar Smart Miner — Sensors & AI",
-        "description": "Change the entities and OpenRouter settings chosen during setup. Saving reloads the integration.",
+        "title": "Solar Smart Miner — Sensors",
+        "description": "Change the entities chosen during setup. Leave the house consumption sensor empty if you only have a net grid meter. Saving reloads the integration.",
         "data": {
           "solar_production_entity": "Solar production or net grid power sensor",
           "solar_entity_type": "What does that sensor measure?",
-          "grid_consumption_entity": "House consumption sensor",
-          "openrouter_api_key": "OpenRouter API key",
-          "openrouter_model": "OpenRouter model",
+          "grid_consumption_entity": "House consumption sensor (optional)",
           "battery_soc_entity": "Battery SOC sensor (optional)"
+        }
+      },
+      "edit_ai": {
+        "title": "Solar Smart Miner — AI (OpenRouter)",
+        "description": "The AI reviews each decision preview and comments on it; it never changes the miners. Free models are rate-limited, so it is only asked every few minutes. Saving reloads the integration.",
+        "data": {
+          "ai_enabled": "Ask the AI for advice",
+          "openrouter_api_key": "OpenRouter API key",
+          "openrouter_model": "Model",
+          "ai_interval": "Seconds between AI requests"
+        },
+        "data_description": {
+          "openrouter_api_key": "Stored hidden. Clear it to turn the AI off.",
+          "openrouter_model": "Free models are listed; you can also type any OpenRouter model id. 'openrouter/free' picks an available free model for you.",
+          "ai_interval": "Free models allow only a limited number of requests per day, so keep this long (default 900 s)."
         }
       }
     },

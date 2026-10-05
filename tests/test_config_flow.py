@@ -9,6 +9,8 @@ from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.solar_smart_miner.config_flow import (
+    CONF_AI_ENABLED,
+    CONF_AI_INTERVAL,
     CONF_BATTERY_ENTITY,
     CONF_BATTERY_FLOOR,
     CONF_DRY_RUN,
@@ -264,25 +266,30 @@ async def _get_options_flow_result(
     entry: MockConfigEntry,
     options_input: dict | None = None,
     sensors_input: dict | None = None,
+    ai_input: dict | None = None,
 ) -> dict:
     """Drive the OptionsFlow through the menu and return the final result.
 
     Pass options_input to navigate the "edit_settings" path.
     Pass sensors_input to navigate the "edit_sensors" path.
+    Pass ai_input to navigate the "edit_ai" path.
     """
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["type"] == FlowResultType.MENU
     assert result["step_id"] == "init"
 
-    step_id = "edit_sensors" if sensors_input is not None else "edit_settings"
+    if sensors_input is not None:
+        step_id, user_input = "edit_sensors", sensors_input
+    elif ai_input is not None:
+        step_id, user_input = "edit_ai", ai_input
+    else:
+        step_id, user_input = "edit_settings", options_input
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"next_step_id": step_id}
     )
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == step_id
-    return await hass.config_entries.options.async_configure(
-        result["flow_id"], sensors_input if sensors_input is not None else options_input
-    )
+    return await hass.config_entries.options.async_configure(result["flow_id"], user_input)
 
 
 def _make_entry(hass: HomeAssistant) -> MockConfigEntry:
@@ -352,14 +359,22 @@ def _sensors_input(**overrides) -> dict:
         CONF_SOLAR_ENTITY_TYPE: SOLAR_ENTITY_TYPE_NET_EXPORT,
         CONF_GRID_ENTITY: HOUSE_ENTITY,
         CONF_BATTERY_ENTITY: BATTERY_ENTITY,
+        **overrides,
+    }
+
+
+def _ai_input(**overrides) -> dict:
+    return {
+        CONF_AI_ENABLED: True,
         CONF_OPENROUTER_KEY: "sk-or-new-key",
-        CONF_OPENROUTER_MODEL: "openai/gpt-5-mini",
+        CONF_OPENROUTER_MODEL: "test/free:free",
+        CONF_AI_INTERVAL: 600,
         **overrides,
     }
 
 
 async def test_options_flow_edit_sensors_updates_entry_data(hass: HomeAssistant) -> None:
-    """Entities and credentials chosen at setup can be changed afterwards."""
+    """Entities chosen at setup can be changed afterwards."""
     entry = _make_entry(hass)
     for eid in (NET_METER_ENTITY, HOUSE_ENTITY, BATTERY_ENTITY):
         hass.states.async_set(eid, "100")
@@ -371,9 +386,8 @@ async def test_options_flow_edit_sensors_updates_entry_data(hass: HomeAssistant)
     assert entry.data[CONF_SOLAR_ENTITY_TYPE] == SOLAR_ENTITY_TYPE_NET_EXPORT
     assert entry.data[CONF_GRID_ENTITY] == HOUSE_ENTITY
     assert entry.data[CONF_BATTERY_ENTITY] == BATTERY_ENTITY
-    assert entry.data[CONF_OPENROUTER_KEY] == "sk-or-new-key"
-    assert entry.data[CONF_OPENROUTER_MODEL] == "openai/gpt-5-mini"
-    # Runtime options are left untouched.
+    # Credentials and runtime options are left untouched.
+    assert entry.data[CONF_OPENROUTER_KEY] == API_KEY
     assert entry.options[CONF_PROFILE] == DEFAULT_PROFILE
 
 
@@ -537,3 +551,124 @@ async def test_options_flow_mock_solar_no_entity_selected_stored_as_none(hass: H
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_MOCK_SOLAR_ENABLED] is True
     assert result["data"].get(CONF_MOCK_SOLAR_ENTITY) is None
+
+
+async def test_house_entity_is_optional_in_setup(hass: HomeAssistant) -> None:
+    """A net grid meter alone is enough; no house consumption sensor needed."""
+    hass.states.async_set(SOLAR_ENTITY, "1500")
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_SOLAR_ENTITY: SOLAR_ENTITY,
+            CONF_SOLAR_ENTITY_TYPE: SOLAR_ENTITY_TYPE_NET_EXPORT,
+            CONF_OPENROUTER_KEY: API_KEY,
+            CONF_OPENROUTER_MODEL: DEFAULT_OPENROUTER_MODEL,
+        },
+    )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "optional_sensors"
+
+
+async def test_openrouter_key_is_optional_in_setup(hass: HomeAssistant) -> None:
+    """The controller works rule-based without an AI key."""
+    hass.states.async_set(SOLAR_ENTITY, "1500")
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_SOLAR_ENTITY: SOLAR_ENTITY,
+            CONF_SOLAR_ENTITY_TYPE: SOLAR_ENTITY_TYPE_PRODUCTION,
+            CONF_OPENROUTER_MODEL: DEFAULT_OPENROUTER_MODEL,
+        },
+    )
+
+    assert result["step_id"] == "optional_sensors"
+
+
+async def test_options_flow_edit_sensors_can_clear_house_entity(hass: HomeAssistant) -> None:
+    entry = _make_entry(hass)
+    hass.states.async_set(NET_METER_ENTITY, "100")
+    sensors_input = _sensors_input()
+    del sensors_input[CONF_GRID_ENTITY]
+
+    result = await _get_options_flow_result(hass, entry, sensors_input=sensors_input)
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.data[CONF_GRID_ENTITY] is None
+
+
+async def test_options_flow_edit_ai_updates_key_model_and_schedule(hass: HomeAssistant) -> None:
+    entry = _make_entry(hass)
+
+    result = await _get_options_flow_result(hass, entry, ai_input=_ai_input())
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.data[CONF_OPENROUTER_KEY] == "sk-or-new-key"
+    assert entry.data[CONF_OPENROUTER_MODEL] == "test/free:free"
+    assert entry.options[CONF_AI_ENABLED] is True
+    assert entry.options[CONF_AI_INTERVAL] == 600
+    # Other runtime options survive.
+    assert entry.options[CONF_PROFILE] == DEFAULT_PROFILE
+    assert entry.options[CONF_POLLING_INTERVAL] == DEFAULT_POLLING_INTERVAL
+
+
+async def test_options_flow_edit_ai_blank_key_clears_it(hass: HomeAssistant) -> None:
+    entry = _make_entry(hass)
+    ai_input = _ai_input()
+    del ai_input[CONF_OPENROUTER_KEY]
+
+    await _get_options_flow_result(hass, entry, ai_input=ai_input)
+
+    assert entry.data[CONF_OPENROUTER_KEY] == ""
+
+
+async def test_options_flow_edit_ai_accepts_any_model_id(hass: HomeAssistant) -> None:
+    """Paid or unlisted models can be typed in; the dropdown is only a suggestion."""
+    entry = _make_entry(hass)
+
+    await _get_options_flow_result(
+        hass, entry, ai_input=_ai_input(**{CONF_OPENROUTER_MODEL: "anthropic/claude-haiku-4-5"})
+    )
+
+    assert entry.data[CONF_OPENROUTER_MODEL] == "anthropic/claude-haiku-4-5"
+
+
+async def test_options_flow_edit_ai_form_masks_key_and_lists_free_models(hass: HomeAssistant) -> None:
+    entry = _make_entry(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "edit_ai"}
+    )
+
+    schema = {str(k): v for k, v in result["data_schema"].schema.items()}
+    assert schema[CONF_OPENROUTER_KEY].config["type"] == "password"
+    model_values = {o["value"] for o in schema[CONF_OPENROUTER_MODEL].config["options"]}
+    assert {"openrouter/free", "test/free:free"} <= model_values
+
+
+async def test_options_flow_edit_settings_keeps_ai_options(hass: HomeAssistant) -> None:
+    """Saving the runtime settings must not drop options owned by another step."""
+    entry = _make_entry(hass)
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, CONF_AI_ENABLED: False, CONF_AI_INTERVAL: 1800}
+    )
+
+    await _get_options_flow_result(
+        hass,
+        entry,
+        options_input={
+            CONF_DRY_RUN: False,
+            CONF_PROFILE: DEFAULT_PROFILE,
+            CONF_POLLING_INTERVAL: 30,
+            CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
+            CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
+        },
+    )
+
+    assert entry.options[CONF_POLLING_INTERVAL] == 30
+    assert entry.options[CONF_AI_ENABLED] is False
+    assert entry.options[CONF_AI_INTERVAL] == 1800
