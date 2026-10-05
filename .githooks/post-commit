@@ -1,0 +1,17 @@
+#!/bin/sh
+# Runs the test suite after every commit. A post-commit hook can't undo the commit,
+# so a failure is a loud warning: fix it in the next commit, before pushing.
+cd "$(git rev-parse --show-toplevel)" || exit 0
+PY=python
+[ -x .venv/bin/python ] && PY=.venv/bin/python
+
+echo "post-commit: running tests..."
+OUT=$(mktemp)
+if "$PY" -m pytest tests -q -p no:cacheprovider >"$OUT" 2>&1; then
+    tail -n 1 "$OUT"
+else
+    tail -n 25 "$OUT"
+    printf '\n\033[1;31m!! TESTS FAILING at %s — fix before pushing !!\033[0m\n\n' "$(git rev-parse --short HEAD)"
+fi
+rm -f "$OUT"
+exit 0

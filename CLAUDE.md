@@ -15,7 +15,8 @@ custom_components/solar_smart_miner/   # HA integration source
   coordinator.py       # DataUpdateCoordinator — fetches solar/grid/battery/miner state,
                        #   builds the decision preview, schedules AI advice requests
   decision.py          # rule-based decision preview (proposals are never applied yet)
-  ai.py                # OpenRouter client: prompt, chat completion, free-model list
+  ai.py                # OpenRouter client: prompt, chat completion, JSON answer parsing, free-model list
+  ai_log.py            # JSONL log of every AI request (inputs, rule proposal, AI actions) + widget history
   sensor.py            # sensor entity platform (hub + per-miner sensors, decision log, AI advice)
   select.py            # profile select entity
   button.py            # button entity platform (Add to Dashboard, Ask AI now)
@@ -33,6 +34,14 @@ docs/
                        #   implementing or debugging in documented areas.
 scripts/               # dev utilities (validate-frontmatter.py, etc.)
 ```
+
+## Testing Policy
+
+**Every change ships with tests, in the same commit.** New behaviour gets new tests; a fix gets a test that fails without it; a changed behaviour gets its old tests updated, never deleted to make them pass. Check this before committing: if a changed file has no matching test change, say why or add one.
+
+**Tests run automatically after every commit** via the versioned `.githooks/post-commit` hook (it prints the result; a failure shows a red warning, so fix it in the next commit before pushing). The hook is enabled per clone with `scripts/install-git-hooks.sh` (sets `core.hooksPath`), so run that once after cloning. It tests the working tree, not the commit, so commit everything related together.
+
+Tests never touch the network or the real HA config dir: `tests/conftest.py` has autouse fixtures for OpenRouter, the model list and the AI log folder.
 
 ## Running Tests
 
