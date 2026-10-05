@@ -25,7 +25,7 @@ SYSTEM_PROMPT = (
     "looks sensible and flag any concern. Plain text, no markdown."
 )
 
-MAX_RESPONSE_TOKENS = 300
+MAX_RESPONSE_TOKENS = 800
 _MODELS_TIMEOUT = 5  # seconds; the model list is only a convenience for the options form
 
 # Offered when the OpenRouter model list can't be fetched. "openrouter/free" routes
@@ -101,6 +101,9 @@ async def async_ask(
                 "model": model,
                 "messages": messages,
                 "max_tokens": MAX_RESPONSE_TOKENS,
+                # Reasoning models would otherwise spend the cap thinking and
+                # return a truncated answer; other models ignore this.
+                "reasoning": {"effort": "low"},
                 "temperature": 0.2,
             },
             timeout=aiohttp.ClientTimeout(total=timeout),
