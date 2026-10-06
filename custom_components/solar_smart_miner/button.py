@@ -1,6 +1,7 @@
 """Button platform for Solar Smart Miner."""
 from __future__ import annotations
 
+import json
 import logging
 
 from homeassistant.components.button import ButtonEntity
@@ -13,11 +14,22 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import (
+    CONF_CONTROL_MODE,
+    CONTROL_MODE_MANUAL,
+    CONTROL_MODE_PREVIEW,
+    DEFAULT_CONTROL_MODE,
+    DOMAIN,
+)
 from .control import RESULT_FAILED, RESULT_REFUSED, CommandResult
 from .coordinator import SolarMinerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+_MODE_TITLES = {
+    CONTROL_MODE_PREVIEW: "preview, not applied",
+    CONTROL_MODE_MANUAL: "manual apply",
+}
 
 
 def _hub_device_info(entry: ConfigEntry) -> DeviceInfo:
@@ -73,19 +85,23 @@ class AddToDashboardButton(ButtonEntity):
         hub_entities = [
             e
             for e in er.entities.values()
-            if e.device_id == hub_device.id
-            and e.domain in ("sensor", "select")
-            and e.platform == DOMAIN
+            if e.device_id == hub_device.id and e.platform == DOMAIN
         ]
-        log_entity_id = next(
-            (e.entity_id for e in hub_entities if e.unique_id.endswith("_decision_log")),
-            None,
-        )
-        ai_entity_id = next(
-            (e.entity_id for e in hub_entities if e.unique_id.endswith("_ai_advice")), None
-        )
+
+        def ids_ending(domain: str, suffix: str) -> list:
+            return [e for e in hub_entities if e.domain == domain and e.unique_id.endswith(suffix)]
+
+        log_entity_id = next((e.entity_id for e in ids_ending("sensor", "_decision_log")), None)
+        ai_entity_id = next((e.entity_id for e in ids_ending("sensor", "_ai_advice")), None)
+        proposed = sorted(ids_ending("sensor", "_proposed_action"), key=lambda e: e.entity_id)
+        last_action_id = next((e.entity_id for e in ids_ending("sensor", "_last_action")), None)
+        apply_all_id = next((e.entity_id for e in ids_ending("button", "_apply_all")), None)
+        # Shown in the "Proposed actions" section (or the markdown card) instead of the list.
+        elsewhere = {log_entity_id, ai_entity_id, last_action_id} | {e.entity_id for e in proposed}
         entity_ids = sorted(
-            e.entity_id for e in hub_entities if e.entity_id not in (log_entity_id, ai_entity_id)
+            e.entity_id
+            for e in hub_entities
+            if e.domain in ("sensor", "select") and e.entity_id not in elsewhere
         )
 
         if not entity_ids:
@@ -97,14 +113,29 @@ class AddToDashboardButton(ButtonEntity):
             )
             return
 
-        lines = ["type: entities", f"title: {self._entry.title}", "entities:"]
-        for eid in entity_ids:
-            lines.append(f"  - {eid}")
+        apply_rows: list[tuple[str, str, str]] = []  # (proposal sensor, apply button, miner name)
+        for sensor in proposed:
+            button_uid = sensor.unique_id.removesuffix("_proposed_action") + "_apply"
+            button = next((e for e in ids_ending("button", "_apply") if e.unique_id == button_uid), None)
+            if button is not None:
+                name = (button.original_name or button.entity_id).removesuffix(" apply")
+                apply_rows.append((sensor.entity_id, button.entity_id, name))
+
+        cards = [
+            _child_card(
+                ["type: entities", f"title: {self._entry.title}", "entities:"]
+                + [f"  - {eid}" for eid in entity_ids]
+            )
+        ]
+        if apply_rows or apply_all_id:
+            cards.append(_proposed_actions_card(apply_rows, apply_all_id, last_action_id))
         if log_entity_id:
-            lines = ["type: vertical-stack", "cards:"] + [
-                ("  - " if i == 0 else "    ") + line for i, line in enumerate(lines)
-            ]
-            lines += _decision_log_card(log_entity_id, ai_entity_id)
+            mode = self._entry.options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)
+            cards.append(_decision_log_card(log_entity_id, ai_entity_id, mode))
+        if len(cards) == 1:
+            lines = [line[4:] for line in cards[0]]  # a lone card needs no stack around it
+        else:
+            lines = ["type: vertical-stack", "cards:"] + [line for card in cards for line in card]
         yaml_card = "\n".join(lines)
 
         pn_create(
@@ -198,7 +229,54 @@ class ApplyAllButton(CoordinatorEntity[SolarMinerCoordinator], ButtonEntity):
             _raise_if_turned_away("Apply all", result)
 
 
-def _decision_log_card(entity_id: str, ai_entity_id: str | None = None) -> list[str]:
+def _child_card(lines: list[str]) -> list[str]:
+    """Card lines as a child of a vertical-stack: first line gets the list dash."""
+    return [("  - " if i == 0 else "    ") + line for i, line in enumerate(lines)]
+
+
+def _quoted(text: str) -> str:
+    return json.dumps(text, ensure_ascii=False)  # a double-quoted YAML string
+
+
+def _apply_button_row(button_id: str, label: str, confirm: str) -> list[str]:
+    """A button row whose press asks for confirmation first (the dialog text is static)."""
+    return [
+        "  - type: button",
+        f"    entity: {button_id}",
+        f"    name: {_quoted(label)}",
+        "    action_name: APPLY",
+        "    tap_action:",
+        "      action: perform-action",
+        "      perform_action: button.press",
+        "      target:",
+        f"        entity_id: {button_id}",
+        "      confirmation:",
+        f"        text: {_quoted(confirm)}",
+    ]
+
+
+def _proposed_actions_card(
+    rows: list[tuple[str, str, str]], apply_all_id: str | None, last_action_id: str | None
+) -> list[str]:
+    """Each miner's proposed action with its Apply button under it, Apply all, the last action."""
+    lines = ["type: entities", "title: Proposed actions", "entities:"]
+    for sensor_id, button_id, name in rows:
+        lines.append(f"  - entity: {sensor_id}")
+        lines += _apply_button_row(
+            button_id, f"Apply {name}", f"Apply the proposed action for {name}?"
+        )
+    if apply_all_id:
+        lines += _apply_button_row(
+            apply_all_id, "Apply all proposals", "Apply every proposed action, reductions first?"
+        )
+    if last_action_id:
+        lines.append(f"  - {last_action_id}")
+    return _child_card(lines)
+
+
+def _decision_log_card(
+    entity_id: str, ai_entity_id: str | None = None, control_mode: str = CONTROL_MODE_PREVIEW
+) -> list[str]:
     """Markdown card (as vertical-stack child lines) rendering the decision trace."""
     ai_lines = (
         [
@@ -217,7 +295,7 @@ def _decision_log_card(entity_id: str, ai_entity_id: str | None = None) -> list[
     )
     return [
         "  - type: markdown",
-        "    title: Decision log (preview — not applied)",
+        f"    title: Decision log ({_MODE_TITLES.get(control_mode, 'preview, not applied')})",
         "    content: |",
         f"      **{{{{ states('{entity_id}') }}}}**",
         "",

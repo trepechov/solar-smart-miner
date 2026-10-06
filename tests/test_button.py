@@ -389,3 +389,104 @@ async def test_dashboard_card_renders_the_ai_log(hass) -> None:
     assert "AI log (latest first)" in text
     assert "`18:30:15` Sun is setting · Brod1 reduce (not_enough_energy)" in text
     assert "`18:29:15` Rate limited by OpenRouter" in text
+
+
+# ---------------------------------------------------------------------------
+# Proposed actions section
+# ---------------------------------------------------------------------------
+
+
+async def _generated_card(hass, add_hass_miner, *, mode: str | None, miner_name: str = "Brod1") -> dict:
+    import yaml
+    from homeassistant.components import persistent_notification as pn
+
+    from custom_components.solar_smart_miner.const import CONF_CONTROL_MODE
+
+    add_hass_miner("192.168.1.10", name=miner_name, limit="1100", power="1100", temperature="55")
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    entry = _make_entry(hass)
+    if mode is not None:
+        hass.config_entries.async_update_entry(entry, options={**entry.options, CONF_CONTROL_MODE: mode})
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    button_id = next(s.entity_id for s in hass.states.async_all("button") if "add_to_dashboard" in s.entity_id)
+
+    await hass.services.async_call("button", "press", {"entity_id": button_id}, blocking=True)
+
+    message = pn._async_get_or_create_notifications(hass)[f"{DOMAIN}_add_to_dashboard"]["message"]
+    return yaml.safe_load(message.split("```yaml\n")[1].split("\n```")[0])
+
+
+def _entity_id_ending(hass, domain: str, suffix: str) -> str:
+    return next(s.entity_id for s in hass.states.async_all(domain) if s.entity_id.endswith(suffix))
+
+
+async def test_card_has_a_proposed_actions_section_with_confirmed_buttons(hass, add_hass_miner) -> None:
+    card = await _generated_card(hass, add_hass_miner, mode="manual")
+
+    assert [c["type"] for c in card["cards"]] == ["entities", "entities", "markdown"]
+    main, proposed, _ = card["cards"]
+    assert proposed["title"] == "Proposed actions"
+    sensor_id = _entity_id_ending(hass, "sensor", "brod1_proposed_action")
+    apply_id = _entity_id_ending(hass, "button", "brod1_apply")
+    apply_all_id = _entity_id_ending(hass, "button", "apply_all_proposals")
+    last_id = _entity_id_ending(hass, "sensor", "last_action")
+    rows = proposed["entities"]
+    # The proposal sits right above its button; Apply all follows; Last action closes the card.
+    assert rows[0] == {"entity": sensor_id}
+    assert rows[1]["type"] == "button" and rows[1]["entity"] == apply_id
+    assert rows[1]["tap_action"] == {
+        "action": "perform-action",
+        "perform_action": "button.press",
+        "target": {"entity_id": apply_id},
+        "confirmation": {"text": "Apply the proposed action for Brod1?"},
+    }
+    assert rows[2]["entity"] == apply_all_id and "confirmation" in rows[2]["tap_action"]
+    assert rows[3] == last_id
+    # None of these repeat in the main list.
+    for eid in (sensor_id, last_id):
+        assert eid not in main["entities"]
+
+
+async def test_card_buttons_survive_a_miner_name_with_yaml_characters(hass, add_hass_miner) -> None:
+    card = await _generated_card(hass, add_hass_miner, mode="manual", miner_name='Roof: "Brod" #1')
+
+    button_row = card["cards"][1]["entities"][1]
+    assert button_row["name"] == 'Apply Roof: "Brod" #1'
+    assert button_row["tap_action"]["confirmation"]["text"] == 'Apply the proposed action for Roof: "Brod" #1?'
+
+
+async def test_decision_log_title_follows_the_control_mode(hass, add_hass_miner) -> None:
+    manual = await _generated_card(hass, add_hass_miner, mode="manual")
+
+    assert manual["cards"][-1]["title"] == "Decision log (manual apply)"
+
+
+async def test_decision_log_title_says_preview_by_default(hass, add_hass_miner) -> None:
+    preview = await _generated_card(hass, add_hass_miner, mode=None)
+
+    assert preview["cards"][-1]["title"] == "Decision log (preview, not applied)"
+
+
+async def test_card_without_apply_entities_has_no_proposed_section(hass) -> None:
+    from homeassistant.helpers import device_registry as dr, entity_registry as er
+    import yaml
+
+    entry = _make_entry(hass)
+    hub = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, entry.entry_id)}, name=entry.title
+    )
+    for domain, uid in (("sensor", "x_solar_production"), ("sensor", "x_decision_log")):
+        er.async_get(hass).async_get_or_create(
+            domain, DOMAIN, uid, config_entry=entry, device_id=hub.id, suggested_object_id=uid
+        )
+    button = AddToDashboardButton(entry)
+    button.hass = hass
+    with patch(PN_MODULE) as mock_pn:
+        await button.async_press()
+
+    card = yaml.safe_load(mock_pn.call_args.args[1].split("```yaml\n")[1].split("\n```")[0])
+
+    assert [c["type"] for c in card["cards"]] == ["entities", "markdown"]
+    assert card["cards"][1]["title"] == "Decision log (preview, not applied)"
