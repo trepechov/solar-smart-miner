@@ -10,7 +10,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .config_flow import CONF_BATTERY_ENTITY, CONF_GRID_ENTITY
-from .const import DOMAIN
+from .const import CONTROL_MODE_PREVIEW, DOMAIN
 from .action_log import _ai_view
 from .coordinator import SolarMinerCoordinator
 from .decision import _describe_plan, _w
@@ -203,7 +203,7 @@ class DecisionLogSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
             return None
         names = {m.miner_id: m.name for m in data.miners}
         return {
-            "preview_only": True,
+            "preview_only": self.coordinator.control_mode == CONTROL_MODE_PREVIEW,
             "trace": data.decision.trace,
             "proposals": {names.get(mid, mid): w for mid, w in data.decision.proposals.items()},
             "plans": {
@@ -220,7 +220,7 @@ class DecisionLogSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
 
 
 class AiAdviceSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
-    """The AI advisor's latest comment on the decision preview (advisory only)."""
+    """The AI advisor's latest comment on the decision (advisory only: never applied)."""
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:robot-outline"
@@ -247,7 +247,7 @@ class AiAdviceSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
     def extra_state_attributes(self) -> dict | None:
         log = self.coordinator.ai_log
         attrs: dict = {
-            "preview_only": True,
+            "preview_only": self.coordinator.control_mode == CONTROL_MODE_PREVIEW,
             "history": list(log.history),
             "log_file": str(log.path),
         }

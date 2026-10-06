@@ -1,8 +1,8 @@
-"""Rule-based decision preview.
+"""Rule-based decisions.
 
-Stands in for the AI agent (U5) so the decision log shows what the integration
-reads and what it *would* do. Nothing here touches the miners: plans are
-only reported, never applied.
+Works out one plan per miner each cycle and explains it in a trace. Nothing here touches
+the miners: a plan is carried out only through control.py, when the control mode allows
+it and the owner presses Apply.
 
 A miner re-tunes for 14 min to an hour after every power-limit change, so limits
 only move between a few fixed steps (const.DEFAULT_POWER_STEPS), one step at a time

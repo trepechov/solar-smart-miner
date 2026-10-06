@@ -93,7 +93,7 @@ class Decision:
 
 @dataclass
 class AiAdvice:
-    """The AI advisor's latest answer to the decision preview. Advisory only."""
+    """The AI advisor's latest answer about the decision. Advisory only: it is never applied."""
 
     text: str
     model: str

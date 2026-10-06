@@ -29,7 +29,7 @@
            ⚡ clean energy ⚡
 ```
 
-A Home Assistant custom integration that uses an AI agent to dynamically control ASIC miner power limits based on real-time solar production, household consumption, and battery state — with hard safety rails, dry-run mode, and Telegram notifications.
+A Home Assistant custom integration that uses an AI agent to dynamically control ASIC miner power limits based on real-time solar production, household consumption, and battery state — with hard safety rails, a confirm-each-change control mode, and Telegram notifications.
 
 ## What it does
 
@@ -42,7 +42,7 @@ Solar Smart Miner closes that gap. An AI agent runs on a configurable interval, 
 - **AI-driven power control** — an agent powered by any OpenRouter-compatible model (including free Llama/Gemma) sets per-miner power limits based on live energy data
 - **Four built-in profiles** — Battery-focused, Solar-max, Grid-agnostic, Grid-independent; switchable from the HA UI without restart
 - **Hard safety layer** — temperature ceiling, battery SOC floor, and solar fault checks run before every AI decision and cannot be reasoned around
-- **Dry-run mode** — the agent runs its full decision cycle and logs what it would do, without touching any miner; togglable from the HA UI
+- **Preview and Manual control** — in Preview (the default) the integration only shows what it would do; in Manual you press Apply for each proposed action, or Apply all, and only then is a miner touched; switchable from the HA UI
 - **Telegram notifications** — every power limit change and every safety override sends a message with the reason
 - **HACS-ready** — distributed as a standard HA custom component; install and configure entirely through the Home Assistant UI
 
@@ -101,7 +101,7 @@ Open **Settings → Devices & services → Solar Smart Miner → Configure**. Sa
 | **Sensors** | Solar / net-meter entity and what it measures, house consumption (optional), battery SOC (optional), and reference sensors for the AI log: actual PV output and the solar forecast (all optional) |
 | **Miner stop method** | Per miner: the relay switch that cuts it off (empty = use the miner's own pause switch) |
 | **AI (OpenRouter)** | Turn the AI on or off, API key (shown hidden), model, seconds between AI requests |
-| **Settings** | Profile, power steps, tuning time, polling interval, temperature ceiling, battery floor, dry-run, Telegram, development mocks |
+| **Settings** | Profile, power steps, tuning time, polling interval, target temperature and tolerance, battery floor, control mode, Telegram, development mocks |
 
 ### AI advice (OpenRouter)
 
@@ -135,19 +135,54 @@ A miner re-tunes itself for 14 minutes to an hour after every power-limit change
 - **Tuning.** hass-miner doesn't report the tuning state, so it is estimated: a miner is assumed to be tuning for the configured number of minutes (default 60) after its limit last changed. While tuning it is never stepped up; stepping down and stopping are still allowed. A limit that was already set when Home Assistant started counts as settled.
 - **Filling order.** A running miner is stepped up to its top step before another miner is started.
 
-These are plans only for now: the decision log and the AI advice show what would be done, and nothing is applied to the miners yet.
+The rules work out one plan per miner every cycle. In **Preview** mode the decision log and the AI advice only show what would be done; in **Manual** mode each plan can be applied with a button (see [Control mode](#control-mode)).
 
 ## Safety layer
 
-The following overrides run before every AI decision and cannot be bypassed — not even by dry-run mode:
+The following overrides run before every AI decision and cannot be bypassed — not even by pressing Apply:
 
 - **Temperature ceiling** — if any miner exceeds the configured board/chip temperature, it is dropped to its lowest power step
 - **Battery SOC floor** — if battery drops below the configured %, all miners are stopped
 - **Solar fault** — if the solar entity is unavailable, every miner is held as it is: a short sensor drop must not make the miners re-tune
 
+## Control mode
+
+The **Control mode** select (also under Configure → Settings) says whether the integration may touch the miners:
+
+| Mode | What happens |
+|---|---|
+| **Preview** (default) | Plans are only shown. Every Apply button is greyed out. |
+| **Manual** | Each miner gets a **proposed action** sensor and an **Apply** button under it, and there is an **Apply all proposals** button. Nothing is sent to a miner until you press one (the dashboard card asks to confirm). |
+
+An automatic mode will come later as another value of this select; it will use the same code path as the buttons.
+
+How Apply works:
+
+- **What you saw is what runs.** On press the integration reads everything again. If the plan for that miner changed in the meantime, nothing is sent and a notification says "the proposal changed, check again". A failed update refuses too: stale readings are worse than no action.
+- **Only the rule plan is applied**, never the AI answer. The AI's view of the same miner is shown on the proposed-action sensor (`ai_action`) and recorded in the action log.
+- **Guards.** A limit that is not one of the miner's power steps is refused, never clamped. A second press for a miner is refused while its previous command is still being checked.
+- **Apply all** sends stops and step-downs first, then step-ups and starts, so the house never briefly draws both.
+- **Every command is checked.** The miner's entity must show the new value within 60 s (300 s for a relay start, the miner has to boot). A start is two steps: switch on, then set the limit once the miner is back. If it doesn't take, you get a notification (**a command didn't take**), one per miner.
+- **Schedule automations still run.** If you still have the 07:00 / 19:00 pause-and-resume automation, it can undo an applied action. Retire it before automatic mode.
+
+### Action log
+
+Every command is written to `<config>/solar_smart_miner/actions.jsonl` (rotated at 5 MB, two backups): one line when it is sent or refused and one when its outcome is known, joined by `command_id`. A line holds the plan, the miner before and after, the energy picture, the rule summary and the AI's view of that miner. The **Last action** sensor shows the latest command; its `history` attribute holds the last 20.
+
+### First-run checklist
+
+1. Control mode **Preview**: nothing can be pressed; the card title says preview.
+2. Switch to **Manual**, midday, one miner, a step-down the rules propose: press Apply, watch the number change, check `actions.jsonl` has a `pending` then an `ok` line, and that the next cycle treats the miner as tuning.
+3. A step-up on the same miner after it has settled.
+4. A stop with the pause method, then a start: note whether the limit can be set while paused and how long until it is back.
+5. Let a plan change between looking and pressing (change the profile): confirm the "proposal changed" notification.
+6. Pull the network or switch the miner off and press: confirm `failed` after the grace time and the notification.
+7. Apply all with two miners moving in opposite directions: the reduction goes first.
+8. Write what you saw into the knowledge base (`miners.yaml`, `alerts.yaml`).
+
 ## Decision log
 
-The **Decision log** sensor shows what the controller read, how it reasoned and what it *would* set for each miner (a preview — nothing is applied yet). The state is the one-line summary; the `trace`, `proposals` and `history` attributes hold the detail. Use the **Add to dashboard** button for a ready-made card that also shows the AI advice.
+The **Decision log** sensor shows what the controller read, how it reasoned and what it proposes for each miner (applied only when you press Apply in Manual mode). The state is the one-line summary; the `trace`, `proposals` and `history` attributes hold the detail. Use the **Add to dashboard** button for a ready-made card that also shows the AI advice.
 
 ## Development
 
@@ -254,7 +289,7 @@ docker restart <container-name>
 scp -r custom_components/solar_smart_miner/ ha-user@ha-host:/config/custom_components/
 ```
 
-Then restart Home Assistant. Run dry-run mode for at least 24 hours before switching to live control.
+Then restart Home Assistant. Leave the control mode on Preview for at least 24 hours before switching to Manual, and walk through the [first-run checklist](#first-run-checklist) on the real miners.
 
 ## Roadmap
 

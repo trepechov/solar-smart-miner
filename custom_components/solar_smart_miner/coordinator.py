@@ -1,7 +1,7 @@
 """DataUpdateCoordinator for Solar Smart Miner.
 
 Reads solar/grid/battery entities and every miner configured in hass-miner,
-derives the grid balance, and builds a preview decision (see decision.py).
+derives the grid balance, and builds the decision (see decision.py).
 Plans are applied only through control.py, when the control mode allows it.
 """
 from __future__ import annotations

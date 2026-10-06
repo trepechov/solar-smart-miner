@@ -623,3 +623,20 @@ async def test_decision_log_exposes_the_plans_with_actions(hass, add_hass_miner)
     plan = state.attributes["plans"]["ASIC 1"]
     assert set(plan) == {"action", "limit_w", "method", "reason"}
     assert plan["action"] in {"set_limit", "hold", "stop", "start"}
+
+
+async def test_sensors_say_preview_only_follows_the_control_mode(hass, add_hass_miner) -> None:
+    from custom_components.solar_smart_miner.const import CONF_CONTROL_MODE
+
+    entry = _make_entry(hass)
+    hass.config_entries.async_update_entry(entry, options={**entry.options, CONF_CONTROL_MODE: "manual"})
+    add_hass_miner("192.168.1.10", name="ASIC 1")
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    for suffix in ("decision_log", "ai_advice"):
+        state = next(s for s in hass.states.async_all("sensor") if s.entity_id.endswith(suffix))
+        assert state.attributes["preview_only"] is False, suffix
