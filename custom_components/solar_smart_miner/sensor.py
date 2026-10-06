@@ -13,8 +13,8 @@ from .config_flow import CONF_BATTERY_ENTITY, CONF_GRID_ENTITY
 from .const import CONTROL_MODE_PREVIEW, DOMAIN
 from .action_log import _ai_view
 from .coordinator import SolarMinerCoordinator
-from .decision import _describe_plan, _w
-from .protocols import ACTION_SET_LIMIT, MinerPlan, MinerSnapshot
+from .decision import describe_proposal
+from .protocols import MinerPlan, MinerSnapshot
 
 
 def _hub_device_info(entry: ConfigEntry) -> DeviceInfo:
@@ -38,6 +38,7 @@ async def async_setup_entry(
         DecisionLogSensor(coordinator, entry),
         AiAdviceSensor(coordinator, entry),
         LastActionSensor(coordinator, entry),
+        ActivitySensor(coordinator, entry),
     ]
 
     if entry.data.get(CONF_GRID_ENTITY, ""):
@@ -291,6 +292,48 @@ class LastActionSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
         return {"history": list(log.history), "log_file": str(log.path)}
 
 
+class ActivitySensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
+    """Proposals and applied actions in one newest-first feed: the card's activity log."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timeline-text-outline"
+    _unrecorded_attributes = frozenset({"feed"})
+
+    def __init__(self, coordinator: SolarMinerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.unique_id or entry.entry_id}_activity"
+        self._attr_name = "Activity"
+        self._attr_device_info = _hub_device_info(entry)
+
+    @property
+    def native_value(self) -> str:
+        feed = self.coordinator.activity
+        if not feed:
+            return "Nothing yet"
+        last = feed[0]
+        return f"{last['miner']}: {last['plan']} ({last['kind']})"[:255]
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        data = self.coordinator.data
+        current = (
+            {mid: plan.fingerprint for mid, plan in data.decision.plans.items()}
+            if data is not None and data.decision is not None
+            else {}
+        )
+        seen: set[str] = set()
+        feed = []
+        for entry in self.coordinator.activity:  # newest first
+            is_current = False
+            if entry["kind"] == "proposal" and entry["miner_id"] not in seen:
+                seen.add(entry["miner_id"])  # only a miner's newest proposal can still stand
+                is_current = entry.get("fingerprint") == current.get(entry["miner_id"]) and (
+                    entry.get("action") != "hold"
+                )
+            feed.append({**entry, "current": is_current})
+        return {"feed": feed}
+
+
 class BatterySocSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
     _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.BATTERY
@@ -428,11 +471,7 @@ class ProposedActionSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntit
         pair = self._plan()
         if pair is None:
             return "No plan"
-        miner, plan = pair
-        text = _describe_plan(plan)
-        if plan.action == ACTION_SET_LIMIT and miner.power_limit_w is not None:
-            text += f" (from {_w(miner.power_limit_w)})"
-        return text
+        return describe_proposal(*pair)
 
     @property
     def extra_state_attributes(self) -> dict | None:

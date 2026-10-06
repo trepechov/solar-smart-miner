@@ -259,3 +259,76 @@ async def test_unique_ids_are_stable_across_a_reload(hass, add_hass_miner) -> No
     assert after == before
     assert any(u.endswith("192_168_1_10_apply") for u in after)
     assert any(u.endswith("192_168_1_10_proposed_action") for u in after)
+
+
+# --- activity feed ---------------------------------------------------------
+
+
+async def test_activity_feed_follows_proposals_then_the_applied_action(hass, add_hass_miner) -> None:
+    entry, reg = await _setup(hass, add_hass_miner)
+    async_mock_service(hass, "number", "set_value")
+    coordinator = entry.runtime_data
+    state = _state(hass, "sensor", "_activity")
+    first = state.attributes["feed"][0]
+    assert (first["kind"], first["miner"], first["plan"]) == ("proposal", "Brod1", "1,500 W (from 1,100 W)")
+    assert first["current"] is True and first["reason"] == "budget"
+    assert state.state == "Brod1: 1,500 W (from 1,100 W) (proposal)"
+
+    await _press(hass, _entity_id(hass, "button", "192_168_1_10_apply"))
+    hass.states.async_set(reg["power_limit"].entity_id, "1500", LIMITS)
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    feed = _state(hass, "sensor", "_activity").attributes["feed"]
+    kinds = [(e["kind"], e.get("result")) for e in feed]
+    # Newest first: once the miner reached 1,500 W the rules propose a hold, after the ok line.
+    assert kinds == [("proposal", None), ("applied", "ok"), ("applied", "pending"), ("proposal", None)]
+    assert feed[0]["action"] == "hold" and feed[0]["current"] is False
+    assert feed[2]["plan"] == "1,500 W"
+
+
+async def test_a_changed_proposal_adds_an_entry_and_retires_the_old_one(hass, add_hass_miner) -> None:
+    entry, reg = await _setup(hass, add_hass_miner)
+    hass.states.async_set(reg["temperature"].entity_id, "80")  # warm: a step down now
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    feed = _state(hass, "sensor", "_activity").attributes["feed"]
+
+    assert [(e["reason"], e["current"]) for e in feed] == [("too warm", True), ("budget", False)]
+    assert feed[1]["plan"] == "1,500 W (from 1,100 W)"
+
+
+async def test_an_unchanged_proposal_is_not_repeated(hass, add_hass_miner) -> None:
+    entry, _ = await _setup(hass, add_hass_miner)
+    for _ in range(3):
+        await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    assert len(_state(hass, "sensor", "_activity").attributes["feed"]) == 1
+
+
+async def test_a_first_hold_is_not_news_but_a_later_one_is(hass, add_hass_miner) -> None:
+    entry, reg = await _setup(hass, add_hass_miner, limit="1500", power="1500", solar="1700", house="1500")
+    assert _state(hass, "sensor", "_activity").state == "Nothing yet"  # holding from the start
+
+    hass.states.async_set(reg["power_limit"].entity_id, "900", LIMITS)
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    top = _state(hass, "sensor", "_activity").attributes["feed"][0]
+    assert (top["plan"], top["reason"], top["current"]) == ("hold 900 W", "tuning", False)
+    count = len(_state(hass, "sensor", "_activity").attributes["feed"])
+    assert count == 1  # the change to 900 W is news; the hold it started from was not
+
+
+async def test_activity_feed_restarts_from_the_action_log(hass, add_hass_miner) -> None:
+    entry, _ = await _setup(hass, add_hass_miner)
+    async_mock_service(hass, "number", "set_value")
+    await _press(hass, _entity_id(hass, "button", "192_168_1_10_apply"))
+
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    kinds = [e["kind"] for e in _state(hass, "sensor", "_activity").attributes["feed"]]
+    assert kinds == ["proposal", "applied"]  # the proposal is new; the applied action came from the file

@@ -29,20 +29,32 @@ Check off each unit after it is implemented, tested and committed.
 
 **Phase 1: semi-automatic (this plan)**
 
-- [ ] **S1**: Control mode setting: `Preview` / `Manual` (replaces the unused `dry_run` option)
-- [ ] **S2**: Command executor (`control.py`): plan → HA service calls, with guards
-- [ ] **S3**: What you saw is what runs: plan fingerprint, refresh and compare on press
-- [ ] **S4**: Verify every command and finish a start (pending limit after power-on)
-- [ ] **S5**: Action log (`actions.jsonl`): who applied what, before, after, result
-- [ ] **S6**: Entities: per-miner "Proposed action" sensor and "Apply" button, hub "Apply all" button
-- [ ] **S7**: Dashboard card: a "Proposed actions" section with confirm dialogs
-- [ ] **S8**: Docs, knowledge base, wording ("preview only" is no longer always true)
+- [x] **S1**: Control mode setting: `Preview` / `Manual` (replaces the unused `dry_run` option)
+- [x] **S2**: Command executor (`control.py`): plan → HA service calls, with guards
+- [x] **S3**: What you saw is what runs: plan fingerprint, refresh and compare on press
+- [x] **S4**: Verify every command and finish a start (pending limit after power-on)
+- [x] **S5**: Action log (`actions.jsonl`): who applied what, before, after, result
+- [x] **S6**: Entities: per-miner "Proposed action" sensor and "Apply" button, hub "Apply all" button
+- [x] **S7**: Dashboard card: a "Proposed actions" section with confirm dialogs
+- [x] **S8**: Docs, knowledge base, wording ("preview only" is no longer always true)
 - [ ] **S9**: First run on the real miners (manual checklist, below)
+
+**Phase 1 follow-ups (from the 2026-10-06 review; do before or alongside S9)**
+
+- [ ] **S10**: Schedule automation setting and the Manual-mode warning (Decision 4)
+- [ ] **S11**: Verify against the miner, not hass-miner's own echo; hold the lock through the limit-change restart
+- [ ] **S12**: Any exception from a service call is a `failed` command
+- [ ] **S13**: Plan-age guard: refuse a press when the plan changed just before it
+- [ ] **S14**: Evidence logging: unpressed proposals, a 60-minute outcome line, engine version
 
 **Phase 2: automatic (later, not part of this plan)**
 
 - [ ] **A1**: `Auto` control mode, same executor, called by the coordinator
-- [ ] **A2**: Automation-only guards (hold time, change rate, schedule conflict, failure freeze)
+- [ ] **A2**: Automation-only guards (change rate, flapping, schedule conflict, failure freeze); hold time and ramp lock in the decision
+
+**Phase 3: AI authority (later, separate plan)**
+
+- [ ] **AI1**: The AI chooses allocation inside the rules' envelope (requirements §7 roadmap stage 2), gated on its own evidence
 
 ---
 
@@ -51,11 +63,11 @@ Check off each unit after it is implemented, tested and committed.
 | Area | State | What it means for this plan |
 |---|---|---|
 | Rule decision (`decision.py`) | Done, runs every poll. Produces a `MinerPlan` per miner: `set_limit` / `start` / `stop` / `hold`, with `limit_w`, `method` (relay or pause) and `target_entity_id`. | **The plan is already a command.** Nothing new to decide; we only carry it out. |
-| Power steps, tuning, temperature, stop-below-lowest-step | Done in the rules. | Plans are already one step at a time, inside the miner's range, and never step up a tuning miner. |
+| Power steps, tuning, temperature, stop-below-lowest-step | Done in the rules. | Plans only use the miner's steps, stay inside its range, and never step up a tuning miner. One plan can move several steps at once (`_allocate` moves as far as the budget allows); a per-change step cap, if wanted, belongs in A2. |
 | Entities to act on | Known per miner in `MinerSnapshot`: `power_limit_entity_id` (hass-miner `number`), `switch_entity_id` (hass-miner `active` = pause/resume), `relay_entity_id` (optional, from Configure). | The executor needs no new discovery. |
 | `_async_apply_power_limit` in the coordinator | Exists from U11, tested, **never called**. Clamps to min/max and calls `number.set_value`. | Moves into the executor and gains the step check. |
 | `CONF_DRY_RUN` option | In Configure, saved, **read by nothing**. | Replaced by the control mode (S1). |
-| AI advice | Advisory only. Its actions are `increase/reduce/hold/stop/start` **without a wattage**. | **Not applied.** Only the rule plan is applied; the AI answer is shown next to it and logged for comparison (P0 `rule.guard-above-ai`). |
+| AI advice | Advisory only. Its actions are `increase/reduce/hold/stop/start` **without a wattage**. | **Not applied.** Only the rule plan is applied; the AI answer is shown next to it and logged for comparison (P1 `rule.ai-is-advisor`, `rule.apply-by-hand-first`). `rule.guard-above-ai` is about the later stage when AI proposals can be applied. |
 | Decision log sensor and card | Shows trace and plans; titled "preview, not applied". | Gets an apply section (S6, S7); the title changes with the mode. |
 | Tuning tracking | `_limit_seen` notices a limit change on the next poll. | The executor marks the change at once, so the next cycle already counts the miner as tuning. |
 | Schedule automation | Still pauses/resumes at 07:00 and 19:00 (`site.schedule-automation`). | Manual mode warns, it doesn't refuse (see Decisions). Auto mode will refuse. |
@@ -66,10 +78,10 @@ Check off each unit after it is implemented, tested and committed.
 
 ## Decisions (proposed, confirm or veto)
 
-1. **Only the rule plan is applied.** The AI has no wattage in its answer, and the rules are the controller (requirements doc §0 point 1). The AI's view of the same miner is shown next to the button and recorded in the action log, so later we can see how often the owner applied a plan the AI disagreed with.
-2. **The button applies exactly what was shown.** On press, the coordinator refreshes; if the plan for that miner changed, nothing runs and a notification says "the proposal changed, check again" (S3). No silent substitution.
+1. **Only the rule plan is applied, in this phase.** The rules are the controller (requirements doc §0 point 1, `rule.ai-is-advisor`). Giving the AI authority is a later, separately gated stage (Phase 3), not something this plan rules out; what the AI's answer must contain for that is an open question (see the end). The AI's view of the same miner is shown next to the button and recorded in the action log, so later we can see how often the owner applied a plan the AI disagreed with.
+2. **The button applies the plan that is current at the press, and nothing newer.** On press, the coordinator refreshes; if the plan for that miner changed, nothing runs and a notification says "the proposal changed, check again" (S3). No silent substitution. The fingerprint is read from the coordinator at press time, so a plan that changed while the owner was reading the row or the confirm dialog was open is not caught by this check alone (the card's confirm text is static); S13 closes most of that gap by refusing a plan that changed just before the press.
 3. **One command path for all triggers.** `async_apply(miner_id, plan, trigger)` with `trigger` = `manual` now, `auto` later. Everything (guards, service calls, verification, logging) lives behind it. Phase 2 adds guards there, not in the buttons.
-4. **In Manual mode the schedule automation is a warning, not a block.** The owner is at the screen and is the one controller; refusing would make the button useless until the schedule is retired. Auto mode refuses (P0 `rule.one-controller`).
+4. **In Manual mode the schedule automation is a warning, not a block.** The owner is at the screen and is the one controller; refusing would make the button useless until the schedule is retired. Auto mode refuses (P0 `rule.one-controller`, now scoped to automatic control with this Manual exception recorded). The warning needs a setting that names the automation; S10 adds it. Until S10 lands there is no warning.
 5. **Apply all runs reductions first**: stops and step-downs, then step-ups and starts, so the house never briefly draws both.
 6. **Hold plans have no button.** The Apply button is unavailable (greyed out) when the plan is `hold`, when the mode is Preview, or while a command for that miner is still being verified.
 7. **Safety plans are not special-cased in Phase 1.** A battery-floor stop is a plan like any other and waits for the button. Running safety plans without a press belongs to Phase 2.
@@ -201,7 +213,7 @@ sequenceDiagram
 
 ### S5. Action log
 
-**Goal:** A record of what was applied. It is also the "outcome fields" the AI log has been waiting for (`open.ai-learning`).
+**Goal:** A record of what was applied and its immediate result. It is the first half of the "outcome fields" the AI log has been waiting for (`open.ai-learning`); the after-effects (import, hashrate, restarts, reversal) and the unpressed proposals come with S14.
 
 - `actions.jsonl` next to `ai_log.jsonl`, same rotation. Pull the file writing out of `AiLog` into a small shared `JsonlLog` class (path, rotate, append, read tail) and use it for both, rather than copying it.
 - One line per command event: `ts`, `trigger`, `miner`, `plan` (action, limit, method, reason), `before` (limit, power, temp, hashrate, stopped), `energy` (grid net, available, solar), `rule_summary`, `ai` (the AI's action for this miner from the latest advice, and its age), `result` (`ok` / `refused` / `failed` / `pending`), `reason`, `calls`.
@@ -258,18 +270,76 @@ Not code; a checklist the owner runs and the result goes into the knowledge base
 
 ---
 
+## Phase 1 follow-ups (from the 2026-10-06 review)
+
+S1-S8 are built. The review found four gaps in what they do and one gap in what they record. Each ships with tests in the same commit, as usual.
+
+### S10. Schedule automation setting and Manual-mode warning
+
+- Optional setting in Configure: the schedule automation entity (or entities).
+- When set and `on`: the proposed-action sensor carries a `schedule_conflict` attribute, the card shows a one-line warning above the Apply rows, and the apply notification repeats it. Manual mode still applies (Decision 4); A2 reuses the same setting to refuse in Auto.
+- S9 checklist: decide before step 2 whether the schedule stays on during the manual phase.
+
+**Tests:** no setting gives no warning; setting with the automation `on` gives the attribute and notification text; `off` clears it.
+
+### S11. Verify against the miner, not hass-miner's echo
+
+hass-miner's switch and number write the new state straight after the call (`_attr_is_on` / `_attr_native_value`), and its switch keeps that value while `updating_switch` is set, so "the entity reads the new value" is true even when the miner never acted (`miner.hass-miner-optimistic`).
+
+- `stop` is done when the miner's power (or hashrate) drops to about 0; `start` when hashrate comes back.
+- `set_limit` is done when the number still reads `limit_w` after at least one hass-miner refresh after the call, **and** the miner is hashing again after the restart a limit change causes (`miner.limit-change-cost`).
+- The per-miner lock stays held, and the decision treats the miner as ramping rather than stopped, until then, so the restart window can't produce a `start` plan.
+
+**Tests:** an echoed state alone doesn't give `ok`; a restart window keeps the lock and produces no start plan; the deadline still fails a miner that never comes back.
+
+### S12. Any service exception is a failed command
+
+- `_send` treats every exception from `hass.services.async_call` as `failed` (pyasic `APIError`, `TypeError`, …), releases the lock and writes the log line with the error text.
+- Stop/start errors are swallowed inside hass-miner, so for those S11 is the only way failure shows.
+
+**Tests:** a non-HA exception from the number gives `failed`, a released lock and a log line.
+
+### S13. Plan-age guard
+
+- The coordinator remembers when each miner's plan fingerprint last changed.
+- A manual press is refused ("the proposal just changed, check again") when the plan changed within the last poll interval before the press (minimum 30 s), because the owner may not have seen it. Apply all skips such miners and reports them.
+
+**Tests:** a plan unchanged for longer than the window applies; a plan that changed within it is refused and logged `refused: just changed`.
+
+### S14. Evidence logging
+
+What Phase 2 and Phase 3 are decided on (`open.go-live-evidence`, `open.ai-authority-evidence`):
+
+- **Proposals:** every time a miner's actionable plan appears, changes or expires unapplied, write a `trigger: "proposed"` line to `actions.jsonl` with the plan, the AI's view and the situation. "Skipped" = proposals that expired without a command.
+- **Outcome:** 60 minutes after an `ok` command, write an outcome line joined by command id: mean grid import, mean hashrate, restarts on that miner, and whether a later command reversed it.
+- **Version:** every line carries the rule-engine version (`manifest.json` version plus a `decision.py` rules version constant).
+
+**Tests:** a plan that expires unpressed writes a proposal line; the outcome line is written once with the fields above; the version is on every line.
+
+---
+
 ## Phase 2: automatic mode (later)
 
 What the toggle needs on top of Phase 1. Listed so Phase 1 doesn't paint it into a corner.
 
 - **A1. `Auto` mode.** The control-mode select gains `Auto`. At the end of `_async_update_data`, when the mode is Auto, the coordinator calls `controller.async_apply(…, trigger="auto")` for every actionable plan, in the Apply-all order. No fingerprint check is needed: the plan is fresh by construction. The buttons stay as a manual override in every mode.
-- **A2. Guards that only automation needs** (all in `control.py`, keyed by `trigger == "auto"`):
-  - Minimum hold time per miner (requirements doc §5.2) and a cap on changes per hour.
-  - A plan must be the same for N cycles before it runs (flapping guard; replaces the human's judgement).
-  - `control.schedule-conflict`: a setting naming the schedule automation; refuse while it is on (P0 `rule.one-controller`).
-  - `control.apply-failed` freezes automatic applying until a human acknowledges it.
+- **A2. Dynamics in the decision, operational guards in the executor.**
+  - **In `decision.py` (a dynamics gate, requirements doc §11 step 2), in every mode:** minimum hold time per miner (requirements doc §5.2; the value waits on `conflict.ramp-vs-tuning`), `rule.ramp-lock` and `rule.down-slowly-up-promptly`. The gate turns a blocked change into `hold` with a reason, so the card, the AI and Auto all see the plan the rules allow, and Phase 1 evidence is gathered on the same plans Auto would run. This should land before the go-live evidence is counted.
+  - **In `control.py`, keyed by `trigger == "auto"`:** a cap on changes per hour; a plan must be the same for N cycles before it runs (flapping guard; replaces the human's judgement); `control.schedule-conflict` using the S10 setting, refusing while the automation is on (P0 `rule.one-controller`); `control.apply-failed` freezes automatic applying until a human acknowledges it. A refusal that repeats with the same plan and reason is logged once, not every cycle.
   - Safety plans (battery floor, voltage when it exists) run without waiting.
-- **Evidence to switch it on** comes from the Phase 1 action log: how many plans the owner applied as shown, how many were skipped, how many were reversed within an hour (`open.go-live-evidence`).
+- **Evidence to switch it on** comes from the Phase 1 action log (with S14): how many proposals the owner applied as shown, how many expired unpressed, how many were reversed within an hour, per situation (sunrise, sunset, cloud, midday) (`open.go-live-evidence`). Evidence counts only for the rule-engine version that produced it; it starts again when the `decision/` pipeline (requirements doc §11) replaces today's rules.
+
+---
+
+## Phase 3: AI authority (later, separate plan)
+
+Phase 2 automates the **rules**. The requirements doc §7 roadmap also moves authority to the **AI** in stages, and that needs its own gate:
+
+- **Stage 2, the AI chooses allocation** (which miner moves, by how many steps), inside the rules' envelope. AI-sourced plans become `MinerPlan`s, go through the same safety rules and dynamics gate (`rule.guard-above-ai`), and are sent to `async_apply` with `trigger="ai"`. They are gated separately from rule Auto mode.
+- **Evidence** (`open.ai-authority-evidence`): from `actions.jsonl` joined with `ai_log.jsonl`, how often the AI's view differed from the rule plan, including on `hold` plans, and how the outcome lines compare when the owner applied a plan the AI agreed with versus one it disagreed with.
+- **Prerequisite:** an AI answer that can be applied, i.e. one that names a step per miner (see the open question at the end).
+
+---
 
 ---
 
@@ -281,5 +351,6 @@ What the toggle needs on top of Phase 1. Listed so Phase 1 doesn't paint it into
 | Double press or Apply all plus a single press | Per-miner pending lock (S2/S4). |
 | hass-miner rejects the value, or the miner is unreachable | `blocking=True` call, verification with a deadline, notification (S4). |
 | A limit off the step ladder reaches a miner | Refuse in the executor (S2), never clamp silently. |
-| The schedule automation undoes a manual action at 07:00/19:00 | Warning in Manual mode; the owner retires the schedule before Auto (A2). |
+| The schedule automation undoes a manual action at 07:00/19:00 | Warning in Manual mode (S10); the owner retires the schedule before Auto (A2). |
+| A command is logged `ok` but the miner never acted | Verify against power and hashrate, not hass-miner's optimistic state (S11). |
 | HA restarts mid-command | The pending state is lost; the next cycle's plan shows reality. The log line stays `pending`; accepted for Phase 1. |

@@ -422,39 +422,73 @@ def _entity_id_ending(hass, domain: str, suffix: str) -> str:
     return next(s.entity_id for s in hass.states.async_all(domain) if s.entity_id.endswith(suffix))
 
 
-async def test_card_has_a_proposed_actions_section_with_confirmed_buttons(hass, add_hass_miner) -> None:
+async def test_card_is_an_activity_log_with_confirmed_apply_buttons_under_it(hass, add_hass_miner) -> None:
     card = await _generated_card(hass, add_hass_miner, mode="manual")
 
-    assert [c["type"] for c in card["cards"]] == ["entities", "entities", "markdown"]
-    main, proposed, _ = card["cards"]
-    assert proposed["title"] == "Proposed actions"
+    assert [c["type"] for c in card["cards"]] == ["entities", "markdown", "horizontal-stack", "markdown"]
+    main, activity, buttons, _ = card["cards"]
     sensor_id = _entity_id_ending(hass, "sensor", "brod1_proposed_action")
+    activity_id = _entity_id_ending(hass, "sensor", "activity")
     apply_id = _entity_id_ending(hass, "button", "brod1_apply")
     apply_all_id = _entity_id_ending(hass, "button", "apply_all_proposals")
-    last_id = _entity_id_ending(hass, "sensor", "last_action")
-    rows = proposed["entities"]
-    # The proposal sits right above its button; Apply all follows; Last action closes the card.
-    assert rows[0] == {"entity": sensor_id}
-    assert rows[1]["type"] == "button" and rows[1]["entity"] == apply_id
-    assert rows[1]["tap_action"] == {
+    assert activity["title"] == "Activity log"
+    assert f"states('{sensor_id}')" in activity["content"]  # the current proposal, on top
+    assert f"state_attr('{activity_id}', 'feed')" in activity["content"]
+    first, second = buttons["cards"]
+    assert first["type"] == "button" and first["entity"] == apply_id and first["show_state"] is False
+    assert first["tap_action"] == {
         "action": "perform-action",
         "perform_action": "button.press",
         "target": {"entity_id": apply_id},
         "confirmation": {"text": "Apply the proposed action for Brod1?"},
     }
-    assert rows[2]["entity"] == apply_all_id and "confirmation" in rows[2]["tap_action"]
-    assert rows[3] == last_id
-    # None of these repeat in the main list.
-    for eid in (sensor_id, last_id):
-        assert eid not in main["entities"]
+    assert second["entity"] == apply_all_id and "confirmation" in second["tap_action"]
+    # Nothing the log or buttons show repeats in the main list.
+    assert sensor_id not in main["entities"] and activity_id not in main["entities"]
 
 
 async def test_card_buttons_survive_a_miner_name_with_yaml_characters(hass, add_hass_miner) -> None:
     card = await _generated_card(hass, add_hass_miner, mode="manual", miner_name='Roof: "Brod" #1')
 
-    button_row = card["cards"][1]["entities"][1]
-    assert button_row["name"] == 'Apply Roof: "Brod" #1'
-    assert button_row["tap_action"]["confirmation"]["text"] == 'Apply the proposed action for Roof: "Brod" #1?'
+    button = card["cards"][2]["cards"][0]
+    assert button["name"] == 'Apply Roof: "Brod" #1'
+    assert button["tap_action"]["confirmation"]["text"] == 'Apply the proposed action for Roof: "Brod" #1?'
+    assert 'Roof: "Brod" #1' in card["cards"][1]["content"]
+
+
+async def test_activity_log_renders_proposals_and_applied_actions(hass, add_hass_miner) -> None:
+    """The markdown card is a Jinja template: render it for real against a feed."""
+    from homeassistant.helpers.template import Template
+
+    card = await _generated_card(hass, add_hass_miner, mode="manual")
+    activity = card["cards"][1]
+    sensor_id = _entity_id_ending(hass, "sensor", "brod1_proposed_action")
+    activity_id = _entity_id_ending(hass, "sensor", "activity")
+    hass.states.async_set(
+        activity_id,
+        "x",
+        {
+            "feed": [
+                {"kind": "applied", "time": "11:32:10", "miner": "Brod1", "plan": "1,300 W",
+                 "result": "ok", "reason": "the miner shows the new value"},
+                {"kind": "applied", "time": "11:31:02", "miner": "Brod1", "plan": "1,300 W",
+                 "result": "failed", "reason": "never reached 1300"},
+                {"kind": "proposal", "time": "11:30:00", "miner": "Brod1", "plan": "1,300 W (from 1,100 W)",
+                 "reason": "budget", "current": True},
+                {"kind": "proposal", "time": "11:00:00", "miner": "Brod1", "plan": "hold 1,100 W",
+                 "reason": "tuning", "current": False},
+            ]
+        },
+    )
+
+    text = Template(activity["content"], hass).async_render()
+
+    assert f"**Brod1**: {hass.states.get(sensor_id).state}" in text
+    assert "`11:32:10` **Brod1** applied 1,300 W: **ok**" in text
+    assert "`11:31:02` **Brod1** applied 1,300 W: **failed** (never reached 1300)" in text
+    assert "`11:30:00` **Brod1** proposes 1,300 W (from 1,100 W) **◀ current** _(budget)_" in text
+    assert "`11:00:00` **Brod1** proposes hold 1,100 W _(tuning)_" in text
+    assert text.index("11:32:10") < text.index("11:00:00")  # newest first
 
 
 async def test_decision_log_title_follows_the_control_mode(hass, add_hass_miner) -> None:

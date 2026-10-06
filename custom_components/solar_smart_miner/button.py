@@ -95,9 +95,10 @@ class AddToDashboardButton(ButtonEntity):
         ai_entity_id = next((e.entity_id for e in ids_ending("sensor", "_ai_advice")), None)
         proposed = sorted(ids_ending("sensor", "_proposed_action"), key=lambda e: e.entity_id)
         last_action_id = next((e.entity_id for e in ids_ending("sensor", "_last_action")), None)
+        activity_id = next((e.entity_id for e in ids_ending("sensor", "_activity")), None)
         apply_all_id = next((e.entity_id for e in ids_ending("button", "_apply_all")), None)
         # Shown in the "Proposed actions" section (or the markdown card) instead of the list.
-        elsewhere = {log_entity_id, ai_entity_id, last_action_id} | {e.entity_id for e in proposed}
+        elsewhere = {log_entity_id, ai_entity_id, last_action_id, activity_id} | {e.entity_id for e in proposed}
         entity_ids = sorted(
             e.entity_id
             for e in hub_entities
@@ -128,7 +129,9 @@ class AddToDashboardButton(ButtonEntity):
             )
         ]
         if apply_rows or apply_all_id:
-            cards.append(_proposed_actions_card(apply_rows, apply_all_id, last_action_id))
+            if activity_id:
+                cards.append(_activity_card(activity_id, apply_rows))
+            cards.append(_apply_buttons_card(apply_rows, apply_all_id))
         if log_entity_id:
             mode = self._entry.options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)
             cards.append(_decision_log_card(log_entity_id, ai_entity_id, mode))
@@ -238,13 +241,14 @@ def _quoted(text: str) -> str:
     return json.dumps(text, ensure_ascii=False)  # a double-quoted YAML string
 
 
-def _apply_button_row(button_id: str, label: str, confirm: str) -> list[str]:
-    """A button row whose press asks for confirmation first (the dialog text is static)."""
+def _apply_button_card(button_id: str, label: str, confirm: str) -> list[str]:
+    """A button card whose press asks for confirmation first (the dialog text is static)."""
     return [
         "  - type: button",
         f"    entity: {button_id}",
         f"    name: {_quoted(label)}",
-        "    action_name: APPLY",
+        "    icon: mdi:check-circle-outline",
+        "    show_state: false",
         "    tap_action:",
         "      action: perform-action",
         "      perform_action: button.press",
@@ -255,23 +259,46 @@ def _apply_button_row(button_id: str, label: str, confirm: str) -> list[str]:
     ]
 
 
-def _proposed_actions_card(
-    rows: list[tuple[str, str, str]], apply_all_id: str | None, last_action_id: str | None
-) -> list[str]:
-    """Each miner's proposed action with its Apply button under it, Apply all, the last action."""
-    lines = ["type: entities", "title: Proposed actions", "entities:"]
-    for sensor_id, button_id, name in rows:
-        lines.append(f"  - entity: {sensor_id}")
-        lines += _apply_button_row(
+def _activity_card(activity_id: str, rows: list[tuple[str, str, str]]) -> list[str]:
+    """The activity log: what each miner is proposed now, then proposals and applied actions."""
+    now = [
+        f"      - **{name}**: {{{{ states('{sensor_id}') }}}}" for sensor_id, _, name in rows
+    ]
+    return [
+        "  - type: markdown",
+        "    title: Activity log",
+        "    content: |",
+        "      **Now**",
+        *now,
+        "",
+        "      **Latest first**",
+        f"      {{% for e in (state_attr('{activity_id}', 'feed') or [])[:15] %}}",
+        "      - `{{ e.time }}` "
+        "{% if e.kind == 'applied' %}**{{ e.miner }}** applied {{ e.plan }}: **{{ e.result }}**"
+        "{% if e.reason and e.result != 'ok' %} ({{ e.reason }}){% endif %}"
+        "{% else %}**{{ e.miner }}** proposes {{ e.plan }}"
+        "{% if e.current %} **◀ current**{% endif %}"
+        "{% if e.reason %} _({{ e.reason }})_{% endif %}{% endif %}",
+        "      {% endfor %}",
+    ]
+
+
+def _apply_buttons_card(rows: list[tuple[str, str, str]], apply_all_id: str | None) -> list[str]:
+    """The Apply buttons, side by side, right under the activity log."""
+    cards: list[str] = []
+    for _, button_id, name in rows:
+        cards += _apply_button_card(
             button_id, f"Apply {name}", f"Apply the proposed action for {name}?"
         )
     if apply_all_id:
-        lines += _apply_button_row(
-            apply_all_id, "Apply all proposals", "Apply every proposed action, reductions first?"
+        cards += _apply_button_card(
+            apply_all_id, "Apply all", "Apply every proposed action, reductions first?"
         )
-    if last_action_id:
-        lines.append(f"  - {last_action_id}")
-    return _child_card(lines)
+    return [
+        "  - type: horizontal-stack",
+        "    cards:",
+        *["    " + line for line in cards],
+    ]
 
 
 def _decision_log_card(

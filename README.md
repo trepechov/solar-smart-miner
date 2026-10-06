@@ -165,6 +165,10 @@ How Apply works:
 - **Every command is checked.** The miner's entity must show the new value within 60 s (300 s for a relay start, the miner has to boot). A start is two steps: switch on, then set the limit once the miner is back. If it doesn't take, you get a notification (**a command didn't take**), one per miner.
 - **Schedule automations still run.** If you still have the 07:00 / 19:00 pause-and-resume automation, it can undo an applied action. Retire it before automatic mode.
 
+### Activity log card
+
+**Add to dashboard** builds the card for this. Under the settings list it has an **Activity log**: a **Now** block with each miner's current proposal, then a newest-first feed of proposals (`Brod1 proposes 1,300 W (from 1,100 W) ◀ current`) and applied actions (`Brod1 applied 1,300 W: ok`). Directly under it are the **Apply** buttons, one per miner plus **Apply all**, each asking to confirm. A proposal is marked **◀ current** only while it is still what the rules propose. The feed is kept in memory (30 entries); after a restart it starts again from the applied actions in the action log. It is also on the **Activity** sensor (`feed` attribute).
+
 ### Action log
 
 Every command is written to `<config>/solar_smart_miner/actions.jsonl` (rotated at 5 MB, two backups): one line when it is sent or refused and one when its outcome is known, joined by `command_id`. A line holds the plan, the miner before and after, the energy picture, the rule summary and the AI's view of that miner. The **Last action** sensor shows the latest command; its `history` attribute holds the last 20.

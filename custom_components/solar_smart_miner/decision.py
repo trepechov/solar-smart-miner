@@ -392,3 +392,11 @@ def _describe_plan(plan: MinerPlan) -> str:
     if plan.reason == "stays stopped":
         return "stopped"
     return f"hold {_w(plan.limit_w)}" if plan.limit_w is not None else "hold"
+
+
+def describe_proposal(miner: MinerSnapshot | None, plan: MinerPlan) -> str:
+    """Plan text for the owner; a step also says where the miner is now."""
+    text = _describe_plan(plan)
+    if plan.action == ACTION_SET_LIMIT and miner is not None and miner.power_limit_w is not None:
+        text += f" (from {_w(miner.power_limit_w)})"
+    return text

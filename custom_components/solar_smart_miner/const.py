@@ -124,4 +124,5 @@ CONTROL_MODE_LABELS = {CONTROL_MODE_PREVIEW: "Preview", CONTROL_MODE_MANUAL: "Ma
 APPLY_VERIFY_GRACE_S = 60
 APPLY_VERIFY_GRACE_RELAY_START_S = 300
 
+ACTIVITY_SIZE = 30  # proposals and applied actions kept for the activity feed
 DECISION_HISTORY_SIZE = 20  # decision-log entries kept on the sensor

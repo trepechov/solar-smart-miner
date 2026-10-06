@@ -54,6 +54,7 @@ from .const import (
     CONF_MOCK_CONSUMPTION_ENABLED,
     CONF_MOCK_SOLAR_ENABLED,
     CONF_MOCK_SOLAR_ENTITY,
+    ACTIVITY_SIZE,
     ASK_AI_COOLDOWN,
     DECISION_HISTORY_SIZE,
     DEFAULT_AI_INTERVAL,
@@ -79,7 +80,7 @@ from .control import (
     CommandResult,
     MinerController,
 )
-from .decision import _describe_plan, build_decision
+from .decision import _describe_plan, build_decision, describe_proposal
 from .kb import Fact, format_facts, load_facts, select_facts, situation
 from .protocols import (
     ACTION_HOLD,
@@ -180,6 +181,9 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         self._history: deque[dict[str, str]] = deque(maxlen=DECISION_HISTORY_SIZE)
         self.ai_log = AiLog(hass)
         self.action_log = ActionLog(hass)
+        # Proposals and applied actions, newest first: what the card's activity log shows.
+        self.activity: deque[dict] = deque(maxlen=ACTIVITY_SIZE)
+        self._proposed: dict[str, str] = {}  # miner id -> fingerprint of its last recorded proposal
         self._ai_advice: AiAdvice | None = None
         self._ai_busy = False
         self._ai_last_request: float | None = None  # time.monotonic()
@@ -375,8 +379,41 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         last_limit, _ = self._limit_seen.get(miner_id, (None, None))
         self._limit_seen[miner_id] = (last_limit, time.monotonic())
 
+    def seed_activity(self) -> None:
+        """After a restart, start the feed from the applied actions in the action log."""
+        for entry in reversed(self.action_log.history):
+            self.activity.appendleft({"kind": "applied", **entry})
+
+    def _record_proposals(self, snapshot: CoordinatorSnapshot) -> None:
+        """Add a feed entry whenever a miner's proposal changes (a new hold alone is not news)."""
+        if snapshot.decision is None:
+            return
+        miners = {m.miner_id: m for m in snapshot.miners}
+        for miner_id, plan in snapshot.decision.plans.items():
+            fingerprint = plan.fingerprint
+            previous = self._proposed.get(miner_id)
+            if fingerprint == previous:
+                continue
+            self._proposed[miner_id] = fingerprint
+            if previous is None and plan.action == ACTION_HOLD:
+                continue
+            miner = miners.get(miner_id)
+            self.activity.appendleft(
+                {
+                    "kind": "proposal",
+                    "time": dt_util.now().strftime("%H:%M:%S"),
+                    "miner": miner.name if miner else miner_id,
+                    "miner_id": miner_id,
+                    "plan": describe_proposal(miner, plan),
+                    "action": plan.action,
+                    "reason": plan.reason,
+                    "fingerprint": fingerprint,
+                }
+            )
+
     async def _async_record_action(self, event: CommandEvent) -> None:
         await self.action_log.async_record(event, self.data)
+        self.activity.appendleft({"kind": "applied", **self.action_log.history[0]})
         self.async_update_listeners()  # the "Last action" sensor and the buttons' availability
 
     def _power_steps(self) -> list[float]:
@@ -677,6 +714,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 {"time": dt_util.now().strftime("%H:%M:%S"), "summary": decision.summary}
             )
         snapshot.decision = decision
+        self._record_proposals(snapshot)
         snapshot.decision_history = list(self._history)
         self._maybe_request_ai(snapshot)
         # After the request: a very fast answer can already be in by now.
