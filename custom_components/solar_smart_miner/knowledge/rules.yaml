@@ -75,7 +75,7 @@ entries:
   - id: rule.no-step-up-while-tuning
     title: No step up while tuning
     statement: >
-      A miner is not stepped up while it is still tuning after its last change (assumed 60
+      A miner is not stepped up while it is still tuning after its last change (measured about 50
       minutes). Stepping down and stopping are always allowed.
     priority: P1
     status: decided
@@ -427,9 +427,9 @@ entries:
     conflicts_with: [miner.limit-change-cost, miner.retune]
     note: >
       Measured 2026-10-06 (Brod1, Brod2, 1300 to 1500 W): both statements are true at different time scales.
-      The restart and the power ramp take about 4 minutes; the tuning to within 3% of final efficiency takes
-      about 16 minutes and is steady after 30 to 40. So a ramp lock of about 4 minutes and a tuning window of
-      about 40 minutes fit the data. Waiting for the owner to retire the 2 to 3 minute and 10 to 15 minute figures.
+      The restart and the power ramp take about 4 minutes; the tuning to within 10% of final efficiency takes
+      17 to 20 minutes and the probing dips end at about 46. So a ramp lock of about 4 minutes and a tuning
+      window of about 50 minutes fit five measured tunings. Waiting for the owner to retire the 2 to 3 minute and 10 to 15 minute figures.
 
   - id: conflict.morning-order
     title: Fill the running miner or start the next?

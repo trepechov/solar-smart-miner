@@ -23,30 +23,33 @@ situations:
     scope: miner
     summary: A miner is still finding the best settings for its current power limit, so it hashes worse than it will.
     expected: >
-      Starts at every power-limit change. Measured on Brod1 and Brod2 (1300 to 1500 W): a restart of 30 to
-      40 seconds, power at the new limit within about 4 minutes, hashrate and efficiency within about 3%
-      of their final values after about 16 minutes, and steady after 30 to 40 minutes.
+      Starts at every power-limit change and lasts about 50 minutes (five tunings measured, 1300 to 1900 W):
+      a restart of 30 to 90 seconds, power at the new limit within about 4 minutes, efficiency within 10% of
+      its final value after 17 to 20 minutes, about five short hashrate dips between +7 and +46 minutes,
+      and steady from then on.
     for:
-      - {id: recent-change, says: "The power limit changed less than about 40 minutes ago.", kind: derived, weight: medium, uses: [number.brodN_power_limit, miner.tuning-duration], available: true}
-      - {id: restart-seen, says: "The pause switch went off and on, or power dropped to nothing and came back, within a minute of the change.", kind: measured, weight: medium, uses: [switch.brodN_active, sensor.brodN_miner_consumption, miner.limit-change-cost], available: true}
-      - {id: efficiency-poor, says: "J/TH is more than about 10% above the miner's settled value for this step (31 against 21.5 at 4 minutes, 27.7 at 8, 24.7 at 12, 22.2 at 16).", kind: measured, weight: strong, uses: [sensor.brodN_efficiency, miner.settled-values], available: true}
+      - {id: recent-change, says: "The power limit changed less than about 50 minutes ago.", kind: derived, weight: medium, uses: [number.brodN_power_limit, miner.tuning-duration], available: true}
+      - {id: restart-seen, says: "The pause switch went off and on, or power dropped to nothing and came back, within two minutes of the change.", kind: measured, weight: medium, uses: [switch.brodN_active, sensor.brodN_miner_consumption, miner.limit-change-cost], available: true}
+      - {id: efficiency-poor, says: "The median J/TH of the last 4 minutes is more than 10% above the miner's settled value for the step (31 against 22 at 4 minutes, 28 at 8, 25 at 12, 22.5 at 16).", kind: measured, weight: strong, uses: [sensor.brodN_efficiency, miner.settled-values], available: true}
       - {id: hashrate-climbing, says: "Hashrate has risen steadily, by several TH/s every 4 minutes, over the last 8 to 12 minutes while power is flat at the limit.", kind: measured, weight: strong, uses: [sensor.brodN_hashrate, miner.tuning-duration], available: true}
-      - {id: hashrate-below-settled, says: "Hashrate is below about 90% of the miner's settled value for this step although the power has reached the limit.", kind: measured, weight: medium, uses: [sensor.brodN_hashrate, miner.settled-values], available: true}
+      - {id: hashrate-below-settled, says: "The median hashrate of the last 4 minutes is below about 90% of the expected value for the step, about 45 TH/s per kW of power.", kind: measured, weight: medium, uses: [sensor.brodN_hashrate, miner.settled-values], available: true}
+      - {id: probing-dips, says: "A short hashrate dip (1 to 3 minutes, below 85% of the median) with power nearly unchanged, inside the first 50 minutes after a change: the tuner probing, not a fault.", kind: measured, weight: medium, uses: [sensor.brodN_hashrate, miner.hashrate-dips], available: true}
       - {id: power-flat-at-limit, says: "Power has reached the limit and does not move: a tuning miner looks calm, just worse. Weak on its own, because a tuned miner looks the same.", kind: measured, weight: weak, uses: [sensor.brodN_miner_consumption, miner.tuning-signature], available: true}
     against:
-      - {id: efficiency-settled, says: "J/TH has been within about 5% of the settled value for at least 8 minutes.", kind: measured, weight: strong, uses: [sensor.brodN_efficiency, miner.settled-values], available: true}
-      - {id: hashrate-at-settled, says: "Hashrate is at or above about 95% of the settled value for this step.", kind: measured, weight: medium, uses: [sensor.brodN_hashrate, miner.settled-values], available: true}
-      - {id: long-since-change, says: "The limit last changed more than 40 minutes ago.", kind: derived, weight: medium, uses: [number.brodN_power_limit, miner.tuning-duration], available: true}
+      - {id: efficiency-settled, says: "The median J/TH of the last 8 minutes is within about 5% of the settled value.", kind: measured, weight: strong, uses: [sensor.brodN_efficiency, miner.settled-values], available: true}
+      - {id: hashrate-at-settled, says: "The median hashrate of the last 4 minutes is at or above about 95% of the expected value for the step.", kind: measured, weight: medium, uses: [sensor.brodN_hashrate, miner.settled-values], available: true}
+      - {id: long-since-change, says: "The limit last changed more than 50 minutes ago.", kind: derived, weight: medium, uses: [number.brodN_power_limit, miner.tuning-duration], available: true}
     exceptions: >
-      Once settled, a miner at 1500 W still has short hashrate dips with unchanged power: 1 to 3 minutes,
-      every 8 to 15 minutes, per miner and not at the same time (miner.hashrate-dips). Judge over a window of
-      at least 8 minutes, never a single dip. A step that was never tuned has no settled value, so only the
-      time, restart and hashrate-climbing signals can fire the first time; record the settled values
-      afterwards.
+      Judge every signal on a median over its window, never on single readings or on "all values": during the
+      tuning one dip is enough to push a worst-case test over the line, and scoring on the worst value kept the
+      tuning "confirmed" long after the efficiency had settled. A hashrate dip more than about 50 minutes after
+      the last change is not tuning (miner.hashrate-dips); treat it as something to look at. A step that was
+      never tuned has no settled value, so the first time only the time, restart, climbing and dip signals can
+      fire; record the settled values afterwards.
     in_code: >
       partial: only recent-change is used (decision._tuning_left, coordinator._minutes_since_limit_change),
-      with a 60 minute default that is longer than the measured 16 to 40 minutes; a limit that was already set
-      when Home Assistant started counts as settled.
+      with a 60 minute default; the measured tuning is about 50 minutes. A limit that was already set when
+      Home Assistant started counts as settled.
     status: in_use
 
   - id: situation.sunrise

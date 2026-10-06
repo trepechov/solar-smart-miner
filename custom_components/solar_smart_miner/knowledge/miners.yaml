@@ -25,14 +25,15 @@ entries:
     tags: [always, temperature]
 
   - id: miner.draw-vs-limit
-    title: A miner draws a little under its limit
+    title: A settled miner draws about its limit
     statement: >
-      At a 1300 W limit a miner draws about 1280 to 1300 W. Budgets should expect the draw
-      to be 5 to 20 W under the limit, not exactly the limit.
+      Once settled a miner draws within about 4 W of its limit (1697 W at 1700 W, 1899 W at 1900 W); one
+      read 14 W over at 1900 W. Early readings differ: at 1300 W it drew 1280 to 1300 W, and a tuning miner
+      is lower or higher until it settles. Budgets can treat the limit as the draw.
     priority: P3
     status: verified
-    source: "measured: three miners at 1300 W limit, 2026-10-05"
-    date: "2026-10-05"
+    source: "measured: 1300 W on 2026-10-05, 1700 and 1900 W on 2026-10-06"
+    date: "2026-10-06"
     tags: [always, midday]
 
   - id: miner.hashrate-noise
@@ -57,8 +58,8 @@ entries:
     date: "2026-10-05"
     tags: [midday, allocation]
     note: >
-      Measured 2026-10-06: 1300 and 1500 W give the same J/TH (miner.settled-values). Nothing is
-      measured above 1500 W or below 1300 W, so the 1000 to 2000 W claim is still only half checked.
+      Measured 2026-10-06: J/TH is flat from 1300 to 1900 W (miner.settled-values). Nothing is measured
+      below 1300 W or above 1900 W, so the 1000 to 2000 W claim is checked for 1300 to 1900 W only.
 
   - id: miner.retune
     title: A limit change starts a long tuning
@@ -156,42 +157,50 @@ entries:
   - id: miner.tuning-duration
     title: How long a tuning takes
     statement: >
-      After a change from 1300 to 1500 W, hashrate and efficiency climbed steadily: efficiency 31 J/TH at
-      4 minutes, 27.7 at 8, 24.7 at 12 and 22.2 at 16, within about 3% of the final value. Brod1 was
-      steady from about 30 minutes, Brod2 from about 35. Hashrate rose from about 48 to 68 TH/s over the
-      first 16 minutes while power stayed flat at the limit.
+      Five tunings (Brod1, Brod2 and Brod3 at 1500, 1700 and 1900 W) took the same time. Efficiency
+      was within 10% of its final value after 17 to 20 minutes (31 J/TH at 4 minutes, 28 at 8, 25 at 12,
+      22.5 at 16) and the miner showed about five short hashrate dips between +7 and +46 minutes. After
+      that it stayed steady for hours. So a change means about 50 minutes of tuning.
     priority: P3
     status: verified
-    source: "measured: Brod1 from 09:31 and Brod2 from 09:47, 4 minute averages, 2026-10-06"
+    source: "measured: Brod1 (1500, 1700, 1900 W), Brod2 (1500, 1700, 1900 W) and Brod3 (1700 W), 2026-10-06 09:31 to 19:00; medians over rolling windows"
     date: "2026-10-06"
     tags: [allocation, tuning]
     situations: [situation.tuning]
-    note: Two samples at one step. Matches the owner's 14 minutes to an hour; the 2 to 3 minute ramp is only the power.
+    note: >
+      Matches the owner's 14 minutes to an hour. The 17 to 20 minute figure is when the efficiency is near
+      its final value; the dips and the last few percent take until about +46. Always from a lower step
+      to a higher one so far; stepping down is not measured.
 
   - id: miner.settled-values
     title: What a tuned miner gives at each step
     statement: >
-      Settled, Brod1 gives 60 TH/s at 21.6 J/TH at 1300 W and 70 TH/s at 21.5 J/TH at 1500 W. Brod2 gives
-      58 TH/s at 22.2 J/TH at 1300 W and about 66 TH/s at 22.5 J/TH at 1500 W. Efficiency is the same at
-      both steps, so 1500 W gives 13 to 17% more hashrate for the same J/TH.
+      Settled (median of the last 15 to 25 minutes): 1300 W gives about 59 TH/s at 21.9 J/TH, 1500 W about
+      68 TH/s at 22 J/TH, 1700 W 76 to 78 TH/s at 21.8 to 22.4 J/TH (Brod1, Brod2, Brod3), and 1900 W 84 to
+      88 TH/s at 21.9 to 22.6 J/TH. Hashrate per kW is 44 to 46 TH/s at every step, so efficiency is flat
+      from 1300 to 1900 W and hashrate grows with power. Settled draw is within 4 W of the limit
+      (Brod1 at 1900 W: 14 W over).
     priority: P3
     status: verified
-    source: "measured: last hour at 1300 W and 30 to 60 minutes after the change to 1500 W, 2026-10-06"
+    source: "measured: five tunings 1500 to 1900 W plus the 1300 W baselines, 2026-10-06"
     date: "2026-10-06"
     tags: [allocation, tuning, midday]
     situations: [situation.tuning]
-    note: Brod3 at 1300 W (not changed) is steady at about 58 TH/s. Nothing is measured at 900 W or 1100 W.
+    note: Nothing is measured at 900 W or 1100 W, nor above 1900 W. Brod2 runs about 0.6 J/TH worse than Brod1 and Brod3.
 
   - id: miner.hashrate-dips
-    title: Short hashrate dips at 1500 W
+    title: Short hashrate dips during the tuning
     statement: >
-      Tuned miners at 1500 W show hashrate dips of 1 to 3 minutes, to under 85% of their median, every 8 to
-      15 minutes, with the power unchanged. They do not happen at the same time on both miners, and Brod3
-      at 1300 W showed none in the same period.
+      After a limit change a miner has about five short hashrate dips (1 to 3 minutes, below 85% of the
+      settled value, power nearly unchanged, sometimes 60 W lower), the first at +7 to +8 minutes and the
+      last at +43 to +46 minutes. They did this on three miners at 1700 and 1900 W and then never again in
+      the following 6 to 7 hours. So a dip inside the first 50 minutes is the tuner probing; one much later is not.
     priority: P3
     status: verified
-    source: "measured: Brod1 and Brod2 from 09:50 to 10:35, 2026-10-06"
+    source: "measured: Brod3 at 1700 W, Brod1 and Brod2 at 1900 W, 2026-10-06 (5 episodes in the first hour each, none after)"
     date: "2026-10-06"
     tags: [alerts, tuning]
     situations: [situation.tuning]
-    note: Cause unknown (pool, the miner's own re-tuning, or the higher power). Don't read one as tuning or a fault.
+    note: >
+      The dips are not at the same time on different miners. Earlier I read them as a separate effect of
+      running at 1500 W; the longer data shows they belong to the tuning.
