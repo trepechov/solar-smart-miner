@@ -64,7 +64,7 @@ In the Home Assistant UI:
 3. Enter your OpenRouter API key and select a model
 4. Map your solar production, consumption, and (optionally) battery SOC entities from your existing Home Assistant integrations
 5. Select the miners managed by hass-miner
-6. Set safety thresholds (temperature ceiling, battery SOC floor)
+6. Set the target temperature and its tolerance (default 65 °C and 10 °C), and the battery SOC floor
 7. Choose a starting profile and enable dry-run mode initially
 
 ### 6. (Optional) Enable Mock Solar via Forecast.Solar

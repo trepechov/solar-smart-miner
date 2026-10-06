@@ -55,8 +55,10 @@ def _snapshot(available_w: float | None, miners=None, **energy) -> CoordinatorSn
     )
 
 
-def _decide(snapshot, profile="solar_max", temp_ceiling=80, battery_floor=20, **kw):
-    return build_decision(snapshot, profile, temp_ceiling, battery_floor, **kw)
+def _decide(
+    snapshot, profile="solar_max", temp_target=65, temp_tolerance=10, battery_floor=20, **kw
+):
+    return build_decision(snapshot, profile, temp_target, temp_tolerance, battery_floor, **kw)
 
 
 def _three(**kw) -> list[MinerSnapshot]:
@@ -273,13 +275,64 @@ def test_battery_below_floor_stops_all_miners() -> None:
     assert decision.summary.startswith("Safety: battery below floor")
 
 
-def test_hot_miner_goes_to_the_lowest_step_and_the_others_share_the_budget() -> None:
-    snapshot = _snapshot(2300.0, miners=[_miner("a", temp=95.0), _miner("b")])
-    decision = _decide(snapshot)
+# --- temperature: target + tolerance ---------------------------------------------------
 
+
+def test_too_warm_miner_steps_down_one_step_and_the_others_share_the_budget() -> None:
+    snapshot = _snapshot(2300.0, miners=[_miner("a", temp=75.0), _miner("b")])
+    decision = _decide(snapshot)  # target 65 °C + tolerance 10 °C: 75 °C is too warm
+
+    assert decision.plans["a"].action == ACTION_SET_LIMIT
+    assert decision.plans["a"].limit_w == 1100.0  # one step, not straight to the lowest
+    assert decision.plans["b"].action == ACTION_HOLD  # 1,300 W fits what is left of 2,300 W
+    assert "M-a: 75 °C, at or above 75 °C → one step down" in decision.trace
+
+
+def test_miner_inside_the_band_holds_even_with_spare_energy() -> None:
+    warm = _decide(_snapshot(9000.0, [_miner("a", limit=1100.0, temp=74.0)]))
+    cool = _decide(_snapshot(9000.0, [_miner("a", limit=1100.0, temp=64.0)]))
+
+    assert warm.plans["a"].action == ACTION_HOLD
+    assert warm.plans["a"].limit_w == 1100.0
+    assert cool.proposals == {"a": 1500.0}  # below the target it may step up
+
+
+def test_miner_inside_the_band_still_steps_down_for_the_budget() -> None:
+    decision = _decide(_snapshot(1100.0, [_miner("a", limit=1500.0, temp=70.0)]))
+
+    assert decision.proposals == {"a": 1100.0}
+
+
+def test_band_follows_the_configured_target_and_tolerance() -> None:
+    miners = [_miner("a", limit=1100.0, temp=70.0)]
+
+    assert _decide(_snapshot(9000.0, miners), temp_target=75).proposals == {"a": 1500.0}
+    assert _decide(_snapshot(9000.0, miners), temp_target=60, temp_tolerance=5).proposals == {
+        "a": 900.0
+    }
+
+
+def test_too_warm_at_the_lowest_step_is_left_to_the_miner() -> None:
+    decision = _decide(_snapshot(9000.0, [_miner("a", limit=900.0, temp=85.0)]))
+
+    assert decision.plans["a"].action == ACTION_HOLD
     assert decision.plans["a"].limit_w == 900.0
-    assert decision.plans["b"].action == ACTION_HOLD  # 1,300 W fits the 2,300 W budget
-    assert any(line.startswith("SAFETY: M-a") for line in decision.trace)
+    assert any("lowest step" in line and "cutoff" in line for line in decision.trace)
+
+
+def test_temperature_is_ignored_while_the_miner_is_tuning() -> None:
+    decision = _decide(_snapshot(1300.0, [_miner("a", limit=1300.0, temp=80.0, since=5.0)]))
+
+    assert decision.plans["a"].action == ACTION_HOLD
+    assert decision.plans["a"].limit_w == 1300.0
+
+
+def test_grid_agnostic_keeps_a_warm_miner_at_its_step() -> None:
+    miners = [_miner("a", limit=1100.0, temp=70.0), _miner("b", limit=1100.0)]
+    decision = _decide(_snapshot(None, miners), profile="grid_agnostic")
+
+    assert decision.plans["a"].action == ACTION_HOLD
+    assert decision.proposals == {"b": 1500.0}
 
 
 def test_no_miners() -> None:

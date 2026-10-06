@@ -219,7 +219,10 @@ entries:
     source: "requirements doc §0 point 6, §3.2"
     date: "2026-10-05"
     tags: [always, temperature, allocation]
-    note: Example values 65 deg C and 10 deg C; not in the settings yet (the code still uses an 80 deg C ceiling).
+    note: >
+      In the settings since 2026-10-06 (target 65 deg C, tolerance 10 deg C by default), replacing
+      the old 80 deg C ceiling. A too-warm miner steps down one step; one too warm at its lowest
+      step is held there and only noted in the trace.
 
   - id: rule.temperature-after-change
     title: Ignore temperature right after a change
@@ -232,7 +235,9 @@ entries:
     source: "requirements doc §0.3 point 3, §0.4 round 5 point 3"
     date: "2026-10-06"
     tags: [always, temperature, allocation]
-    note: How long "ramped back up" is depends on conflict.ramp-vs-tuning.
+    note: >
+      How long "ramped back up" is depends on conflict.ramp-vs-tuning. Until that is settled the
+      code ignores a miner's temperature for the tuning time setting (60 minutes by default).
 
   - id: rule.transition-by-agreement
     title: Sunrise and sunset need several signals

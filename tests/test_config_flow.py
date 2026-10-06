@@ -21,7 +21,8 @@ from custom_components.solar_smart_miner.config_flow import (
     CONF_PROFILE,
     CONF_SOLAR_ENTITY,
     CONF_SOLAR_ENTITY_TYPE,
-    CONF_TEMP_CEILING,
+    CONF_TEMP_TARGET,
+    CONF_TEMP_TOLERANCE,
     DEFAULT_OPENROUTER_MODEL,
 )
 from custom_components.solar_smart_miner.const import (
@@ -30,7 +31,8 @@ from custom_components.solar_smart_miner.const import (
     DEFAULT_BATTERY_FLOOR,
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_PROFILE,
-    DEFAULT_TEMP_CEILING,
+    DEFAULT_TEMP_TARGET,
+    DEFAULT_TEMP_TOLERANCE,
     DOMAIN,
     SOLAR_ENTITY_TYPE_NET_EXPORT,
     SOLAR_ENTITY_TYPE_PRODUCTION,
@@ -53,7 +55,8 @@ async def _complete_config_flow(
     hass: HomeAssistant,
     *,
     battery_entity: str = "",
-    temp_ceiling: int = DEFAULT_TEMP_CEILING,
+    temp_target: int = DEFAULT_TEMP_TARGET,
+    temp_tolerance: int = DEFAULT_TEMP_TOLERANCE,
     battery_floor: int = DEFAULT_BATTERY_FLOOR,
     profile: str = DEFAULT_PROFILE,
     polling_interval: int = DEFAULT_POLLING_INTERVAL,
@@ -91,7 +94,11 @@ async def _complete_config_flow(
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        {CONF_TEMP_CEILING: temp_ceiling, CONF_BATTERY_FLOOR: battery_floor},
+        {
+            CONF_TEMP_TARGET: temp_target,
+            CONF_TEMP_TOLERANCE: temp_tolerance,
+            CONF_BATTERY_FLOOR: battery_floor,
+        },
     )
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "runtime_settings"
@@ -126,7 +133,8 @@ async def test_complete_flow_creates_entry(hass: HomeAssistant) -> None:
     options = result["options"]
     assert options[CONF_PROFILE] == DEFAULT_PROFILE
     assert options[CONF_POLLING_INTERVAL] == DEFAULT_POLLING_INTERVAL
-    assert options[CONF_TEMP_CEILING] == DEFAULT_TEMP_CEILING
+    assert options[CONF_TEMP_TARGET] == DEFAULT_TEMP_TARGET
+    assert options[CONF_TEMP_TOLERANCE] == DEFAULT_TEMP_TOLERANCE
     assert options[CONF_BATTERY_FLOOR] == DEFAULT_BATTERY_FLOOR
     assert options[CONF_DRY_RUN] is False
 
@@ -161,7 +169,11 @@ async def test_battery_entity_provided(hass: HomeAssistant) -> None:
     )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        {CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING, CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR},
+        {
+            CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
+            CONF_TEMP_TOLERANCE: DEFAULT_TEMP_TOLERANCE,
+            CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
+        },
     )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
@@ -306,7 +318,8 @@ def _make_entry(hass: HomeAssistant) -> MockConfigEntry:
             CONF_DRY_RUN: False,
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
-            CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
+            CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
+            CONF_TEMP_TOLERANCE: DEFAULT_TEMP_TOLERANCE,
             CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
         },
         version=1,
@@ -326,7 +339,8 @@ async def test_options_flow_sets_dry_run(hass: HomeAssistant) -> None:
             CONF_DRY_RUN: True,
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
-            CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
+            CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
+            CONF_TEMP_TOLERANCE: DEFAULT_TEMP_TOLERANCE,
             CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
         },
     )
@@ -345,7 +359,8 @@ async def test_options_flow_changes_profile(hass: HomeAssistant) -> None:
             CONF_DRY_RUN: False,
             CONF_PROFILE: "battery_focused",
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
-            CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
+            CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
+            CONF_TEMP_TOLERANCE: DEFAULT_TEMP_TOLERANCE,
             CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
         },
     )
@@ -427,7 +442,8 @@ async def test_options_flow_accepts_one_second_polling(hass: HomeAssistant) -> N
             CONF_DRY_RUN: False,
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: 1,
-            CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
+            CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
+            CONF_TEMP_TOLERANCE: DEFAULT_TEMP_TOLERANCE,
             CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
         },
     )
@@ -447,7 +463,8 @@ async def test_options_flow_telegram_credentials_stored(hass: HomeAssistant) -> 
             CONF_DRY_RUN: False,
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
-            CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
+            CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
+            CONF_TEMP_TOLERANCE: DEFAULT_TEMP_TOLERANCE,
             CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
             "telegram_bot_token": "bot123:ABC",
             "telegram_chat_id": "-100123456",
@@ -469,7 +486,8 @@ async def test_options_flow_telegram_blank_stored_as_none(hass: HomeAssistant) -
             CONF_DRY_RUN: False,
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
-            CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
+            CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
+            CONF_TEMP_TOLERANCE: DEFAULT_TEMP_TOLERANCE,
             CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
             "telegram_bot_token": "",
             "telegram_chat_id": "",
@@ -478,6 +496,46 @@ async def test_options_flow_telegram_blank_stored_as_none(hass: HomeAssistant) -
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"].get("telegram_bot_token") is None
     assert result["data"].get("telegram_chat_id") is None
+
+
+async def test_options_flow_saves_again_after_telegram_was_left_blank(hass: HomeAssistant) -> None:
+    """Regression: blank Telegram fields are stored as None; None must not become the
+    field default, or the text selector rejects it and the form can't be saved."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=dict(_make_entry(hass).data),
+        options={
+            CONF_DRY_RUN: False,
+            CONF_PROFILE: DEFAULT_PROFILE,
+            CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
+            "temp_ceiling": 80,  # the old setting, replaced by target + tolerance
+            CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
+            "telegram_bot_token": None,
+            "telegram_chat_id": None,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    # The UI leaves blank optional fields out of what it submits.
+    result = await _get_options_flow_result(
+        hass,
+        entry,
+        options_input={
+            CONF_DRY_RUN: True,
+            CONF_PROFILE: DEFAULT_PROFILE,
+            CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
+            CONF_TEMP_TARGET: 60,
+            CONF_TEMP_TOLERANCE: 8,
+            CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
+        },
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_DRY_RUN] is True
+    assert result["data"]["telegram_bot_token"] is None
+    assert result["data"]["telegram_chat_id"] is None
+    assert result["data"][CONF_TEMP_TARGET] == 60
+    assert result["data"][CONF_TEMP_TOLERANCE] == 8
+    assert "temp_ceiling" not in result["data"]
 
 
 # ---------------------------------------------------------------------------
@@ -499,7 +557,8 @@ async def test_options_flow_mock_solar_enabled_stores_entity(hass: HomeAssistant
             CONF_DRY_RUN: False,
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
-            CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
+            CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
+            CONF_TEMP_TOLERANCE: DEFAULT_TEMP_TOLERANCE,
             CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
             CONF_MOCK_SOLAR_ENABLED: True,
             CONF_MOCK_SOLAR_ENTITY: FORECAST_SOLAR_ENTITY,
@@ -521,7 +580,8 @@ async def test_options_flow_mock_solar_disabled_by_default(hass: HomeAssistant) 
             CONF_DRY_RUN: False,
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
-            CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
+            CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
+            CONF_TEMP_TOLERANCE: DEFAULT_TEMP_TOLERANCE,
             CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
         },
     )
@@ -543,7 +603,8 @@ async def test_options_flow_mock_solar_no_entity_selected_stored_as_none(hass: H
             CONF_DRY_RUN: False,
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
-            CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
+            CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
+            CONF_TEMP_TOLERANCE: DEFAULT_TEMP_TOLERANCE,
             CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
             CONF_MOCK_SOLAR_ENABLED: True,
         },
@@ -664,7 +725,8 @@ async def test_options_flow_edit_settings_keeps_ai_options(hass: HomeAssistant) 
             CONF_DRY_RUN: False,
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: 30,
-            CONF_TEMP_CEILING: DEFAULT_TEMP_CEILING,
+            CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
+            CONF_TEMP_TOLERANCE: DEFAULT_TEMP_TOLERANCE,
             CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
         },
     )
@@ -724,7 +786,8 @@ async def test_settings_save_power_steps_and_tuning_time(hass: HomeAssistant) ->
             CONF_DRY_RUN: False,
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
-            CONF_TEMP_CEILING: 80,
+            CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
+            CONF_TEMP_TOLERANCE: DEFAULT_TEMP_TOLERANCE,
             CONF_BATTERY_FLOOR: 20,
             CONF_POWER_STEPS: "1000, 1200 1400",
             CONF_TUNING_SETTLE: 20,

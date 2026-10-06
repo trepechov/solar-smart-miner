@@ -37,7 +37,8 @@ from .const import (
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_POWER_STEPS,
     DEFAULT_PROFILE,
-    DEFAULT_TEMP_CEILING,
+    DEFAULT_TEMP_TARGET,
+    DEFAULT_TEMP_TOLERANCE,
     DEFAULT_TUNING_SETTLE_MINUTES,
     DOMAIN,
     HASS_MINER_PLATFORM,
@@ -67,7 +68,8 @@ REFERENCE_ENTITY_KEYS = (
     CONF_FORECAST_NEXT_HOUR_ENTITY,
     CONF_FORECAST_REMAINING_ENTITY,
 )
-CONF_TEMP_CEILING = "temp_ceiling"
+CONF_TEMP_TARGET = "temp_target"
+CONF_TEMP_TOLERANCE = "temp_tolerance"
 CONF_BATTERY_FLOOR = "battery_floor"
 CONF_PROFILE = "profile"
 CONF_POLLING_INTERVAL = "polling_interval"
@@ -265,17 +267,29 @@ def _step2_schema() -> vol.Schema:
     )
 
 
-def _step3_schema(
-    temp_ceiling: float = DEFAULT_TEMP_CEILING,
-    battery_floor: float = DEFAULT_BATTERY_FLOOR,
-) -> vol.Schema:
+def _temperature_fields(current: dict[str, Any]) -> dict:
+    return {
+        vol.Required(
+            CONF_TEMP_TARGET, default=current.get(CONF_TEMP_TARGET, DEFAULT_TEMP_TARGET)
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=30, max=100, step=1, unit_of_measurement="°C", mode=NumberSelectorMode.BOX
+            )
+        ),
+        vol.Required(
+            CONF_TEMP_TOLERANCE, default=current.get(CONF_TEMP_TOLERANCE, DEFAULT_TEMP_TOLERANCE)
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=1, max=30, step=1, unit_of_measurement="°C", mode=NumberSelectorMode.BOX
+            )
+        ),
+    }
+
+
+def _step3_schema(battery_floor: float = DEFAULT_BATTERY_FLOOR) -> vol.Schema:
     return vol.Schema(
         {
-            vol.Required(CONF_TEMP_CEILING, default=temp_ceiling): NumberSelector(
-                NumberSelectorConfig(
-                    min=40, max=120, step=1, unit_of_measurement="°C", mode=NumberSelectorMode.BOX
-                )
-            ),
+            **_temperature_fields({}),
             vol.Required(CONF_BATTERY_FLOOR, default=battery_floor): NumberSelector(
                 NumberSelectorConfig(
                     min=0, max=80, step=1, unit_of_measurement="%", mode=NumberSelectorMode.BOX
@@ -307,18 +321,7 @@ def _options_schema(options: dict) -> vol.Schema:
             CONF_POLLING_INTERVAL,
             default=options.get(CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL),
         ): _POLLING_SELECTOR,
-        vol.Required(
-            CONF_TEMP_CEILING,
-            default=options.get(CONF_TEMP_CEILING, DEFAULT_TEMP_CEILING),
-        ): NumberSelector(
-            NumberSelectorConfig(
-                min=40,
-                max=120,
-                step=1,
-                unit_of_measurement="°C",
-                mode=NumberSelectorMode.BOX,
-            )
-        ),
+        **_temperature_fields(options),
         vol.Required(
             CONF_BATTERY_FLOOR,
             default=options.get(CONF_BATTERY_FLOOR, DEFAULT_BATTERY_FLOOR),
@@ -338,11 +341,14 @@ def _options_schema(options: dict) -> vol.Schema:
                 min=0, max=240, step=1, unit_of_measurement="min", mode=NumberSelectorMode.BOX
             )
         ),
+        # Suggested, not defaulted: a blank field is stored as None, and None as a default
+        # fails the text selector, so the form could never be saved again.
         vol.Optional(
-            CONF_TELEGRAM_TOKEN, default=options.get(CONF_TELEGRAM_TOKEN, "")
+            CONF_TELEGRAM_TOKEN, description={"suggested_value": options.get(CONF_TELEGRAM_TOKEN)}
         ): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
         vol.Optional(
-            CONF_TELEGRAM_CHAT_ID, default=options.get(CONF_TELEGRAM_CHAT_ID, "")
+            CONF_TELEGRAM_CHAT_ID,
+            description={"suggested_value": options.get(CONF_TELEGRAM_CHAT_ID)},
         ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT)),
         vol.Optional(
             CONF_MOCK_SOLAR_ENABLED,
@@ -427,7 +433,8 @@ class SolarSmartMinerConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
-            self._options[CONF_TEMP_CEILING] = int(user_input[CONF_TEMP_CEILING])
+            self._options[CONF_TEMP_TARGET] = int(user_input[CONF_TEMP_TARGET])
+            self._options[CONF_TEMP_TOLERANCE] = int(user_input[CONF_TEMP_TOLERANCE])
             self._options[CONF_BATTERY_FLOOR] = int(user_input[CONF_BATTERY_FLOOR])
             return await self.async_step_runtime_settings()
 
@@ -486,12 +493,14 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
                     CONF_DRY_RUN: user_input[CONF_DRY_RUN],
                     CONF_PROFILE: user_input[CONF_PROFILE],
                     CONF_POLLING_INTERVAL: int(user_input[CONF_POLLING_INTERVAL]),
-                    CONF_TEMP_CEILING: int(user_input[CONF_TEMP_CEILING]),
+                    CONF_TEMP_TARGET: int(user_input[CONF_TEMP_TARGET]),
+                    CONF_TEMP_TOLERANCE: int(user_input[CONF_TEMP_TOLERANCE]),
                     CONF_BATTERY_FLOOR: int(user_input[CONF_BATTERY_FLOOR]),
                 }
             )
-            token = user_input.get(CONF_TELEGRAM_TOKEN, "").strip()
-            chat_id = user_input.get(CONF_TELEGRAM_CHAT_ID, "").strip()
+            self._pending_options.pop("temp_ceiling", None)  # replaced by target + tolerance
+            token = (user_input.get(CONF_TELEGRAM_TOKEN) or "").strip()
+            chat_id = (user_input.get(CONF_TELEGRAM_CHAT_ID) or "").strip()
             self._pending_options[CONF_TELEGRAM_TOKEN] = token if token else None
             self._pending_options[CONF_TELEGRAM_CHAT_ID] = chat_id if chat_id else None
 

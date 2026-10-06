@@ -73,7 +73,7 @@ def _advice(**kw) -> AiAdvice:
 
 def _record() -> dict:
     return build_record(
-        _snapshot(), MESSAGES, profile="solar_max", temp_ceiling=80.0, battery_floor=20.0
+        _snapshot(), MESSAGES, profile="solar_max", temp_target=65.0, temp_tolerance=10.0, battery_floor=20.0
     )
 
 
@@ -81,6 +81,7 @@ def test_record_captures_inputs_forecast_miners_rules_and_prompt() -> None:
     rec = _record()
 
     assert rec["profile"] == "solar_max"
+    assert (rec["temp_target_c"], rec["temp_tolerance_c"]) == (65.0, 10.0)
     assert rec["inputs"]["pv_actual_w"] == 3926.0
     assert rec["inputs"]["forecast_now_w"] == 9888.0
     assert rec["inputs"]["forecast_remaining_kwh"] == 28.0
@@ -102,7 +103,7 @@ def test_record_captures_inputs_forecast_miners_rules_and_prompt() -> None:
 
 def test_record_keeps_which_knowledge_was_sent() -> None:
     rec = build_record(
-        _snapshot(), MESSAGES, profile="solar_max", temp_ceiling=80.0, battery_floor=20.0,
+        _snapshot(), MESSAGES, profile="solar_max", temp_target=65.0, temp_tolerance=10.0, battery_floor=20.0,
         knowledge={"situation": "sunset", "facts": ["rule.goal"]},
     )
 

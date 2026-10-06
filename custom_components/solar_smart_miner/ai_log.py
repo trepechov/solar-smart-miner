@@ -31,7 +31,8 @@ def build_record(
     messages: list[dict[str, str]],
     *,
     profile: str,
-    temp_ceiling: float,
+    temp_target: float,
+    temp_tolerance: float,
     battery_floor: float,
     knowledge: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -45,7 +46,8 @@ def build_record(
     return {
         "ts": dt_util.now().isoformat(timespec="seconds"),
         "profile": profile,
-        "temp_ceiling_c": temp_ceiling,
+        "temp_target_c": temp_target,
+        "temp_tolerance_c": temp_tolerance,
         "battery_floor_pct": battery_floor,
         "inputs": {
             "solar_w": energy.solar_production_w,

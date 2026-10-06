@@ -4,7 +4,10 @@ DOMAIN = "solar_smart_miner"
 
 DEFAULT_POLLING_INTERVAL = 15  # seconds
 MIN_POLLING_INTERVAL = 1  # seconds; hass-miner itself refreshes every 10 s
-DEFAULT_TEMP_CEILING = 80  # °C
+# Below the target a miner may step up; from target to target + tolerance it holds;
+# at or above target + tolerance it steps down one step.
+DEFAULT_TEMP_TARGET = 65  # °C
+DEFAULT_TEMP_TOLERANCE = 10  # °C above the target
 DEFAULT_BATTERY_FLOOR = 20  # % SOC
 DEFAULT_AI_TIMEOUT = 40  # seconds; OpenRouter call timeout (free models can be slow)
 DEFAULT_AI_INTERVAL = 60  # seconds between AI advice requests

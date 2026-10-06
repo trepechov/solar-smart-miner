@@ -41,7 +41,8 @@ from .config_flow import (
     CONF_PV_ENTITY,
     CONF_SOLAR_ENTITY,
     CONF_SOLAR_ENTITY_TYPE,
-    CONF_TEMP_CEILING,
+    CONF_TEMP_TARGET,
+    CONF_TEMP_TOLERANCE,
     CONF_TUNING_SETTLE,
     DEFAULT_OPENROUTER_MODEL,
 )
@@ -56,7 +57,8 @@ from .const import (
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_POWER_STEPS,
     DEFAULT_PROFILE,
-    DEFAULT_TEMP_CEILING,
+    DEFAULT_TEMP_TARGET,
+    DEFAULT_TEMP_TOLERANCE,
     DEFAULT_TUNING_SETTLE_MINUTES,
     DOMAIN,
     HASS_MINER_PLATFORM,
@@ -403,7 +405,8 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         options = self._entry.options
         settings = {
             "profile": options.get(CONF_PROFILE, DEFAULT_PROFILE),
-            "temp_ceiling": float(options.get(CONF_TEMP_CEILING, DEFAULT_TEMP_CEILING)),
+            "temp_target": float(options.get(CONF_TEMP_TARGET, DEFAULT_TEMP_TARGET)),
+            "temp_tolerance": float(options.get(CONF_TEMP_TOLERANCE, DEFAULT_TEMP_TOLERANCE)),
             "battery_floor": float(options.get(CONF_BATTERY_FLOOR, DEFAULT_BATTERY_FLOOR)),
         }
         now = situation(self.hass.states.get("sun.sun"))
@@ -480,7 +483,8 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         decision = build_decision(
             snapshot,
             profile=options.get(CONF_PROFILE, DEFAULT_PROFILE),
-            temp_ceiling=float(options.get(CONF_TEMP_CEILING, DEFAULT_TEMP_CEILING)),
+            temp_target=float(options.get(CONF_TEMP_TARGET, DEFAULT_TEMP_TARGET)),
+            temp_tolerance=float(options.get(CONF_TEMP_TOLERANCE, DEFAULT_TEMP_TOLERANCE)),
             battery_floor=float(options.get(CONF_BATTERY_FLOOR, DEFAULT_BATTERY_FLOOR)),
             power_steps=list(options.get(CONF_POWER_STEPS) or DEFAULT_POWER_STEPS),
             tuning_settle_minutes=float(

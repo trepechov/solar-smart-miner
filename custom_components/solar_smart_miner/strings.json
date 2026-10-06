@@ -21,9 +21,10 @@
       },
       "safety_thresholds": {
         "title": "Solar Smart Miner — Safety Thresholds",
-        "description": "Set the temperature ceiling and battery floor. The safety layer stops or throttles miners when these are exceeded.",
+        "description": "Set the target temperature and its tolerance, and the battery floor. Below the target a miner may step up; up to target + tolerance it holds; at or above it steps down one step. Below the battery floor every miner stops.",
         "data": {
-          "temp_ceiling": "Temperature ceiling",
+          "temp_target": "Target temperature",
+          "temp_tolerance": "Temperature tolerance (above the target)",
           "battery_floor": "Battery SOC floor"
         }
       },
@@ -63,7 +64,8 @@
           "dry_run": "Dry-run mode (log decisions without applying them)",
           "profile": "Active profile",
           "polling_interval": "Polling interval",
-          "temp_ceiling": "Temperature ceiling",
+          "temp_target": "Target temperature",
+          "temp_tolerance": "Temperature tolerance (above the target)",
           "battery_floor": "Battery SOC floor",
           "telegram_bot_token": "Telegram bot token (optional)",
           "telegram_chat_id": "Telegram chat ID (optional)",
@@ -74,6 +76,8 @@
           "tuning_settle_minutes": "Minutes a miner is assumed to be tuning after a limit change"
         },
         "data_description": {
+          "temp_target": "Below this a miner may step up if there is energy. From here up to target + tolerance it holds, even with spare energy.",
+          "temp_tolerance": "At or above target + tolerance a miner steps down one step. The Braiins OS cutoff on the miner stays the last line of defense.",
           "power_steps": "A miner re-tunes for up to an hour after each power-limit change, so limits only ever move between these steps. Each miner uses the steps inside its own range. Default: 900, 1100, 1300, 1500.",
           "tuning_settle_minutes": "The miners don't report their tuning state, so it is estimated as the time since the limit last changed. While a miner is tuning it is not stepped up (stepping down and stopping are still allowed)."
         }

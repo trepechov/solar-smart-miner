@@ -75,7 +75,8 @@ def build_messages(
     snapshot: CoordinatorSnapshot,
     *,
     profile: str,
-    temp_ceiling: float,
+    temp_target: float,
+    temp_tolerance: float,
     battery_floor: float,
     knowledge: str = "",
 ) -> list[dict[str, str]]:
@@ -85,7 +86,7 @@ def build_messages(
     trace = snapshot.decision.trace if snapshot.decision else ["No decision available."]
     user = (
         f"Profile: {label}\n"
-        f"Temperature ceiling: {temp_ceiling:.0f} °C\n"
+        f"Temperature target: {temp_target:.0f} °C, tolerance {temp_tolerance:.0f} °C\n"
         f"Battery floor: {battery_floor:.0f} %\n\n" + "\n".join(trace)
     )
     return [

@@ -123,14 +123,19 @@ def _nearest_level(ladder: list[float], limit_w: float | None) -> int:
 
 
 def _allocate(
-    candidates: list[MinerSnapshot], budget: float, ladders: dict[str, list[float]]
+    candidates: list[MinerSnapshot],
+    budget: float,
+    ladders: dict[str, list[float]],
+    caps: dict[str, int] | None = None,
 ) -> dict[str, int | None]:
     """Power step (index into its ladder) per miner for a budget; None = stopped.
 
     Starts from where each miner is now and moves along its steps, so a small
     budget wobble doesn't re-tune anything: a shortfall up to HOLD_TOLERANCE_W keeps
     the current steps, and stepping up needs UP_MARGIN_W of spare power on top.
+    `caps` is the highest step a miner may step up to (a warm miner: its current one).
     """
+    caps = caps or {}
     level: dict[str, int | None] = {
         m.miner_id: None if m.is_stopped else _nearest_level(ladders[m.miner_id], m.power_limit_w)
         for m in candidates
@@ -156,7 +161,7 @@ def _allocate(
             lv = level[m.miner_id]
             ladder = ladders[m.miner_id]
             nxt = 0 if lv is None else lv + 1
-            if nxt >= len(ladder):
+            if nxt >= len(ladder) or nxt > caps.get(m.miner_id, nxt):
                 continue
             if budget - total() >= ladder[nxt] - watts(m) + UP_MARGIN_W:
                 level[m.miner_id] = nxt
@@ -176,7 +181,8 @@ def _tuning_left(m: MinerSnapshot, settle_minutes: float) -> float | None:
 def build_decision(
     snapshot: CoordinatorSnapshot,
     profile: str,
-    temp_ceiling: float,
+    temp_target: float,
+    temp_tolerance: float,
     battery_floor: float,
     power_steps: list[float] | None = None,
     tuning_settle_minutes: float = DEFAULT_TUNING_SETTLE_MINUTES,
@@ -188,7 +194,13 @@ def build_decision(
 
     trace = ["READ", *_describe_energy(energy)]
     trace += [_describe_miner(m) for m in snapshot.miners]
-    trace += ["THINK", f"Profile: {profile_label}", f"Power steps: {', '.join(f'{x:,.0f}' for x in steps)} W"]
+    too_warm_c = temp_target + temp_tolerance
+    trace += [
+        "THINK",
+        f"Profile: {profile_label}",
+        f"Power steps: {', '.join(f'{x:,.0f}' for x in steps)} W",
+        f"Temperature: target {temp_target:.0f} °C, step down at {too_warm_c:.0f} °C",
+    ]
     plans: dict[str, MinerPlan] = {}
     names = {m.miner_id: m.name for m in snapshot.miners}
 
@@ -205,9 +217,6 @@ def build_decision(
             return MinerPlan(ACTION_SET_LIMIT, limit_w=low, reason="no stop method")
         method, entity = procedure
         return MinerPlan(ACTION_STOP, reason=reason, method=method, target_entity_id=entity)
-
-    def lowest(m: MinerSnapshot, reason: str) -> MinerPlan:
-        return to_step(m, _ladder(m, steps)[0], reason)
 
     def to_step(m: MinerSnapshot, limit_w: float, reason: str) -> MinerPlan:
         """Plan for moving a miner to a step, starting it first if it is stopped."""
@@ -258,25 +267,43 @@ def build_decision(
         plans.update({m.miner_id: stop(m, "battery low") for m in candidates})
         return done("Safety: battery below floor")
 
-    reserved_w = 0.0  # what miners forced to a step by safety still draw from the budget
+    # Temperature band: not a safety step, it only shapes the allocation below.
+    reserved_w = 0.0  # what miners stepped down for temperature still draw from the budget
+    caps: dict[str, int] = {}  # highest step a warm miner may have: its current one
     for m in list(candidates):
-        if m.temperature_c is not None and m.temperature_c > temp_ceiling:
-            trace.append(
-                f"SAFETY: {m.name} at {m.temperature_c:.0f} °C exceeds "
-                f"{temp_ceiling:.0f} °C → lowest step"
-            )
-            plans[m.miner_id] = lowest(m, "too hot")
-            reserved_w += plans[m.miner_id].limit_w or 0.0
-            candidates.remove(m)
+        if m.is_stopped or m.temperature_c is None:
+            continue
+        if _tuning_left(m, tuning_settle_minutes) is not None:
+            # The change restarted it: its temperature fell and says nothing yet.
+            continue
+        ladder = _ladder(m, steps)
+        lv = _nearest_level(ladder, m.power_limit_w)
+        temp = f"{m.temperature_c:.0f} °C"
+        if m.temperature_c < temp_target:
+            continue
+        if m.temperature_c < too_warm_c or lv == 0:
+            if m.temperature_c >= too_warm_c:
+                # Not the plugin's job: the Braiins OS cutoff is the last defense.
+                trace.append(f"{m.name}: {temp} at its lowest step → left to the miner's own cutoff")
+            else:
+                trace.append(f"{m.name}: {temp}, within the target band → no step up")
+            caps[m.miner_id] = lv
+            continue
+        trace.append(f"{m.name}: {temp}, at or above {too_warm_c:.0f} °C → one step down")
+        plans[m.miner_id] = to_step(m, ladder[lv - 1], "too warm")
+        reserved_w += ladder[lv - 1]
+        candidates.remove(m)
     if not candidates:
-        return done("Safety: all miners too hot")
+        return done("Temperature: all miners too warm")
 
     ladders = {m.miner_id: _ladder(m, steps) for m in candidates}
 
     if profile == "grid_agnostic":
         trace.append("Grid draw allowed without penalty → every miner to its top step")
         for m in candidates:
-            plans[m.miner_id] = to_step(m, ladders[m.miner_id][-1], "grid agnostic")
+            ladder = ladders[m.miner_id]
+            top = min(caps.get(m.miner_id, len(ladder) - 1), len(ladder) - 1)
+            plans[m.miner_id] = to_step(m, ladder[top], "grid agnostic")
         return done(profile_label)
 
     if energy.available_for_miners_w is None:
@@ -293,7 +320,7 @@ def build_decision(
             budget = 0.0
     trace.append(f"Power budget: {_w(budget)} for {len(candidates)} miner(s)")
 
-    levels = _allocate(candidates, budget, ladders)
+    levels = _allocate(candidates, budget, ladders, caps)
     for m in candidates:
         lv = levels[m.miner_id]
         ladder = ladders[m.miner_id]
