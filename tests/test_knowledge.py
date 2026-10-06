@@ -298,13 +298,26 @@ def test_decisions_can_refer_to_the_miner_situation_tuning() -> None:
     assert "situation.tuning" in by_id["miner.tuning-signature"]["situations"]
 
 
-def test_tuning_looks_calm_but_inefficient() -> None:
-    """Measured on Brod1: steady power and hashrate, only low hashrate per watt (high J/TH)."""
+def test_tuning_matches_what_was_measured_on_brod1_and_brod2() -> None:
+    """Power flat at the limit; hashrate climbing steadily; J/TH high and falling. Not noisy."""
     tuning = next(x for x in SITUATIONS if x["tag"] == "tuning")
-    ids = {sig["id"]: sig for sig in tuning["for"]}
-    assert ids["efficiency-poor"]["weight"] == "strong"
-    assert "steady-at-limit" in ids
-    assert "hashrate-unsteady" not in ids  # contradicted by the measurements
+    signals = {sig["id"]: sig for sig in tuning["for"]}
+    assert signals["efficiency-poor"]["weight"] == "strong"
+    assert signals["hashrate-climbing"]["weight"] == "strong"
+    assert signals["power-flat-at-limit"]["weight"] == "weak"  # a tuned miner looks the same
+    assert "hashrate-unsteady" not in signals  # contradicted by the measurements
+    against = {sig["id"] for sig in tuning["against"]}
+    assert {"efficiency-settled", "hashrate-at-settled", "long-since-change"} <= against
+    assert "dips" in tuning["exceptions"]  # settled miners dip briefly; don't read it as tuning
+
+
+def test_the_tuning_measurements_are_recorded_as_verified_facts() -> None:
+    by_id = {e["id"]: e for _, e in FACTS}
+    for fact_id in ("miner.tuning-duration", "miner.settled-values", "miner.hashrate-dips",
+                    "miner.limit-change-cost"):
+        assert by_id[fact_id]["status"] == "verified", fact_id
+        assert "situation.tuning" in by_id[fact_id]["situations"], fact_id
+        assert by_id[fact_id]["date"] == "2026-10-06"
 
 
 def test_every_situation_tag_is_used_by_some_fact() -> None:

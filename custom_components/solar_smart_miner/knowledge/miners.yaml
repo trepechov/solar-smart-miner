@@ -56,7 +56,9 @@ entries:
     source: "requirements doc §1; owner's belief, not measured"
     date: "2026-10-05"
     tags: [midday, allocation]
-    note: Open question in the requirements doc §9 (efficiency above 2000 W).
+    note: >
+      Measured 2026-10-06: 1300 and 1500 W give the same J/TH (miner.settled-values). Nothing is
+      measured above 1500 W or below 1300 W, so the 1000 to 2000 W claim is still only half checked.
 
   - id: miner.retune
     title: A limit change starts a long tuning
@@ -89,19 +91,16 @@ entries:
   - id: miner.limit-change-cost
     title: Cost of a limit change
     statement: >
-      Changing the power limit is assumed to restart the miner: power drops to 0 W at once and
-      takes 2 to 3 minutes to climb to the new target.
+      Changing the power limit restarts the miner: the pause switch reads off for 30 to 40 seconds about
+      30 seconds after the change, hashrate falls to about 40 TH/s, and power is at the new limit within
+      about 4 minutes. After that the miner is still tuning (miner.tuning-duration).
     priority: P3
-    status: assumed
-    source: "requirements doc §5.1"
-    date: "2026-10-05"
+    status: verified
+    source: "measured: Brod1 09:31 and Brod2 09:47, 1300 W to 1500 W, 2026-10-06"
+    date: "2026-10-06"
+    tags: [allocation, tuning]
     situations: [situation.tuning]
-    tags: [allocation]
-    note: >
-      First sample, 2026-10-06 09:31 (Brod1, 1300 W to 1500 W): the pause switch read off for 40 s
-      about 30 s after the change, hashrate fell to about 34 TH/s, and power reached 1491 W within
-      3 to 6 minutes. One sample, and it is not known whether the pause was automatic or manual,
-      so the claim stays assumed.
+    note: Two samples, both 1300 to 1500 W. A decrease, or a different step, is not measured yet.
 
   - id: miner.resume-cost
     title: Resuming a paused miner
@@ -151,5 +150,48 @@ entries:
     situations: [situation.tuning]
     tags: [allocation, alerts, tuning]
     note: >
-      The end of the tuning has not been observed yet, so how long it takes and what the settled
-      efficiency at 1500 W is are still unknown. No sensor says "tuning"; this is only a proxy.
+      No sensor says "tuning"; efficiency is only a proxy. How long it lasts and what it settles at
+      are in miner.tuning-duration and miner.settled-values.
+
+  - id: miner.tuning-duration
+    title: How long a tuning takes
+    statement: >
+      After a change from 1300 to 1500 W, hashrate and efficiency climbed steadily: efficiency 31 J/TH at
+      4 minutes, 27.7 at 8, 24.7 at 12 and 22.2 at 16, within about 3% of the final value. Brod1 was
+      steady from about 30 minutes, Brod2 from about 35. Hashrate rose from about 48 to 68 TH/s over the
+      first 16 minutes while power stayed flat at the limit.
+    priority: P3
+    status: verified
+    source: "measured: Brod1 from 09:31 and Brod2 from 09:47, 4 minute averages, 2026-10-06"
+    date: "2026-10-06"
+    tags: [allocation, tuning]
+    situations: [situation.tuning]
+    note: Two samples at one step. Matches the owner's 14 minutes to an hour; the 2 to 3 minute ramp is only the power.
+
+  - id: miner.settled-values
+    title: What a tuned miner gives at each step
+    statement: >
+      Settled, Brod1 gives 60 TH/s at 21.6 J/TH at 1300 W and 70 TH/s at 21.5 J/TH at 1500 W. Brod2 gives
+      58 TH/s at 22.2 J/TH at 1300 W and about 66 TH/s at 22.5 J/TH at 1500 W. Efficiency is the same at
+      both steps, so 1500 W gives 13 to 17% more hashrate for the same J/TH.
+    priority: P3
+    status: verified
+    source: "measured: last hour at 1300 W and 30 to 60 minutes after the change to 1500 W, 2026-10-06"
+    date: "2026-10-06"
+    tags: [allocation, tuning, midday]
+    situations: [situation.tuning]
+    note: Brod3 at 1300 W (not changed) is steady at about 58 TH/s. Nothing is measured at 900 W or 1100 W.
+
+  - id: miner.hashrate-dips
+    title: Short hashrate dips at 1500 W
+    statement: >
+      Tuned miners at 1500 W show hashrate dips of 1 to 3 minutes, to under 85% of their median, every 8 to
+      15 minutes, with the power unchanged. They do not happen at the same time on both miners, and Brod3
+      at 1300 W showed none in the same period.
+    priority: P3
+    status: verified
+    source: "measured: Brod1 and Brod2 from 09:50 to 10:35, 2026-10-06"
+    date: "2026-10-06"
+    tags: [alerts, tuning]
+    situations: [situation.tuning]
+    note: Cause unknown (pool, the miner's own re-tuning, or the higher power). Don't read one as tuning or a fault.

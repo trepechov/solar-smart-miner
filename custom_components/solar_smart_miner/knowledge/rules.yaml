@@ -413,9 +413,10 @@ entries:
     tags: [always, allocation]
     conflicts_with: [miner.limit-change-cost, miner.retune]
     note: >
-      Measure the first applied step change; see open-questions.yaml. A first sample on 2026-10-06
-      (Brod1 to 1500 W) reached the new power in 3 to 6 minutes but was still at 30 J/TH and
-      50 TH/s after 9, so it fits the longer tuning better than a 2 to 3 minute ramp alone.
+      Measured 2026-10-06 (Brod1, Brod2, 1300 to 1500 W): both statements are true at different time scales.
+      The restart and the power ramp take about 4 minutes; the tuning to within 3% of final efficiency takes
+      about 16 minutes and is steady after 30 to 40. So a ramp lock of about 4 minutes and a tuning window of
+      about 40 minutes fit the data. Waiting for the owner to retire the 2 to 3 minute and 10 to 15 minute figures.
 
   - id: conflict.morning-order
     title: Fill the running miner or start the next?
