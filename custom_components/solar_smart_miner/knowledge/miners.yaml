@@ -94,7 +94,11 @@ entries:
     source: "requirements doc §5.1"
     date: "2026-10-05"
     tags: [allocation]
-    note: Unmeasured. Settle it with the first applied step change and the power and hashrate history around it.
+    note: >
+      First sample, 2026-10-06 09:31 (Brod1, 1300 W to 1500 W): the pause switch read off for 40 s
+      about 30 s after the change, hashrate fell to about 34 TH/s, and power reached 1491 W within
+      3 to 6 minutes. One sample, and it is not known whether the pause was automatic or manual,
+      so the claim stays assumed.
 
   - id: miner.resume-cost
     title: Resuming a paused miner
@@ -129,3 +133,19 @@ entries:
     source: "measured: HA states after the 19:00 pause, 2026-10-05; fixed in the controller"
     date: "2026-10-05"
     tags: [always, alerts]
+
+  - id: miner.tuning-signature
+    title: What an untuned miner looks like
+    statement: >
+      Right after a limit change a miner draws the new power but hashes poorly: at 1300 W
+      Brod1 gave about 59 TH/s at 22 J/TH, and 3 to 9 minutes after moving to 1500 W it gave
+      47 to 50 TH/s at 30 to 32 J/TH. Efficiency (J/TH) is the clearest sign, because a
+      tuned miner at a higher power should do better, not worse, in TH/s.
+    priority: P3
+    status: verified
+    source: "measured: Brod1 history 09:20 to 09:40, 2026-10-06"
+    date: "2026-10-06"
+    tags: [allocation, alerts]
+    note: >
+      The end of the tuning has not been observed yet, so how long it takes and what the settled
+      efficiency at 1500 W is are still unknown. No sensor says "tuning"; this is only a proxy.

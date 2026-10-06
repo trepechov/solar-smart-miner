@@ -259,4 +259,7 @@ entries:
     date: "2026-10-05"
     tags: [always, allocation]
     conflicts_with: [miner.limit-change-cost, miner.retune]
-    note: Measure the first applied step change; see open-questions.yaml.
+    note: >
+      Measure the first applied step change; see open-questions.yaml. A first sample on 2026-10-06
+      (Brod1 to 1500 W) reached the new power in 3 to 6 minutes but was still at 30 J/TH and
+      50 TH/s after 9, so it fits the longer tuning better than a 2 to 3 minute ramp alone.
