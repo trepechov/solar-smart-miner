@@ -107,6 +107,20 @@ def test_the_agreed_decisions_are_in_the_base() -> None:
     assert by_id["rule.guard-above-ai"]["priority"] == "P0"
     assert by_id["rule.one-controller"]["priority"] == "P0"
     assert by_id["rule.temperature-is-braiins"]["priority"] == "P0"
+    # Requirements doc rounds 1 to 5 (2026-10-05), moved into the base on 2026-10-06.
+    for rule_id in (
+        "rule.goal",
+        "rule.ai-is-advisor",
+        "rule.down-slowly-up-promptly",
+        "rule.temperature-band",
+        "rule.temperature-after-change",
+        "rule.transition-by-agreement",
+        "rule.sunset-one-by-one",
+        "rule.full-power",
+    ):
+        assert by_id[rule_id]["status"] == "decided", rule_id
+    # Round 5 reversed "down quickly, up slowly"; the old rule must not be sent as a fact.
+    assert by_id["rule.asymmetric-reaction"]["status"] == "retired"
 
 
 # --- alerts ---------------------------------------------------------------------

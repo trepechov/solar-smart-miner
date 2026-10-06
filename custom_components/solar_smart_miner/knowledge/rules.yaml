@@ -164,6 +164,114 @@ entries:
     tags: [midday, allocation]
     note: Not what the code does yet; see conflict.control-model.
 
+  - id: rule.goal
+    title: Use as much excess energy as possible
+    statement: >
+      The goal is to mine with as much of the excess energy as possible. That does not mean
+      the highest power per miner: the same energy spread over more miners in their efficient
+      range is better.
+    priority: P1
+    status: decided
+    source: "requirements doc §0 point 3, §1"
+    date: "2026-10-05"
+    tags: [always]
+
+  - id: rule.ai-is-advisor
+    title: The rules control, the AI advises
+    statement: >
+      The rule-based controller decides what happens to the miners. The AI gets the same
+      inputs plus the rule proposal and gives its own proposal, which is logged next to the
+      rules' so the disagreements can be studied. It does not change the miners.
+    priority: P1
+    status: decided
+    source: "requirements doc §0 point 1, §7"
+    date: "2026-10-05"
+    tags: [always, ai]
+
+  - id: rule.down-slowly-up-promptly
+    title: Step down slowly, step up promptly
+    statement: >
+      Step down only when a deficit has lasted longer than the cloud tolerance, so a passing
+      cloud costs no restarts. Step up once a surplus has held for the smoothing window, since
+      extra sun is pure gain. Fast reactions are for safety only (voltage, sensor health).
+    priority: P1
+    status: decided
+    source: "requirements doc §0.4 round 5 point 2, accepted 2026-10-06"
+    date: "2026-10-06"
+    tags: [always, cloud, allocation]
+    note: The cloud tolerance and the smoothing window are not set yet (open.rise-and-fall-speed).
+
+  - id: rule.temperature-band
+    title: Follow a target temperature with a tolerance
+    statement: >
+      Below the target temperature a miner may step up if there is energy. Between the target
+      and target plus tolerance it holds, even with spare energy. At or above target plus
+      tolerance it steps down. Temperature steps follow the normal pace and never skip the queue.
+    priority: P1
+    status: decided
+    source: "requirements doc §0 point 6, §3.2"
+    date: "2026-10-05"
+    tags: [always, temperature, allocation]
+    note: Example values 65 deg C and 10 deg C; not in the settings yet (the code still uses an 80 deg C ceiling).
+
+  - id: rule.temperature-after-change
+    title: Ignore temperature right after a change
+    statement: >
+      Every settings change restarts the miner, so its temperature always falls first and
+      then climbs again. Until the miner has ramped back up, its temperature is not a reason
+      to step it up or down, and it is not a step-up candidate.
+    priority: P1
+    status: decided
+    source: "requirements doc §0.3 point 3, §0.4 round 5 point 3"
+    date: "2026-10-06"
+    tags: [always, temperature, allocation]
+    note: How long "ramped back up" is depends on conflict.ramp-vs-tuning.
+
+  - id: rule.transition-by-agreement
+    title: Sunrise and sunset need several signals
+    statement: >
+      The controller is in sunrise or sunset mode only when most of these agree: measured
+      solar (or actual PV) rising or falling, the time of day against the sun, and the
+      forecast for now against the next hour.
+    priority: P1
+    status: decided
+    source: "requirements doc §0.1 point 5, §5.4"
+    date: "2026-10-05"
+    tags: [sunrise, sunset]
+
+  - id: rule.sunrise-fast
+    title: Sunrise may add miners quickly
+    statement: >
+      The sun can rise fast, so in sunrise mode miners may be added before the usual hold
+      time has passed. A decision still never acts on the readings of a miner that is ramping.
+    priority: P1
+    status: decided
+    source: "requirements doc §0.1 point 3, §5.4"
+    date: "2026-10-05"
+    tags: [sunrise]
+
+  - id: rule.sunset-one-by-one
+    title: Sunset stops miners one at a time
+    statement: >
+      In sunset mode, step miners down and stop them one at a time, in order, without chasing
+      every dip.
+    priority: P1
+    status: decided
+    source: "requirements doc §0.1 point 5, §5.4"
+    date: "2026-10-05"
+    tags: [sunset]
+
+  - id: rule.full-power
+    title: Full power ignores the sun
+    statement: >
+      In Full power, every miner goes as high as temperature allows, whatever the sun and the
+      battery. The hard limits (voltage, sensor health, battery floor) still apply.
+    priority: P1
+    status: decided
+    source: "requirements doc §6.4"
+    date: "2026-10-05"
+    tags: [always]
+
   # --- P2: guidance ----------------------------------------------------------
   - id: rule.prefer-spread
     title: More miners in the efficient range
@@ -186,7 +294,7 @@ entries:
     source: "code: decision._allocate, a choice made 2026-10-05, not yet confirmed by the owner"
     date: "2026-10-05"
     tags: [sunrise, allocation]
-    note: The requirements doc suggests resuming the next paused miner at sunrise instead.
+    note: The requirements doc suggests the opposite at sunrise; see conflict.morning-order.
 
   - id: rule.asymmetric-reaction
     title: Down quickly, up slowly
@@ -194,10 +302,46 @@ entries:
       Step down fairly quickly on a sustained deficit. Step up only after the surplus has held
       for a while, except at sunrise.
     priority: P2
-    status: assumed
+    status: retired
     source: "requirements doc §5.2 (a suggestion)"
-    date: "2026-10-05"
+    date: "2026-10-06"
     tags: [always, allocation]
+    note: Reversed by round 5 of the requirements doc; replaced by rule.down-slowly-up-promptly.
+
+  - id: rule.step-down-allocation
+    title: Which miner steps down
+    statement: >
+      Take a deficit from the highest-power miner that stays at or above its lowest step after
+      the cut. Only when no running miner can, stop the lowest-power one and let the next
+      step-up rebalance. Hot miners are not picked here; they step down through the
+      temperature rule.
+    priority: P2
+    status: decided
+    source: "requirements doc §0.4 round 5 point 4, §5.3"
+    date: "2026-10-06"
+    tags: [cloud, sunset, allocation]
+
+  - id: rule.resume-next-at-sunrise
+    title: Start the next miner rather than raise the last
+    statement: >
+      At sunrise, start the next stopped miner at its lowest step rather than raising the one
+      that just started. Raising it restarts it and throws away the ramp it just finished.
+    priority: P2
+    status: assumed
+    source: "requirements doc §5.3, §5.4 (a suggestion)"
+    date: "2026-10-05"
+    tags: [sunrise, allocation]
+
+  - id: rule.no-import-cap
+    title: No cap on grid import
+    statement: >
+      There is no maximum grid import. The miners don't run at their hardware maximum because
+      of cooling, so temperature is the limit that matters.
+    priority: P2
+    status: decided
+    source: "requirements doc §0 point 12"
+    date: "2026-10-05"
+    tags: [always, grid]
 
   - id: rule.smooth-inputs
     title: Decide on averages
@@ -263,3 +407,16 @@ entries:
       Measure the first applied step change; see open-questions.yaml. A first sample on 2026-10-06
       (Brod1 to 1500 W) reached the new power in 3 to 6 minutes but was still at 30 J/TH and
       50 TH/s after 9, so it fits the longer tuning better than a 2 to 3 minute ramp alone.
+
+  - id: conflict.morning-order
+    title: Fill the running miner or start the next?
+    statement: >
+      The code steps a running miner up to its top step before starting a stopped one. The
+      requirements doc suggests starting the next stopped miner at sunrise instead, so the
+      first one isn't restarted right after its ramp.
+    priority: P2
+    status: conflict
+    source: "code: decision._allocate against requirements doc §5.4, 2026-10-06"
+    date: "2026-10-06"
+    tags: [sunrise, allocation]
+    conflicts_with: [rule.fill-running-first, rule.resume-next-at-sunrise]

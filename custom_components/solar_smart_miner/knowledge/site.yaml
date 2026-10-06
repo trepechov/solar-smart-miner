@@ -119,3 +119,16 @@ entries:
     source: "measured: switch history 2026-09-25 to 2026-10-05; handover decided in requirements doc §0 point 10"
     date: "2026-10-05"
     tags: [always, startup, sunset, sunrise]
+
+  - id: site.profiles-planned
+    title: The profiles being moved to
+    statement: >
+      Two profiles are planned for this site: Solar-follow (aim for a small steady grid
+      import) and Full power (as high as temperature allows). Solar-max and Grid-agnostic are
+      their current forerunners, Grid-independent is dropped, and Battery-focused is parked
+      because there is no battery.
+    priority: P3
+    status: decided
+    source: "requirements doc §0 point 11, §6.5"
+    date: "2026-10-05"
+    tags: [always]
