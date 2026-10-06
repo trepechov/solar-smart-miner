@@ -111,8 +111,11 @@ entries:
     priority: P3
     status: open
     source: "requirements doc §9 point 8"
-    date: "2026-10-05"
+    date: "2026-10-06"
     tags: [startup]
+    note: >
+      The manual-apply phase (rule.apply-by-hand-first) gathers it: the action log shows how
+      many plans were applied as shown, skipped, or reversed within an hour.
 
   - id: open.west-shading
     title: Is the west slope shaded in the evening?

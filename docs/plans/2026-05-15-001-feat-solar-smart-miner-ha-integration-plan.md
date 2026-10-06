@@ -23,7 +23,7 @@ Check off each unit after it is implemented, tested, and merged.
 - [ ] **U3** — DataUpdateCoordinator: energy + miner state ingestion and full decision orchestration loop
 - [ ] **U4** — Safety layer: deterministic temperature / battery SOC / solar fault overrides
 - [ ] **U5** — AI decision engine: OpenRouter agent with profile-aware reasoning and decision log
-- [ ] **U6** — Miner control: apply power limit decisions via hass-miner service calls with dry-run gate
+- [ ] **U6** — Miner control: apply power limit decisions via hass-miner service calls with dry-run gate. *Replaced by [semi-automatic apply](2026-10-06-001-feat-semi-automatic-apply-plan.md): Apply buttons first, an Auto mode on the same path later; the dry-run option becomes a control mode.*
 - [~] **U7** — HA entity platform files: sensors ✓ (hub + per-miner via hub-device-entity-exposure plan), profile selector, dry-run switch, last-decision display
 - [ ] **U8** — Telegram notifier: optional action and safety override notifications
 - [x] **U9** — Mock Solar Mode: substitute Forecast. Solar entity for real solar entity during development
