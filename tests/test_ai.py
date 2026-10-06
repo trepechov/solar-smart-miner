@@ -334,3 +334,20 @@ def test_system_prompt_explains_steps_tuning_and_stopping() -> None:
     assert "stop" in SYSTEM_PROMPT and "start" in SYSTEM_PROMPT
     assert "re-tunes" in SYSTEM_PROMPT
     assert "900, 1100, 1300, 1500" in SYSTEM_PROMPT
+
+
+def test_parse_advice_ignores_a_stray_brace_or_prose_after_the_object() -> None:
+    """Seen live from mistral-nemo: the reply ended with an extra closing brace."""
+    live = (
+        '{"summary": "Reduce power", "actions": [{"miner": "Brod1", "action": "reduce", '
+        '"reason": "not_enough_energy", "note": "x"}]}}'
+    )
+
+    for text in (live, live + "\nHope that helps!", live + " {", "Sure: " + live):
+        summary, actions = parse_advice(text)
+        assert summary == "Reduce power", text
+        assert [a["miner"] for a in actions] == ["Brod1"], text
+
+
+def test_parse_advice_still_rejects_truncated_json() -> None:
+    assert parse_advice('{"summary": "cut off", "actions": [{"miner": "Brod1", "act') == ("", [])

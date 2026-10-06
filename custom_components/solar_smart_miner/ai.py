@@ -95,15 +95,16 @@ def build_messages(
 def parse_advice(text: str) -> tuple[str, list[dict[str, str]]]:
     """Split the model's reply into (summary, actions).
 
-    Models sometimes wrap the JSON in a code fence or add prose around it, so the
-    first {...} block is used. A reply that isn't the requested JSON gives
+    Models sometimes wrap the JSON in a code fence or add prose (or a stray brace)
+    around it, so the first complete {...} object is used. A reply that isn't the requested JSON gives
     ("", []): the caller then shows the raw text instead.
     """
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end <= start:
+    start = text.find("{")
+    if start < 0:
         return "", []
     try:
-        data = json.loads(text[start : end + 1])
+        # Only the first complete object: models add stray braces or prose after it.
+        data, _ = json.JSONDecoder().raw_decode(text[start:])
     except ValueError:
         return "", []
     if not isinstance(data, dict):
