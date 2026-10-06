@@ -178,6 +178,14 @@ class MinerController:
             return f"{limit_w:g} W is above the miner's maximum {miner.max_power_w:g} W"
         return None
 
+    async def async_refuse(
+        self, miner: MinerSnapshot, plan: MinerPlan, trigger: str, reason: str
+    ) -> CommandResult:
+        """Record a press that was turned away before it reached the guards."""
+        result = CommandResult(RESULT_REFUSED, reason, command_id=uuid.uuid4().hex[:8])
+        await self._emit(result.command_id, trigger, miner.miner_id, miner.name, plan, result)
+        return result
+
     # --- apply ------------------------------------------------------------
 
     async def async_apply(

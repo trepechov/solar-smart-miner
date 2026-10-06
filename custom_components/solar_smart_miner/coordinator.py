@@ -12,6 +12,7 @@ from collections import deque
 from datetime import timedelta
 
 import yaml
+from homeassistant.components.persistent_notification import async_create as pn_create
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
@@ -70,10 +71,24 @@ from .const import (
     SOLAR_ENTITY_TYPE_NET_IMPORT,
     SOLAR_ENTITY_TYPE_PRODUCTION,
 )
-from .control import MinerController
-from .decision import build_decision
+from .control import (
+    RESULT_REFUSED,
+    TRIGGER_MANUAL,
+    CommandResult,
+    MinerController,
+)
+from .decision import _describe_plan, build_decision
 from .kb import Fact, format_facts, load_facts, select_facts, situation
-from .protocols import AiAdvice, CoordinatorSnapshot, EnergySnapshot, MinerSnapshot
+from .protocols import (
+    ACTION_HOLD,
+    ACTION_SET_LIMIT,
+    ACTION_STOP,
+    AiAdvice,
+    CoordinatorSnapshot,
+    EnergySnapshot,
+    MinerPlan,
+    MinerSnapshot,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -381,6 +396,141 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             energy.available_for_miners_w = energy.grid_net_w + (
                 energy.miner_consumption_sum_w or 0.0
             )
+
+    # --- applying the proposed plans --------------------------------------
+
+    def _plan_for(self, miner_id: str) -> tuple[MinerSnapshot, MinerPlan] | None:
+        data = self.data
+        if data is None or data.decision is None:
+            return None
+        miner = next((m for m in data.miners if m.miner_id == miner_id), None)
+        plan = data.decision.plans.get(miner_id)
+        return (miner, plan) if miner is not None and plan is not None else None
+
+    def _notify_changed(self, notification_id: str, message: str, title: str | None = None) -> None:
+        pn_create(
+            self.hass,
+            message,
+            title=title or "Solar Smart Miner: the proposal changed",
+            notification_id=f"{DOMAIN}_{notification_id}",
+        )
+
+    async def _async_refresh_for_apply(self) -> str | None:
+        """Read everything again before applying; why that failed, or None."""
+        await self.async_refresh()
+        if not self.last_update_success or self.data is None:
+            return "the latest update failed, so the readings may be stale"
+        return None
+
+    async def async_apply_shown(
+        self, miner_id: str, fingerprint: str, trigger: str = TRIGGER_MANUAL
+    ) -> CommandResult:
+        """Apply the plan the owner was looking at, if it is still the plan.
+
+        Refreshes first; if the plan for this miner is no longer the one with this
+        fingerprint, nothing runs and a notification says so. No silent substitution.
+        """
+        shown = self._plan_for(miner_id)
+        if shown is None:
+            return CommandResult(RESULT_REFUSED, "there is no plan for this miner")
+        miner, shown_plan = shown
+        if (reason := self.controller.mode_refusal(trigger)) is not None:
+            return await self.controller.async_refuse(miner, shown_plan, trigger, reason)
+        shown_text = (
+            _describe_plan(shown_plan) if shown_plan.fingerprint == fingerprint else fingerprint
+        )
+
+        if (reason := await self._async_refresh_for_apply()) is not None:
+            return await self.controller.async_refuse(miner, shown_plan, trigger, reason)
+        now = self._plan_for(miner_id)
+        if now is None:
+            return await self.controller.async_refuse(
+                miner, shown_plan, trigger, "the miner is gone after the refresh"
+            )
+        miner, plan = now
+        if plan.fingerprint != fingerprint:
+            reason = f"changed: from {shown_text} to {_describe_plan(plan)}"
+            result = await self.controller.async_refuse(miner, plan, trigger, reason)
+            self._notify_changed(
+                f"apply_changed_{miner_id.replace('.', '_')}",
+                f"{miner.name}: the proposal changed from {shown_text} to "
+                f"{_describe_plan(plan)}. Check it and press Apply again.",
+            )
+            result.notified = True
+            return result
+        return await self.controller.async_apply(
+            miner, plan, trigger=trigger, steps=self._power_steps()
+        )
+
+    async def _async_refuse_all(
+        self, miner_ids, trigger: str, reason: str
+    ) -> dict[str, CommandResult]:
+        results = {}
+        for mid in miner_ids:
+            if pair := self._plan_for(mid):
+                results[mid] = await self.controller.async_refuse(*pair, trigger, reason)
+        return results
+
+    async def async_apply_all(self, trigger: str = TRIGGER_MANUAL) -> dict[str, CommandResult]:
+        """Apply every actionable plan that is unchanged after one refresh, reductions first.
+
+        Stops and step-downs go before step-ups and starts, so the house never briefly
+        draws both. Plans that changed, or that a guard refused, are reported together.
+        """
+        if self.data is None or self.data.decision is None:
+            return {}
+        shown = {
+            mid: plan.fingerprint
+            for mid, plan in self.data.decision.plans.items()
+            if plan.action != ACTION_HOLD
+        }
+        if not shown:
+            return {}
+        if (reason := self.controller.mode_refusal(trigger)) is not None:
+            return await self._async_refuse_all(shown, trigger, reason)
+        if (reason := await self._async_refresh_for_apply()) is not None:
+            return await self._async_refuse_all(shown, trigger, reason)
+
+        results: dict[str, CommandResult] = {}
+        todo: list[tuple[MinerSnapshot, MinerPlan]] = []
+        for mid, fingerprint in shown.items():
+            pair = self._plan_for(mid)
+            if pair is None:
+                continue
+            miner, plan = pair
+            if plan.fingerprint != fingerprint:
+                results[mid] = await self.controller.async_refuse(
+                    miner, plan, trigger, f"changed: now {_describe_plan(plan)}"
+                )
+                continue
+            todo.append(pair)
+
+        def reduces(pair: tuple[MinerSnapshot, MinerPlan]) -> bool:
+            miner, plan = pair
+            if plan.action == ACTION_STOP:
+                return True
+            return (
+                plan.action == ACTION_SET_LIMIT
+                and miner.power_limit_w is not None
+                and plan.limit_w < miner.power_limit_w
+            )
+
+        for miner, plan in sorted(todo, key=lambda pair: not reduces(pair)):  # stable: reductions first
+            results[miner.miner_id] = await self.controller.async_apply(
+                miner, plan, trigger=trigger, steps=self._power_steps()
+            )
+
+        names = {m.miner_id: m.name for m in self.data.miners}
+        skipped = [
+            f"{names.get(mid, mid)}: {r.reason}" for mid, r in results.items() if r.status == RESULT_REFUSED
+        ]
+        if skipped:
+            self._notify_changed(
+                "apply_all_skipped",
+                "These were not applied:\n\n- " + "\n- ".join(skipped),
+                title="Solar Smart Miner: Apply all skipped some miners",
+            )
+        return results
 
     # --- AI advisor (advisory only: nothing here changes the miners) -----------
 

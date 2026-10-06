@@ -6,6 +6,7 @@ import pytest
 from custom_components.solar_smart_miner.protocols import (
     CoordinatorSnapshot,
     EnergySnapshot,
+    MinerPlan,
     MinerSnapshot,
 )
 
@@ -110,3 +111,21 @@ def test_miner_snapshot_hashrate_efficiency_populated() -> None:
     )
     assert miner.hashrate_th == pytest.approx(45.5)
     assert miner.efficiency_jth == pytest.approx(21.3)
+
+
+def test_plan_fingerprint_ignores_the_reason_text() -> None:
+    a = MinerPlan("set_limit", limit_w=1300.0, reason="budget")
+    b = MinerPlan("set_limit", limit_w=1300.0, reason="budget, reworded")
+    assert a.fingerprint == b.fingerprint == "set_limit|1300||"
+
+
+def test_plan_fingerprint_tells_plans_apart() -> None:
+    plans = [
+        MinerPlan("set_limit", limit_w=1300.0),
+        MinerPlan("set_limit", limit_w=1500.0),
+        MinerPlan("stop", method="pause", target_entity_id="switch.a"),
+        MinerPlan("stop", method="relay", target_entity_id="switch.a"),
+        MinerPlan("start", limit_w=1300.0, method="pause", target_entity_id="switch.a"),
+        MinerPlan("hold"),
+    ]
+    assert len({p.fingerprint for p in plans}) == len(plans)
