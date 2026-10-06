@@ -445,3 +445,34 @@ async def test_refusals_are_logged_as_events(h) -> None:
     assert h.statuses == [RESULT_REFUSED]
     assert h.events[0].plan.limit_w == 1000.0
     assert h.events[0].trigger == TRIGGER_MANUAL
+
+
+async def test_start_fails_when_the_number_never_comes_back(h, clock, hass) -> None:
+    h.hass.states.async_set(SWITCH, "off")
+    h.hass.states.async_set(NUMBER, "unavailable")
+    await h.apply(_start(limit_w=1300.0), _miner(is_stopped=True))
+    h.hass.states.async_set(SWITCH, "on")  # on, but the miner's number stays unavailable
+
+    await h.controller.async_check_pending()
+    assert h.statuses == [RESULT_PENDING]
+
+    clock[0] += APPLY_VERIFY_GRACE_S + 1
+    await h.controller.async_check_pending()
+    await hass.async_block_till_done()
+
+    assert h.statuses == [RESULT_PENDING, RESULT_FAILED]
+    assert "never came back" in h.events[-1].reason
+    assert not h.controller.is_pending("192.168.1.10")
+    assert not h.number_calls
+
+
+async def test_failure_notification_describes_the_plan_in_words(h, clock, hass) -> None:
+    await h.apply(_set_limit(1300.0))
+    clock[0] += APPLY_VERIFY_GRACE_S + 1
+
+    await h.controller.async_check_pending()
+    await hass.async_block_till_done()
+
+    message = hass.data["persistent_notification"]["solar_smart_miner_apply_failed_192_168_1_10"]["message"]
+    assert message.startswith("Brod1: the command (1,300 W) didn't take")
+    assert "|" not in message

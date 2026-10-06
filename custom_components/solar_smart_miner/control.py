@@ -28,7 +28,7 @@ from .const import (
     CONTROL_MODE_MANUAL,
     DOMAIN,
 )
-from .decision import _ladder
+from .decision import _describe_plan, _ladder
 from .protocols import (
     ACTION_HOLD,
     ACTION_SET_LIMIT,
@@ -286,7 +286,12 @@ class MinerController:
         limit_state = self._hass.states.get(pending.limit_entity_id)
         current = _state_float(limit_state)
         if current is None:
-            return  # still booting: keep waiting for the number, up to the deadline
+            # Still booting: keep waiting for the number, but not past the deadline.
+            if time.monotonic() >= pending.deadline:
+                await self._finish(
+                    pending, RESULT_FAILED, f"started, but {pending.limit_entity_id} never came back"
+                )
+            return
         limit_w = pending.plan.limit_w
         if abs(current - limit_w) < _LIMIT_TOLERANCE_W:
             await self._finish(pending, RESULT_OK, "started, and it already has the limit")
@@ -317,7 +322,7 @@ class MinerController:
         """control.apply-failed: one notification per miner, replaced rather than stacked."""
         pn_create(
             self._hass,
-            f"{pending.miner_name}: the command ({pending.plan.fingerprint}) didn't take: {reason}.\n\n"
+            f"{pending.miner_name}: the command ({_describe_plan(pending.plan)}) didn't take: {reason}.\n\n"
             "Check the miner and the Solar Smart Miner action log.",
             title="Solar Smart Miner: a command didn't take",
             notification_id=f"{DOMAIN}_apply_failed_{pending.miner_id.replace('.', '_')}",
