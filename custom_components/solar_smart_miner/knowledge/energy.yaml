@@ -11,6 +11,7 @@ entries:
     source: "code: coordinator._derive_balance"
     date: "2026-10-05"
     tags: [always, allocation]
+    note: Solar-max adds the import target to it (rule.small-import-target), and the forecast headroom when the meter is near 0 W.
 
   - id: energy.throttle-hides-headroom
     title: Throttling hides extra solar

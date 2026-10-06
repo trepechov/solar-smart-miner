@@ -535,6 +535,7 @@ async def test_options_flow_saves_again_after_telegram_was_left_blank(hass: Home
     assert result["data"]["telegram_chat_id"] is None
     assert result["data"][CONF_TEMP_TARGET] == 60
     assert result["data"][CONF_TEMP_TOLERANCE] == 8
+    assert result["data"]["import_target"] == 400  # the default when left as is
     assert "temp_ceiling" not in result["data"]
 
 

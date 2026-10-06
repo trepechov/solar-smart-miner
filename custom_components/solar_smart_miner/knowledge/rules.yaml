@@ -169,7 +169,12 @@ entries:
     date: "2026-10-05"
     situations: [situation.midday, situation.curtailed]
     tags: [midday, allocation]
-    note: Not what the code does yet; see conflict.control-model.
+    note: >
+      In the code since 2026-10-06, for Solar-max: the budget is the grid balance plus the
+      miners' draw plus the import target (setting, 400 W by default). With the 150 W
+      tolerance and 100 W margin that steps up at about 100 W import or less and down above
+      about 550 W. With the meter near 0 W, forecast PV now minus actual PV is added as hidden
+      headroom; without those sensors the controller probes one step at a time.
 
   - id: rule.goal
     title: Use as much excess energy as possible
@@ -398,12 +403,15 @@ entries:
       real solar. The code allocates from a computed budget (grid balance plus miner draw) with
       a 150 W tolerance and a 100 W margin. The two behave differently while the inverters
       are throttled.
-    priority: P1
-    status: conflict
-    source: "requirements doc §6.2 against code, 2026-10-05"
-    date: "2026-10-05"
+    priority: P3
+    status: retired
+    source: "requirements doc §6.2 against code, 2026-10-05; owner, 2026-10-06"
+    date: "2026-10-06"
     tags: [midday, allocation]
-    conflicts_with: [rule.small-import-target, energy.budget-formula]
+    note: >
+      Resolved 2026-10-06 for rule.small-import-target: the owner saw the controller keep the
+      import at 0 W and the inverters throttled. The budget model stays, shifted by the
+      import target, so the band falls out of the existing tolerance and margin.
 
   - id: conflict.ramp-vs-tuning
     title: 3 minutes or an hour?

@@ -34,6 +34,7 @@ from .const import (
     CONF_MOCK_SOLAR_ENTITY,
     DEFAULT_AI_INTERVAL,
     DEFAULT_BATTERY_FLOOR,
+    DEFAULT_IMPORT_TARGET_W,
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_POWER_STEPS,
     DEFAULT_PROFILE,
@@ -71,6 +72,7 @@ REFERENCE_ENTITY_KEYS = (
 CONF_TEMP_TARGET = "temp_target"
 CONF_TEMP_TOLERANCE = "temp_tolerance"
 CONF_BATTERY_FLOOR = "battery_floor"
+CONF_IMPORT_TARGET = "import_target"  # W of grid import Solar-max aims for
 CONF_PROFILE = "profile"
 CONF_POLLING_INTERVAL = "polling_interval"
 CONF_DRY_RUN = "dry_run"
@@ -331,6 +333,13 @@ def _options_schema(options: dict) -> vol.Schema:
             )
         ),
         vol.Required(
+            CONF_IMPORT_TARGET, default=options.get(CONF_IMPORT_TARGET, DEFAULT_IMPORT_TARGET_W)
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=0, max=3000, step=50, unit_of_measurement="W", mode=NumberSelectorMode.BOX
+            )
+        ),
+        vol.Required(
             CONF_POWER_STEPS, default=_format_power_steps(options.get(CONF_POWER_STEPS))
         ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT)),
         vol.Required(
@@ -496,6 +505,7 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
                     CONF_TEMP_TARGET: int(user_input[CONF_TEMP_TARGET]),
                     CONF_TEMP_TOLERANCE: int(user_input[CONF_TEMP_TOLERANCE]),
                     CONF_BATTERY_FLOOR: int(user_input[CONF_BATTERY_FLOOR]),
+                    CONF_IMPORT_TARGET: int(user_input[CONF_IMPORT_TARGET]),
                 }
             )
             self._pending_options.pop("temp_ceiling", None)  # replaced by target + tolerance

@@ -58,6 +58,9 @@ def _snapshot(available_w: float | None, miners=None, **energy) -> CoordinatorSn
 def _decide(
     snapshot, profile="solar_max", temp_target=65, temp_tolerance=10, battery_floor=20, **kw
 ):
+    # Import target 0: these tests check the allocation against a given budget. The
+    # Solar-follow import target has its own tests below.
+    kw.setdefault("import_target_w", 0)
     return build_decision(snapshot, profile, temp_target, temp_tolerance, battery_floor, **kw)
 
 
@@ -384,6 +387,67 @@ def test_pv_and_forecast_never_change_the_proposal() -> None:
     plain = _decide(_snapshot(1555.0)).proposals
     with_ref = _decide(_snapshot(1555.0, pv_power_w=100.0, forecast_now_w=99999.0)).proposals
     assert plain == with_ref
+
+
+# --- Solar-follow: aim for a small grid import ------------------------------------------
+
+
+def _metered(import_w: float, miners: list[MinerSnapshot], **energy) -> CoordinatorSnapshot:
+    """Snapshot as the coordinator builds it: budget = grid balance + what the miners draw."""
+    draw = sum(m.power_w or 0.0 for m in miners)
+    return _snapshot(draw - import_w, miners, grid_net_w=-import_w, **energy)
+
+
+def test_throttled_meter_near_zero_steps_up_to_reach_the_import_target() -> None:
+    snapshot = _metered(30.0, _three(limit=1100.0))  # throttled: the meter sits near 0 W
+
+    aimed = _decide(snapshot, import_target_w=400)
+    assert list(aimed.proposals.values()) == [1300.0]  # one miner, one step
+    assert "Grid import target: 400 W" in aimed.trace
+    # Aiming for zero import (the old budget) never sees the hidden solar.
+    assert _decide(snapshot, import_target_w=0).proposals == {}
+
+
+def test_import_inside_the_band_holds() -> None:
+    for import_w in (150.0, 400.0, 500.0):
+        decision = _decide(_metered(import_w, _three(limit=1100.0)), import_target_w=400)
+        assert set(_actions(decision).values()) == {ACTION_HOLD}, import_w
+
+
+def test_import_well_above_the_target_steps_down() -> None:
+    decision = _decide(_metered(700.0, _three(limit=1100.0)), import_target_w=400)
+
+    assert list(decision.proposals.values()) == [900.0]
+
+
+def test_throttled_meter_uses_the_forecast_headroom_to_start_a_miner() -> None:
+    miners = [_miner("a", limit=1500.0), _miner("b", limit=1500.0), _miner("c", stopped=True)]
+
+    blind = _decide(_metered(20.0, miners), import_target_w=400)
+    assert blind.plans["c"].action == ACTION_HOLD  # 380 W short of target can't start 900 W
+    assert any("probed one step at a time" in line for line in blind.trace)
+
+    seen = _decide(
+        _metered(20.0, miners, forecast_now_w=6000.0, pv_power_w=3000.0), import_target_w=400
+    )
+    assert seen.plans["c"].action == ACTION_START
+    assert any("3,000 W hidden headroom" in line for line in seen.trace)
+
+
+def test_real_export_is_measured_so_the_forecast_is_not_added() -> None:
+    snapshot = _metered(-800.0, _three(limit=1100.0), forecast_now_w=9000.0, pv_power_w=3000.0)
+    decision = _decide(snapshot, import_target_w=400)
+
+    assert not any("hidden headroom" in line for line in decision.trace)
+    assert decision.proposals == _decide(_metered(-800.0, _three(limit=1100.0)), import_target_w=400).proposals
+
+
+def test_import_target_applies_only_to_solar_max() -> None:
+    snapshot = _metered(30.0, _three(limit=1100.0))
+    decision = _decide(snapshot, profile="grid_independent", import_target_w=400)
+
+    assert decision.proposals == {}
+    assert not any("import target" in line for line in decision.trace)
 
 
 # --- replay of a real evening --------------------------------------------------------

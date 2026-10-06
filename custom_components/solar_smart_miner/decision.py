@@ -14,9 +14,11 @@ from __future__ import annotations
 import math
 
 from .const import (
+    DEFAULT_IMPORT_TARGET_W,
     DEFAULT_POWER_STEPS,
     DEFAULT_TUNING_SETTLE_MINUTES,
     HOLD_TOLERANCE_W,
+    METER_NEAR_ZERO_W,
     PROFILES_BY_NAME,
     UP_MARGIN_W,
 )
@@ -170,6 +172,32 @@ def _allocate(
             return level
 
 
+def _solar_follow_extra(energy: EnergySnapshot, import_target_w: float, trace: list[str]) -> float:
+    """Watts Solar-follow adds to the measured budget.
+
+    It aims for a small steady import (the target), since without a battery that is the
+    only proof all the solar is used. When the meter sits near 0 W the inverters may be
+    throttled, so the measured budget hides the real headroom: the forecast for now above
+    actual PV, when both are configured, is added as well. A wrong forecast is corrected
+    by the normal step-down once the import climbs past the band.
+    """
+    trace.append(f"Grid import target: {_w(import_target_w)}")
+    if energy.grid_net_w is None or abs(energy.grid_net_w) > METER_NEAR_ZERO_W:
+        return import_target_w
+    if energy.forecast_now_w is None or energy.pv_power_w is None:
+        trace.append(
+            "Meter near 0 W: the inverters may be throttled; no forecast and actual PV "
+            "to size the hidden headroom, so it is probed one step at a time"
+        )
+        return import_target_w
+    headroom = max(energy.forecast_now_w - energy.pv_power_w, 0.0)
+    trace.append(
+        f"Meter near 0 W: the inverters may be throttled; forecast {_w(energy.forecast_now_w)} "
+        f"vs actual PV {_w(energy.pv_power_w)} → {_w(headroom)} hidden headroom"
+    )
+    return import_target_w + headroom
+
+
 def _tuning_left(m: MinerSnapshot, settle_minutes: float) -> float | None:
     """Minutes the miner is still assumed to be tuning, or None if it has settled."""
     since = m.minutes_since_limit_change
@@ -186,6 +214,7 @@ def build_decision(
     battery_floor: float,
     power_steps: list[float] | None = None,
     tuning_settle_minutes: float = DEFAULT_TUNING_SETTLE_MINUTES,
+    import_target_w: float = DEFAULT_IMPORT_TARGET_W,
 ) -> Decision:
     energy = snapshot.energy
     steps = list(power_steps) if power_steps else list(DEFAULT_POWER_STEPS)
@@ -312,7 +341,10 @@ def build_decision(
             plans[m.miner_id] = hold(m, "budget unknown")
         return done(f"{profile_label}: budget unknown")
 
-    budget = max(energy.available_for_miners_w - reserved_w, 0.0)
+    available = energy.available_for_miners_w
+    if profile == "solar_max":
+        available += _solar_follow_extra(energy, import_target_w, trace)
+    budget = max(available - reserved_w, 0.0)
     if profile == "battery_focused" and energy.battery_soc_pct is not None and profile_def:
         stop_at = profile_def["parameters"]["stop_at_soc_pct"]
         if energy.battery_soc_pct <= stop_at:

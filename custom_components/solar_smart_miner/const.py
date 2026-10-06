@@ -27,6 +27,13 @@ DEFAULT_TUNING_SETTLE_MINUTES = 60  # after a limit change the miner is "tuning"
 HOLD_TOLERANCE_W = 150  # a shortfall this small keeps the current step (avoids re-tuning)
 UP_MARGIN_W = 100  # spare power needed beyond a step's cost before moving up to it
 
+# Solar-max (Solar-follow) aims for a small steady grid import, not for zero: at zero a
+# throttled inverter hides how much more the panels could give. With the tolerance and
+# margin above, a 400 W target steps up at <= 100 W import and down above 550 W.
+DEFAULT_IMPORT_TARGET_W = 400
+# The meter within this of 0 W is what a throttled inverter looks like (situation.curtailed).
+METER_NEAR_ZERO_W = 100
+
 PROFILES = [
     {
         "name": "battery_focused",

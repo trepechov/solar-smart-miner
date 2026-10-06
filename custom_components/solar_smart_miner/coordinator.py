@@ -32,6 +32,7 @@ from .config_flow import (
     CONF_FORECAST_NOW_ENTITY,
     CONF_FORECAST_REMAINING_ENTITY,
     CONF_GRID_ENTITY,
+    CONF_IMPORT_TARGET,
     CONF_OPENROUTER_KEY,
     CONF_OPENROUTER_MODEL,
     CONF_POLLING_INTERVAL,
@@ -54,6 +55,7 @@ from .const import (
     DECISION_HISTORY_SIZE,
     DEFAULT_AI_INTERVAL,
     DEFAULT_BATTERY_FLOOR,
+    DEFAULT_IMPORT_TARGET_W,
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_POWER_STEPS,
     DEFAULT_PROFILE,
@@ -490,6 +492,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             tuning_settle_minutes=float(
                 options.get(CONF_TUNING_SETTLE, DEFAULT_TUNING_SETTLE_MINUTES)
             ),
+            import_target_w=float(options.get(CONF_IMPORT_TARGET, DEFAULT_IMPORT_TARGET_W)),
         )
         # Only record changes, so the history reads as a log of what shifted.
         if not self._history or self._history[0]["summary"] != decision.summary:
