@@ -473,9 +473,10 @@ async def test_two_miners_creates_ten_per_miner_entities(hass, add_hass_miner) -
 
     er = er_module.async_get(hass)
     our_entities = [e for e in er.entities.values() if e.platform == DOMAIN]
-    # 2 buttons + 2 selects (profile, control mode) + 8 hub sensors (solar, house, battery, total miners,
-    # grid export, available for miners, decision log, AI advice) + 10 per-miner = 22
-    assert len(our_entities) == 22
+    # 3 buttons (dashboard, ask AI, apply all) + 2 selects (profile, control mode) + 9 hub sensors
+    # (solar, house, battery, total miners, grid export, available for miners, decision log,
+    # AI advice, last action) + per miner: 5 metrics + proposed-action sensor + apply button = 7
+    assert len(our_entities) == 3 + 2 + 9 + 2 * 7
 
 
 async def test_miner_added_after_setup_gets_sensors(hass, add_hass_miner) -> None:
@@ -496,7 +497,7 @@ async def test_miner_added_after_setup_gets_sensors(hass, add_hass_miner) -> Non
         e for e in er.entities.values()
         if e.platform == DOMAIN and "192_168_1_10" in e.unique_id
     ]
-    assert len(miner_entities) == len(_MINER_METRICS)
+    assert len(miner_entities) == len(_MINER_METRICS) + 2  # + proposed action sensor, apply button
 
 
 async def test_decision_log_sensor_exposes_trace(hass, add_hass_miner) -> None:

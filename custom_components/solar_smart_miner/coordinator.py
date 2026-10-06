@@ -415,6 +415,26 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         plan = data.decision.plans.get(miner_id)
         return (miner, plan) if miner is not None and plan is not None else None
 
+    def shown_fingerprint(self, miner_id: str) -> str | None:
+        """Fingerprint of the plan on screen for this miner right now."""
+        pair = self._plan_for(miner_id)
+        return pair[1].fingerprint if pair else None
+
+    def can_apply(self, miner_id: str) -> bool:
+        """Whether an Apply for this miner would be allowed to start: Manual mode, a plan that
+        does something, and no earlier command still being checked."""
+        pair = self._plan_for(miner_id)
+        return (
+            pair is not None
+            and self.controller.mode_refusal(TRIGGER_MANUAL) is None
+            and pair[1].action != ACTION_HOLD
+            and not self.controller.is_pending(miner_id)
+        )
+
+    def can_apply_any(self) -> bool:
+        data = self.data
+        return data is not None and any(self.can_apply(m.miner_id) for m in data.miners)
+
     def _notify_changed(self, notification_id: str, message: str, title: str | None = None) -> None:
         pn_create(
             self.hass,
@@ -532,6 +552,8 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         skipped = [
             f"{names.get(mid, mid)}: {r.reason}" for mid, r in results.items() if r.status == RESULT_REFUSED
         ]
+        for result in results.values():
+            result.notified = result.status == RESULT_REFUSED  # the notification below covers it
         if skipped:
             self._notify_changed(
                 "apply_all_skipped",

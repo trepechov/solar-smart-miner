@@ -6,12 +6,15 @@ import logging
 from homeassistant.components.button import ButtonEntity
 from homeassistant.components.persistent_notification import async_create as pn_create
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry, entity_registry
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
+from .control import RESULT_FAILED, RESULT_REFUSED, CommandResult
 from .coordinator import SolarMinerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,7 +32,23 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    async_add_entities([AddToDashboardButton(entry), AskAiButton(entry)])
+    coordinator: SolarMinerCoordinator = entry.runtime_data
+    async_add_entities([AddToDashboardButton(entry), AskAiButton(entry), ApplyAllButton(coordinator, entry)])
+
+    # Miners come from hass-miner and can appear after startup: give each one its Apply button.
+    known_miner_ids: set[str] = set()
+
+    @callback
+    def _add_new_miners() -> None:
+        if coordinator.data is None:
+            return
+        new = [m for m in coordinator.data.miners if m.miner_id not in known_miner_ids]
+        known_miner_ids.update(m.miner_id for m in new)
+        if new:
+            async_add_entities(ApplyButton(coordinator, entry, m.miner_id, m.name) for m in new)
+
+    _add_new_miners()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new_miners))
 
 
 class AddToDashboardButton(ButtonEntity):
@@ -115,6 +134,68 @@ class AskAiButton(ButtonEntity):
     async def async_press(self) -> None:
         coordinator: SolarMinerCoordinator = self._entry.runtime_data
         coordinator.async_ask_ai_now()
+
+
+def _raise_if_turned_away(name: str, result: CommandResult) -> None:
+    """Show a refused or failed command to whoever pressed the button."""
+    if result.status in (RESULT_REFUSED, RESULT_FAILED) and not result.notified:
+        raise HomeAssistantError(f"{name}: {result.reason}")
+
+
+class ApplyButton(CoordinatorEntity[SolarMinerCoordinator], ButtonEntity):
+    """Carry out the action proposed for one miner, as it was shown."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:check-circle-outline"
+
+    def __init__(
+        self,
+        coordinator: SolarMinerCoordinator,
+        entry: ConfigEntry,
+        miner_id: str,
+        miner_name: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._miner_id = miner_id
+        self._miner_name = miner_name
+        self._attr_unique_id = f"{entry.entry_id}_{miner_id.replace('.', '_')}_apply"
+        self._attr_name = f"{miner_name} apply"
+        self._attr_device_info = _hub_device_info(entry)
+
+    @property
+    def available(self) -> bool:
+        return super().available and self.coordinator.can_apply(self._miner_id)
+
+    async def async_press(self) -> None:
+        fingerprint = self.coordinator.shown_fingerprint(self._miner_id)
+        if fingerprint is None:
+            raise HomeAssistantError(f"{self._miner_name}: there is no plan to apply")
+        result = await self.coordinator.async_apply_shown(self._miner_id, fingerprint)
+        _raise_if_turned_away(self._miner_name, result)
+
+
+class ApplyAllButton(CoordinatorEntity[SolarMinerCoordinator], ButtonEntity):
+    """Carry out every proposed action: stops and step-downs first, then step-ups and starts."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Apply all proposals"
+    _attr_icon = "mdi:check-all"
+
+    def __init__(self, coordinator: SolarMinerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_apply_all"
+        self._attr_device_info = _hub_device_info(entry)
+
+    @property
+    def available(self) -> bool:
+        return super().available and self.coordinator.can_apply_any()
+
+    async def async_press(self) -> None:
+        results = await self.coordinator.async_apply_all()
+        if not results:
+            raise HomeAssistantError("There is nothing to apply")
+        for result in results.values():
+            _raise_if_turned_away("Apply all", result)
 
 
 def _decision_log_card(entity_id: str, ai_entity_id: str | None = None) -> list[str]:

@@ -11,8 +11,10 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .config_flow import CONF_BATTERY_ENTITY, CONF_GRID_ENTITY
 from .const import DOMAIN
+from .action_log import _ai_view
 from .coordinator import SolarMinerCoordinator
-from .protocols import MinerSnapshot
+from .decision import _describe_plan, _w
+from .protocols import ACTION_SET_LIMIT, MinerPlan, MinerSnapshot
 
 
 def _hub_device_info(entry: ConfigEntry) -> DeviceInfo:
@@ -35,6 +37,7 @@ async def async_setup_entry(
         AvailableForMinersSensor(coordinator, entry),
         DecisionLogSensor(coordinator, entry),
         AiAdviceSensor(coordinator, entry),
+        LastActionSensor(coordinator, entry),
     ]
 
     if entry.data.get(CONF_GRID_ENTITY, ""):
@@ -62,6 +65,7 @@ async def async_setup_entry(
                 MinerSensor(coordinator, entry, miner.miner_id, miner.name, metric)
                 for metric in _MINER_METRICS
             )
+            new_entities.append(ProposedActionSensor(coordinator, entry, miner.miner_id, miner.name))
         if new_entities:
             async_add_entities(new_entities)
 
@@ -260,6 +264,33 @@ class AiAdviceSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
         return attrs
 
 
+class LastActionSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
+    """The last command sent to a miner and how it ended; the recent ones are in `history`."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:history"
+    _unrecorded_attributes = frozenset({"history"})
+
+    def __init__(self, coordinator: SolarMinerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.unique_id or entry.entry_id}_last_action"
+        self._attr_name = "Last action"
+        self._attr_device_info = _hub_device_info(entry)
+
+    @property
+    def native_value(self) -> str:
+        history = self.coordinator.action_log.history
+        if not history:
+            return "None yet"
+        last = history[0]
+        return f"{last['miner']}: {last['plan']} ({last['result']})"[:255]
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        log = self.coordinator.action_log
+        return {"history": list(log.history), "log_file": str(log.path)}
+
+
 class BatterySocSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
     _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.BATTERY
@@ -357,3 +388,65 @@ class MinerSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
         if miner is None or not miner.is_available:
             return None
         return getattr(miner, self._metric_key)
+
+
+class ProposedActionSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
+    """What the rules want for one miner now: the thing its Apply button carries out."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:lightbulb-on-outline"
+    _unrecorded_attributes = frozenset(
+        {"fingerprint", "action", "limit_w", "reason", "ai_action", "pending"}
+    )
+
+    def __init__(
+        self,
+        coordinator: SolarMinerCoordinator,
+        entry: ConfigEntry,
+        miner_id: str,
+        miner_name: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._miner_id = miner_id
+        self._miner_name = miner_name
+        self._attr_unique_id = (
+            f"{entry.unique_id or entry.entry_id}_{miner_id.replace('.', '_')}_proposed_action"
+        )
+        self._attr_name = f"{miner_name} proposed action"
+        self._attr_device_info = _hub_device_info(entry)
+
+    def _plan(self) -> tuple[MinerSnapshot, MinerPlan] | None:
+        data = self.coordinator.data
+        if data is None or data.decision is None:
+            return None
+        miner = next((m for m in data.miners if m.miner_id == self._miner_id), None)
+        plan = data.decision.plans.get(self._miner_id)
+        return (miner, plan) if miner is not None and plan is not None else None
+
+    @property
+    def native_value(self) -> str | None:
+        pair = self._plan()
+        if pair is None:
+            return "No plan"
+        miner, plan = pair
+        text = _describe_plan(plan)
+        if plan.action == ACTION_SET_LIMIT and miner.power_limit_w is not None:
+            text += f" (from {_w(miner.power_limit_w)})"
+        return text
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        pair = self._plan()
+        if pair is None:
+            return None
+        _, plan = pair
+        advice = self.coordinator.data.ai_advice
+        ai = _ai_view(advice, self._miner_name)
+        return {
+            "fingerprint": plan.fingerprint,
+            "action": plan.action,
+            "limit_w": plan.limit_w,
+            "reason": plan.reason,
+            "ai_action": ai["action"] if ai else None,
+            "pending": self.coordinator.controller.is_pending(self._miner_id),
+        }
