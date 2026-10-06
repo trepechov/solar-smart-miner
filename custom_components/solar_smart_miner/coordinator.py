@@ -2,7 +2,7 @@
 
 Reads solar/grid/battery entities and every miner configured in hass-miner,
 derives the grid balance, and builds a preview decision (see decision.py).
-Safety layer and AI agent are wired in U3 on top of this foundation.
+Plans are applied only through control.py, when the control mode allows it.
 """
 from __future__ import annotations
 
@@ -70,6 +70,7 @@ from .const import (
     SOLAR_ENTITY_TYPE_NET_IMPORT,
     SOLAR_ENTITY_TYPE_PRODUCTION,
 )
+from .control import MinerController
 from .decision import build_decision
 from .kb import Fact, format_facts, load_facts, select_facts, situation
 from .protocols import AiAdvice, CoordinatorSnapshot, EnergySnapshot, MinerSnapshot
@@ -166,6 +167,11 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         self._ai_last_request: float | None = None  # time.monotonic()
         # miner id -> (power limit last seen, time.monotonic() when it changed or None)
         self._limit_seen: dict[str, tuple[float | None, float | None]] = {}
+        self.controller = MinerController(
+            hass,
+            get_mode=lambda: self.control_mode,
+            on_limit_applied=self._mark_limit_changed,
+        )
         self.knowledge: list[Fact] = []  # the knowledge base, loaded by async_load_knowledge
 
     @property
@@ -341,34 +347,17 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             self._limit_seen[miner_id] = (limit_w, changed)
         return None if changed is None else (now - changed) / 60
 
-    async def _async_apply_power_limit(
-        self, snapshot: MinerSnapshot, limit_w: float, dry_run: bool
-    ) -> None:
-        if snapshot.power_limit_entity_id is None:
-            _LOGGER.warning(
-                "No power limit entity for miner %s; skipping", snapshot.miner_id
-            )
-            return
+    def _mark_limit_changed(self, miner_id: str, limit_w: float) -> None:
+        """An applied command re-tunes the miner now: restart its tuning clock at once.
 
-        clamped = limit_w
-        if snapshot.min_power_w is not None:
-            clamped = max(clamped, snapshot.min_power_w)
-        if snapshot.max_power_w is not None:
-            clamped = min(clamped, snapshot.max_power_w)
+        The last limit reading is kept, so the number still showing the old value for a
+        few seconds doesn't read as a second change; the new value, once it shows, does.
+        """
+        last_limit, _ = self._limit_seen.get(miner_id, (None, None))
+        self._limit_seen[miner_id] = (last_limit, time.monotonic())
 
-        if dry_run:
-            _LOGGER.info(
-                "[DRY RUN] Would set miner %s power limit to %.1f W",
-                snapshot.miner_id,
-                clamped,
-            )
-            return
-
-        await self.hass.services.async_call(
-            "number",
-            "set_value",
-            {"entity_id": snapshot.power_limit_entity_id, "value": clamped},
-        )
+    def _power_steps(self) -> list[float]:
+        return list(self._entry.options.get(CONF_POWER_STEPS) or DEFAULT_POWER_STEPS)
 
     def _sum_miner_power_w(self, miners: list[MinerSnapshot]) -> float | None:
         values = [m.power_w for m in miners if m.power_w is not None]
@@ -469,6 +458,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         self._start_ai_request(self.data)
 
     async def _async_update_data(self) -> CoordinatorSnapshot:
+        await self.controller.async_check_pending()
         energy = await self._async_read_energy()
         miners = await self._async_read_miners()
 
@@ -495,7 +485,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             temp_target=float(options.get(CONF_TEMP_TARGET, DEFAULT_TEMP_TARGET)),
             temp_tolerance=float(options.get(CONF_TEMP_TOLERANCE, DEFAULT_TEMP_TOLERANCE)),
             battery_floor=float(options.get(CONF_BATTERY_FLOOR, DEFAULT_BATTERY_FLOOR)),
-            power_steps=list(options.get(CONF_POWER_STEPS) or DEFAULT_POWER_STEPS),
+            power_steps=self._power_steps(),
             tuning_settle_minutes=float(
                 options.get(CONF_TUNING_SETTLE, DEFAULT_TUNING_SETTLE_MINUTES)
             ),

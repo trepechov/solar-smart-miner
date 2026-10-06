@@ -1,8 +1,6 @@
 """Tests for SolarMinerCoordinator — U11 (entity reads + power limit apply) and U10 (miner sum + mock consumption)."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
-
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -26,7 +24,6 @@ from custom_components.solar_smart_miner.const import (
 from custom_components.solar_smart_miner.coordinator import SolarMinerCoordinator
 from custom_components.solar_smart_miner.protocols import (
     CoordinatorSnapshot,
-    MinerSnapshot,
 )
 
 SOLAR_ENTITY = "sensor.solar_power"
@@ -35,7 +32,6 @@ FORECAST_ENTITY = "sensor.forecast_solar_power_production_now"
 BATTERY_ENTITY = "sensor.battery_soc"
 MINER_IP = "192.168.1.100"
 MINER_IP_2 = "192.168.1.101"
-POWER_LIMIT_ENTITY = "number.miner_power_limit"
 
 
 def _make_entry(
@@ -416,103 +412,6 @@ async def test_history_only_records_changed_decisions(hass, add_hass_miner) -> N
 
     assert len(snapshot.decision_history) == 2
     assert snapshot.decision_history[0]["summary"] == snapshot.decision.summary
-
-
-# ---------------------------------------------------------------------------
-# U11 — _async_apply_power_limit
-# ---------------------------------------------------------------------------
-
-
-def _make_miner_snapshot(
-    *,
-    min_power_w: float | None = 200.0,
-    max_power_w: float | None = 1500.0,
-    power_limit_entity_id: str | None = POWER_LIMIT_ENTITY,
-) -> MinerSnapshot:
-    return MinerSnapshot(
-        miner_id=MINER_IP,
-        ip=MINER_IP,
-        power_w=600.0,
-        power_limit_w=800.0,
-        min_power_w=min_power_w,
-        max_power_w=max_power_w,
-        temperature_c=65.0,
-        is_available=True,
-        power_limit_entity_id=power_limit_entity_id,
-    )
-
-
-async def test_apply_power_limit_live_mode_calls_service(hass) -> None:
-    entry = _make_entry(hass)
-    coord = SolarMinerCoordinator(hass, entry)
-    snapshot = _make_miner_snapshot()
-
-    with patch(
-        "homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock
-    ) as mock_call:
-        await coord._async_apply_power_limit(snapshot, 600.0, dry_run=False)
-
-    mock_call.assert_called_once_with(
-        "number",
-        "set_value",
-        {"entity_id": POWER_LIMIT_ENTITY, "value": 600.0},
-    )
-
-
-async def test_apply_power_limit_dry_run_does_not_call_service(hass) -> None:
-    entry = _make_entry(hass)
-    coord = SolarMinerCoordinator(hass, entry)
-    snapshot = _make_miner_snapshot()
-
-    with patch(
-        "homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock
-    ) as mock_call:
-        await coord._async_apply_power_limit(snapshot, 600.0, dry_run=True)
-
-    mock_call.assert_not_called()
-
-
-async def test_apply_power_limit_clamps_below_min(hass) -> None:
-    entry = _make_entry(hass)
-    coord = SolarMinerCoordinator(hass, entry)
-    snapshot = _make_miner_snapshot(min_power_w=200.0)
-
-    with patch(
-        "homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock
-    ) as mock_call:
-        await coord._async_apply_power_limit(snapshot, 50.0, dry_run=False)
-
-    mock_call.assert_called_once_with(
-        "number", "set_value", {"entity_id": POWER_LIMIT_ENTITY, "value": 200.0}
-    )
-
-
-async def test_apply_power_limit_clamps_above_max(hass) -> None:
-    entry = _make_entry(hass)
-    coord = SolarMinerCoordinator(hass, entry)
-    snapshot = _make_miner_snapshot(max_power_w=1500.0)
-
-    with patch(
-        "homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock
-    ) as mock_call:
-        await coord._async_apply_power_limit(snapshot, 2000.0, dry_run=False)
-
-    mock_call.assert_called_once_with(
-        "number", "set_value", {"entity_id": POWER_LIMIT_ENTITY, "value": 1500.0}
-    )
-
-
-async def test_apply_power_limit_no_entity_id_skips_silently(hass) -> None:
-    entry = _make_entry(hass)
-    coord = SolarMinerCoordinator(hass, entry)
-    snapshot = _make_miner_snapshot(power_limit_entity_id=None)
-
-    with patch(
-        "homeassistant.core.ServiceRegistry.async_call", new_callable=AsyncMock
-    ) as mock_call:
-        await coord._async_apply_power_limit(snapshot, 600.0, dry_run=False)
-
-    mock_call.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -1177,6 +1076,38 @@ async def test_limit_change_time_is_unknown_until_a_change_is_seen(hass, add_has
 
     now[0] += 15 * 60
     assert (await coordinator._async_update_data()).miners[0].minutes_since_limit_change == pytest.approx(15)
+
+
+async def test_applied_limit_counts_as_tuning_from_the_next_cycle(hass, add_hass_miner, monkeypatch) -> None:
+    import time as time_module
+
+    from pytest_homeassistant_custom_component.common import async_mock_service
+
+    from custom_components.solar_smart_miner.const import CONF_CONTROL_MODE
+
+    now = [1000.0]
+    monkeypatch.setattr(time_module, "monotonic", lambda: now[0])
+    add_hass_miner(MINER_IP, limit="1100", power="1100", temperature="55", limit_attrs={"min": 500.0, "max": 3500.0})
+    hass.states.async_set(SOLAR_ENTITY, "5000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    calls = async_mock_service(hass, "number", "set_value")
+    coordinator = SolarMinerCoordinator(hass, _make_entry(hass, options={CONF_CONTROL_MODE: "manual"}))
+    snapshot = await coordinator._async_update_data()
+    miner, plan = snapshot.miners[0], next(iter(snapshot.decision.plans.values()))
+    assert snapshot.miners[0].minutes_since_limit_change is None  # settled / unknown
+    assert plan.action == "set_limit"
+
+    result = await coordinator.controller.async_apply(
+        miner, plan, trigger="manual", steps=coordinator._power_steps()
+    )
+    assert result.status == "pending"
+    assert len(calls) == 1
+    now[0] += 120
+
+    snapshot = await coordinator._async_update_data()
+    # The number still reads the old limit, yet the miner already counts as tuning.
+    assert snapshot.miners[0].minutes_since_limit_change == pytest.approx(2)
+    assert next(iter(snapshot.decision.plans.values())).action != "set_limit"
 
 
 async def test_power_steps_and_tuning_options_drive_the_decision(hass, add_hass_miner) -> None:

@@ -58,7 +58,7 @@ STOP_METHOD_PAUSE = "pause"
 
 @dataclass
 class MinerPlan:
-    """What the controller would do with one miner. Preview only — never applied."""
+    """What the controller wants for one miner. Carried out only by control.py, on an Apply."""
 
     action: str
     limit_w: float | None = None  # the power step to run at (set_limit / start)
@@ -66,10 +66,16 @@ class MinerPlan:
     method: str | None = None  # how a stop / start is done: relay or pause
     target_entity_id: str | None = None  # the switch that does it
 
+    @property
+    def fingerprint(self) -> str:
+        """What an Apply carries out. The reason text is left out, so rewording doesn't block it."""
+        limit = "" if self.limit_w is None else f"{self.limit_w:g}"
+        return f"{self.action}|{limit}|{self.method or ''}|{self.target_entity_id or ''}"
+
 
 @dataclass
 class Decision:
-    """Outcome of one decision cycle. Preview only — never applied to miners."""
+    """Outcome of one decision cycle. Applied to miners only through control.py."""
 
     summary: str
     trace: list[str] = field(default_factory=list)

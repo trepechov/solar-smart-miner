@@ -119,4 +119,9 @@ CONTROL_MODES = [CONTROL_MODE_PREVIEW, CONTROL_MODE_MANUAL]
 DEFAULT_CONTROL_MODE = CONTROL_MODE_PREVIEW  # an upgrade changes nothing until the owner chooses
 CONTROL_MODE_LABELS = {CONTROL_MODE_PREVIEW: "Preview", CONTROL_MODE_MANUAL: "Manual"}
 
+# How long an applied command may take to show in the miner's entity before it counts as failed.
+# A relay start is slower: the miner has to boot before its limit entity is back.
+APPLY_VERIFY_GRACE_S = 60
+APPLY_VERIFY_GRACE_RELAY_START_S = 300
+
 DECISION_HISTORY_SIZE = 20  # decision-log entries kept on the sensor

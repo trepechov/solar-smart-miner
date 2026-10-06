@@ -307,7 +307,10 @@ alerts:
     notify: [log, dashboard, push]
     cooldown_min: 15
     resolves_when: The entity matches the last command, or the command is acknowledged.
-    note: Only exists once decisions are applied.
+    note: >
+      Raised by the command executor (control.py) when an applied command fails or isn't seen in
+      time (300 s for a relay start, the miner has to boot). Freezing automatic applying comes with
+      automatic mode; today it is a notification per miner.
 
   - id: control.schedule-conflict
     title: The schedule automation is still on
