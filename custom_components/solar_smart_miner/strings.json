@@ -61,7 +61,7 @@
         "title": "Solar Smart Miner — Edit Settings",
         "description": "Adjust runtime settings. Saving reloads the integration — no restart required.",
         "data": {
-          "dry_run": "Dry-run mode (log decisions without applying them)",
+          "control_mode": "Control mode (Preview: nothing is applied; Manual: apply with buttons)",
           "profile": "Active profile",
           "polling_interval": "Polling interval",
           "temp_target": "Target temperature",

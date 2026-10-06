@@ -110,4 +110,13 @@ SOLAR_ENTITY_TYPES = [
     SOLAR_ENTITY_TYPE_NET_IMPORT,
 ]
 
+# Control mode: whether the integration may touch the miners (control.py).
+CONF_CONTROL_MODE = "control_mode"
+CONTROL_MODE_PREVIEW = "preview"  # decisions are only shown
+CONTROL_MODE_MANUAL = "manual"  # the owner applies each proposed action with a button
+CONTROL_MODE_AUTO = "auto"  # reserved for automatic applying; not offered yet
+CONTROL_MODES = [CONTROL_MODE_PREVIEW, CONTROL_MODE_MANUAL]
+DEFAULT_CONTROL_MODE = CONTROL_MODE_PREVIEW  # an upgrade changes nothing until the owner chooses
+CONTROL_MODE_LABELS = {CONTROL_MODE_PREVIEW: "Preview", CONTROL_MODE_MANUAL: "Manual"}
+
 DECISION_HISTORY_SIZE = 20  # decision-log entries kept on the sensor

@@ -29,11 +29,15 @@ from homeassistant.helpers.selector import (
 
 from .ai import async_free_models
 from .const import (
+    CONF_CONTROL_MODE,
     CONF_MOCK_CONSUMPTION_ENABLED,
     CONF_MOCK_SOLAR_ENABLED,
     CONF_MOCK_SOLAR_ENTITY,
     DEFAULT_AI_INTERVAL,
+    CONTROL_MODE_LABELS,
+    CONTROL_MODES,
     DEFAULT_BATTERY_FLOOR,
+    DEFAULT_CONTROL_MODE,
     DEFAULT_IMPORT_TARGET_W,
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_POWER_STEPS,
@@ -75,7 +79,6 @@ CONF_BATTERY_FLOOR = "battery_floor"
 CONF_IMPORT_TARGET = "import_target"  # W of grid import Solar-max aims for
 CONF_PROFILE = "profile"
 CONF_POLLING_INTERVAL = "polling_interval"
-CONF_DRY_RUN = "dry_run"
 CONF_TELEGRAM_TOKEN = "telegram_bot_token"
 CONF_TELEGRAM_CHAT_ID = "telegram_chat_id"
 CONF_AI_ENABLED = "ai_enabled"
@@ -122,6 +125,13 @@ async def _async_model_options(hass: HomeAssistant, current_model: str | None) -
 _PROFILE_SELECTOR = SelectSelector(
     SelectSelectorConfig(
         options=[SelectOptionDict(value=p["name"], label=p["display_name"]) for p in PROFILES],
+        mode=SelectSelectorMode.DROPDOWN,
+    )
+)
+
+_CONTROL_MODE_SELECTOR = SelectSelector(
+    SelectSelectorConfig(
+        options=[SelectOptionDict(value=m, label=CONTROL_MODE_LABELS[m]) for m in CONTROL_MODES],
         mode=SelectSelectorMode.DROPDOWN,
     )
 )
@@ -315,7 +325,9 @@ def _step4_schema(
 
 def _options_schema(options: dict) -> vol.Schema:
     schema: dict = {
-        vol.Required(CONF_DRY_RUN, default=options.get(CONF_DRY_RUN, False)): bool,
+        vol.Required(
+            CONF_CONTROL_MODE, default=options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)
+        ): _CONTROL_MODE_SELECTOR,
         vol.Required(
             CONF_PROFILE, default=options.get(CONF_PROFILE, DEFAULT_PROFILE)
         ): _PROFILE_SELECTOR,
@@ -458,7 +470,7 @@ class SolarSmartMinerConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             self._options[CONF_PROFILE] = user_input[CONF_PROFILE]
             self._options[CONF_POLLING_INTERVAL] = int(user_input[CONF_POLLING_INTERVAL])
-            self._options[CONF_DRY_RUN] = False
+            self._options[CONF_CONTROL_MODE] = DEFAULT_CONTROL_MODE
 
             return self.async_create_entry(
                 title="Solar Smart Miner",
@@ -499,7 +511,7 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
                 {
                     CONF_POWER_STEPS: steps,
                     CONF_TUNING_SETTLE: int(user_input[CONF_TUNING_SETTLE]),
-                    CONF_DRY_RUN: user_input[CONF_DRY_RUN],
+                    CONF_CONTROL_MODE: user_input[CONF_CONTROL_MODE],
                     CONF_PROFILE: user_input[CONF_PROFILE],
                     CONF_POLLING_INTERVAL: int(user_input[CONF_POLLING_INTERVAL]),
                     CONF_TEMP_TARGET: int(user_input[CONF_TEMP_TARGET]),
@@ -509,6 +521,7 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
                 }
             )
             self._pending_options.pop("temp_ceiling", None)  # replaced by target + tolerance
+            self._pending_options.pop("dry_run", None)  # replaced by the control mode
             token = (user_input.get(CONF_TELEGRAM_TOKEN) or "").strip()
             chat_id = (user_input.get(CONF_TELEGRAM_CHAT_ID) or "").strip()
             self._pending_options[CONF_TELEGRAM_TOKEN] = token if token else None

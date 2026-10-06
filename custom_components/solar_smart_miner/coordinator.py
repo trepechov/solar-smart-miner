@@ -48,6 +48,7 @@ from .config_flow import (
     DEFAULT_OPENROUTER_MODEL,
 )
 from .const import (
+    CONF_CONTROL_MODE,
     CONF_MOCK_CONSUMPTION_ENABLED,
     CONF_MOCK_SOLAR_ENABLED,
     CONF_MOCK_SOLAR_ENTITY,
@@ -55,6 +56,7 @@ from .const import (
     DECISION_HISTORY_SIZE,
     DEFAULT_AI_INTERVAL,
     DEFAULT_BATTERY_FLOOR,
+    DEFAULT_CONTROL_MODE,
     DEFAULT_IMPORT_TARGET_W,
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_POWER_STEPS,
@@ -165,6 +167,11 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         # miner id -> (power limit last seen, time.monotonic() when it changed or None)
         self._limit_seen: dict[str, tuple[float | None, float | None]] = {}
         self.knowledge: list[Fact] = []  # the knowledge base, loaded by async_load_knowledge
+
+    @property
+    def control_mode(self) -> str:
+        """preview or manual: whether plans may be applied to the miners."""
+        return self._entry.options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)
 
     async def async_load_knowledge(self) -> None:
         """Read the knowledge base for the AI prompt. Without it the AI still works, just knows less."""

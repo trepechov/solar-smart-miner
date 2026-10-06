@@ -8,10 +8,18 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .config_flow import CONF_PROFILE
-from .const import DEFAULT_PROFILE, DOMAIN, PROFILES
+from .const import (
+    CONF_CONTROL_MODE,
+    CONTROL_MODE_LABELS,
+    DEFAULT_CONTROL_MODE,
+    DEFAULT_PROFILE,
+    DOMAIN,
+    PROFILES,
+)
 
 _LABEL_BY_NAME = {p["name"]: p["display_name"] for p in PROFILES}
 _NAME_BY_LABEL = {label: name for name, label in _LABEL_BY_NAME.items()}
+_MODE_BY_LABEL = {label: mode for mode, label in CONTROL_MODE_LABELS.items()}
 
 
 def _hub_device_info(entry: ConfigEntry) -> DeviceInfo:
@@ -26,7 +34,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    async_add_entities([ProfileSelect(entry)])
+    async_add_entities([ProfileSelect(entry), ControlModeSelect(entry)])
 
 
 class ProfileSelect(SelectEntity):
@@ -49,4 +57,30 @@ class ProfileSelect(SelectEntity):
         self.hass.config_entries.async_update_entry(
             self._entry,
             options={**self._entry.options, CONF_PROFILE: _NAME_BY_LABEL[option]},
+        )
+
+
+class ControlModeSelect(SelectEntity):
+    """Whether the integration may touch the miners: Preview (never) or Manual (on a button press)."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Control mode"
+    _attr_icon = "mdi:hand-back-right-outline"
+    _attr_options = list(CONTROL_MODE_LABELS.values())
+
+    def __init__(self, entry: ConfigEntry) -> None:
+        self._entry = entry
+        self._attr_unique_id = f"{entry.unique_id or entry.entry_id}_control_mode"
+        self._attr_device_info = _hub_device_info(entry)
+
+    @property
+    def current_option(self) -> str | None:
+        return CONTROL_MODE_LABELS.get(
+            self._entry.options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)
+        )
+
+    async def async_select_option(self, option: str) -> None:
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            options={**self._entry.options, CONF_CONTROL_MODE: _MODE_BY_LABEL[option]},
         )
