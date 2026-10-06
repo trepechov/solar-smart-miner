@@ -12,6 +12,11 @@ MIN_AI_INTERVAL = 10  # seconds
 ASK_AI_COOLDOWN = 10  # seconds; minimum gap between "Ask AI now" presses
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
+# Knowledge base in the AI prompt (kb.py). P0 and P1 are always sent; this caps the rest.
+KB_PROMPT_BUDGET_CHARS = 6000
+KB_NIGHT_ELEVATION = -3  # deg; sun at or below this is night
+KB_TRANSITION_ELEVATION = 15  # deg; below this the sun is rising or setting
+
 # Miners re-tune every time the power limit changes (14 min to an hour), so the limit
 # only ever moves between these steps. W; each miner uses the ones inside its own range.
 DEFAULT_POWER_STEPS = [900, 1100, 1300, 1500]

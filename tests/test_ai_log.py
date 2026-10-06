@@ -96,7 +96,17 @@ def test_record_captures_inputs_forecast_miners_rules_and_prompt() -> None:
     }
     assert rec["miners"][0]["stopped"] is False
     assert rec["prompt"] == "the prompt"
+    assert rec["knowledge"] == {"situation": None, "facts": []}
     assert rec["ts"]
+
+
+def test_record_keeps_which_knowledge_was_sent() -> None:
+    rec = build_record(
+        _snapshot(), MESSAGES, profile="solar_max", temp_ceiling=80.0, battery_floor=20.0,
+        knowledge={"situation": "sunset", "facts": ["rule.goal"]},
+    )
+
+    assert rec["knowledge"] == {"situation": "sunset", "facts": ["rule.goal"]}
 
 
 def test_completed_record_adds_the_ai_answer_and_never_a_key() -> None:

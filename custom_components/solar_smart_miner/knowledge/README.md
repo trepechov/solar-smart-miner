@@ -1,8 +1,9 @@
 # Knowledge base
 
 What we know about this site, the miners and the control rules, written down as small,
-separate facts so that (later) the AI can be given the right ones for the situation
-instead of one ever-growing prompt. Nothing here is loaded by the integration yet.
+separate facts so that the AI can be given the right ones for the situation instead of one
+ever-growing prompt. `kb.py` loads the fact files at startup and adds the chosen entries to
+every AI request; editing an entry takes effect after Home Assistant reloads the integration.
 
 ## Entry format
 
@@ -54,14 +55,18 @@ An `assumed` P1 is a smell: either verify it or lower it.
 | `open-questions.yaml` | What is still undecided or unmeasured, and what would settle it. |
 | `alerts.yaml` | Edge cases that should not happen in normal operation, and what each one triggers. |
 
-## How the AI will use it (later)
+## How the AI uses it
 
 1. **Always sent:** every P0 and P1 entry, kept short.
-2. **Picked by situation:** P2 and P3 entries whose `tags` match the current situation
-   (sunset, sunrise, cloud, night, midday), within a size budget.
-3. **Marked uncertain:** entries that are `assumed` are sent with a note that they are unverified.
+2. **Picked by situation:** P2 and P3 entries for the current situation, within a size budget
+   (`KB_PROMPT_BUDGET_CHARS`). The situation comes from `sun.sun`: night, sunrise, midday or
+   sunset by the sun's elevation and direction. An entry fits when it is tagged `always`, tagged
+   with the situation (or `cloud` while the sun is up), or carries only topic tags and the sun
+   is up. When the budget is tight, entries tagged for the moment go first and `always` ones last.
+3. **Marked uncertain:** entries that are `assumed` are sent as "unverified".
 4. **Never sent as fact:** `open`, `conflict` and `retired` entries.
-5. The AI's answer is checked against P0 and P1 before anything is applied.
+5. Each line of `ai_log.jsonl` records the situation and the ids of the entries that were sent.
+6. (Once decisions are applied) the AI's answer is checked against P0 and P1 first.
 
 Autonomy grows in the stages of the requirements doc (§7): advisory, then the AI picks
 which miners change, then it also picks the watt change. P0 and P1 stay a guard on every stage.

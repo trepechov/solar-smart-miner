@@ -58,6 +58,17 @@ def test_build_messages_includes_trace_profile_and_limits() -> None:
     assert "Brod1 → 500 W" in user
 
 
+def test_build_messages_adds_the_knowledge_base_to_the_system_prompt() -> None:
+    messages = build_messages(
+        _snapshot(), profile="solar_max", temp_ceiling=80, battery_floor=20,
+        knowledge="KNOWLEDGE BASE (situation: midday)\n- [P0] Rule: text",
+    )
+
+    assert messages[0]["content"].startswith(SYSTEM_PROMPT)
+    assert messages[0]["content"].endswith("- [P0] Rule: text")
+    assert "KNOWLEDGE BASE" not in messages[1]["content"]
+
+
 def test_build_messages_tells_the_model_it_cannot_change_anything() -> None:
     assert "cannot change anything" in SYSTEM_PROMPT
 

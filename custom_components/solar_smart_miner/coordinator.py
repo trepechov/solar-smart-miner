@@ -11,6 +11,7 @@ import time
 from collections import deque
 from datetime import timedelta
 
+import yaml
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
@@ -64,6 +65,7 @@ from .const import (
     SOLAR_ENTITY_TYPE_PRODUCTION,
 )
 from .decision import build_decision
+from .kb import Fact, format_facts, load_facts, select_facts, situation
 from .protocols import AiAdvice, CoordinatorSnapshot, EnergySnapshot, MinerSnapshot
 
 _LOGGER = logging.getLogger(__name__)
@@ -158,6 +160,15 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         self._ai_last_request: float | None = None  # time.monotonic()
         # miner id -> (power limit last seen, time.monotonic() when it changed or None)
         self._limit_seen: dict[str, tuple[float | None, float | None]] = {}
+        self.knowledge: list[Fact] = []  # the knowledge base, loaded by async_load_knowledge
+
+    async def async_load_knowledge(self) -> None:
+        """Read the knowledge base for the AI prompt. Without it the AI still works, just knows less."""
+        try:
+            self.knowledge = await self.hass.async_add_executor_job(load_facts)
+        except (OSError, yaml.YAMLError, KeyError, TypeError) as err:
+            _LOGGER.error("Knowledge base not loaded, the AI gets no facts: %s", err)
+            self.knowledge = []
 
     async def _async_read_energy(self) -> EnergySnapshot:
         options = self._entry.options
@@ -395,8 +406,15 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             "temp_ceiling": float(options.get(CONF_TEMP_CEILING, DEFAULT_TEMP_CEILING)),
             "battery_floor": float(options.get(CONF_BATTERY_FLOOR, DEFAULT_BATTERY_FLOOR)),
         }
-        messages = build_messages(snapshot, **settings)
-        record = build_record(snapshot, messages, **settings)
+        now = situation(self.hass.states.get("sun.sun"))
+        facts = select_facts(self.knowledge, now)
+        messages = build_messages(snapshot, **settings, knowledge=format_facts(facts, now))
+        record = build_record(
+            snapshot,
+            messages,
+            **settings,
+            knowledge={"situation": now, "facts": [f.id for f in facts]},
+        )
         self._ai_busy = True
         self._ai_last_request = time.monotonic()
         self._entry.async_create_background_task(

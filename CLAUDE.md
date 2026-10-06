@@ -17,6 +17,7 @@ custom_components/solar_smart_miner/   # HA integration source
   decision.py          # rule-based decision preview: power steps, stop/start plans, tuning
                        #   awareness (plans are never applied yet)
   ai.py                # OpenRouter client: prompt, chat completion, JSON answer parsing, free-model list
+  kb.py                # loads the knowledge base and picks the facts each AI request gets
   ai_log.py            # JSONL log of every AI request (inputs, rule proposal, AI actions) + widget history
   sensor.py            # sensor entity platform (hub + per-miner sensors, decision log, AI advice)
   select.py            # profile select entity
@@ -24,7 +25,8 @@ custom_components/solar_smart_miner/   # HA integration source
   protocols.py         # typed protocols for hass-miner entity reads
   const.py             # constants and configuration keys
   knowledge/           # knowledge base: facts by priority/status + alert catalogue (YAML);
-                       #   format in its README, checked by tests/test_knowledge.py
+                       #   format in its README, checked by tests/test_knowledge.py;
+                       #   sent to the AI by kb.py (P0/P1 always, the rest by situation)
   manifest.json        # HACS/HA integration manifest
 
 tests/                 # pytest test suite

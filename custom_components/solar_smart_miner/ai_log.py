@@ -33,8 +33,12 @@ def build_record(
     profile: str,
     temp_ceiling: float,
     battery_floor: float,
+    knowledge: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Everything the AI was given, captured when the request is sent."""
+    """Everything the AI was given, captured when the request is sent.
+
+    `knowledge` is the situation and the ids of the knowledge-base facts in the prompt.
+    """
     energy = snapshot.energy
     decision = snapshot.decision
     names = {m.miner_id: m.name for m in snapshot.miners}
@@ -87,6 +91,7 @@ def build_record(
             if decision
             else {},
         },
+        "knowledge": knowledge or {"situation": None, "facts": []},
         "prompt": next((m["content"] for m in messages if m["role"] == "user"), ""),
     }
 

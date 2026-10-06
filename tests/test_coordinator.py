@@ -898,6 +898,52 @@ async def test_ask_ai_now_explains_when_ai_is_off(hass) -> None:
         coordinator.async_ask_ai_now()
 
 
+async def test_ai_gets_the_knowledge_for_the_moment_and_the_log_names_it(hass, mock_openrouter) -> None:
+    import json
+
+    hass.states.async_set("sun.sun", "below_horizon", {"elevation": 5.0, "rising": False})
+    coordinator = SolarMinerCoordinator(hass, _ai_entry(hass))
+    await coordinator.async_load_knowledge()
+
+    await _refresh(hass, coordinator)
+
+    system = mock_openrouter.await_args.kwargs["messages"][0]["content"]
+    assert "KNOWLEDGE BASE (situation: sunset)" in system
+    assert "Move between fixed steps" in system  # a P1 rule
+    assert "What the sunset looked like" in system  # a sunset-only fact
+    entry = json.loads(coordinator.ai_log.path.read_text().splitlines()[0])
+    assert entry["knowledge"]["situation"] == "sunset"
+    assert "rule.power-steps" in entry["knowledge"]["facts"]
+
+
+async def test_a_broken_knowledge_base_leaves_the_ai_working(hass, mock_openrouter) -> None:
+    from unittest.mock import patch
+
+    import yaml
+
+    coordinator = SolarMinerCoordinator(hass, _ai_entry(hass))
+    with patch(
+        "custom_components.solar_smart_miner.coordinator.load_facts",
+        side_effect=yaml.YAMLError("bad"),
+    ):
+        await coordinator.async_load_knowledge()
+
+    await _refresh(hass, coordinator)
+
+    assert coordinator.knowledge == []
+    assert "KNOWLEDGE BASE" not in mock_openrouter.await_args.kwargs["messages"][0]["content"]
+
+
+async def test_setup_loads_the_knowledge_base(hass) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    entry = _make_entry(hass)
+
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert any(f.id == "rule.power-steps" for f in entry.runtime_data.knowledge)
+
+
 async def test_ai_never_changes_the_proposals(hass, mock_openrouter) -> None:
     """Advice is advisory: the rule-based decision is identical with or without AI."""
     with_ai = SolarMinerCoordinator(hass, _ai_entry(hass))
