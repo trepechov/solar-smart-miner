@@ -42,7 +42,7 @@ Solar Smart Miner closes that gap. On every update a rule-based controller reads
 - **Rule-based power control with an AI advisor**: the rules propose per-miner power steps from live energy data; an agent on any OpenRouter-compatible model (including free Llama/Gemma) comments on each proposal, and gains authority only in later, evidence-gated stages
 - **Four built-in profiles** — Battery-focused, Solar-max, Grid-agnostic, Grid-independent; switchable from the HA UI without restart
 - **Hard safety layer** — temperature ceiling, battery SOC floor, and solar fault checks run before every AI decision and cannot be reasoned around
-- **Preview and Manual control** — in Preview (the default) the integration only shows what it would do; in Manual you press Apply for each proposed action, or Apply all, and only then is a miner touched; switchable from the HA UI
+- **Preview and Manual control** — in Preview (the default) the integration only shows what it would do; in Manual the farm gets one proposal and you press **Apply proposal**, and only then is a miner touched; switchable from the HA UI
 - **Telegram notifications** — every power limit change and every safety override sends a message with the reason
 - **HACS-ready** — distributed as a standard HA custom component; install and configure entirely through the Home Assistant UI
 
@@ -137,7 +137,7 @@ A miner re-tunes itself for 14 minutes to an hour after every power-limit change
 - **Tuning.** hass-miner doesn't report the tuning state, so it is estimated: a miner is assumed to be tuning for the configured number of minutes (default 60) after its limit last changed. While tuning it is never stepped up; stepping down and stopping are still allowed. A limit that was already set when Home Assistant started counts as settled.
 - **Filling order.** A running miner is stepped up to its top step before another miner is started.
 
-The rules work out one plan per miner every cycle. In **Preview** mode the decision log and the AI advice only show what would be done; in **Manual** mode each plan can be applied with a button (see [Control mode](#control-mode)).
+The rules work out one plan per miner every cycle. In **Preview** mode the decision log and the AI advice only show what would be done; in **Manual** mode the plans are bundled into one proposal that you apply with a button (see [Control mode](#control-mode)).
 
 ## Safety layer
 
