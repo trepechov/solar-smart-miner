@@ -33,6 +33,7 @@ def _facts() -> list[tuple[str, dict]]:
 
 
 FACTS = _facts()
+SITUATIONS = _load("situations.yaml")["situations"]
 ALERTS_FILE = _load("alerts.yaml")
 ALERTS = ALERTS_FILE["alerts"]
 NOT_ALERTS = ALERTS_FILE["not_alerts"]
@@ -64,7 +65,7 @@ def test_every_fact_has_the_required_fields_in_the_right_shape(item) -> None:
     assert len(e["statement"].strip()) <= 700, f"{e['id']}: one fact per entry, keep it short"
     assert set(e) <= {
         "id", "title", "statement", "priority", "status", "source", "date",
-        "tags", "conflicts_with", "note",
+        "tags", "conflicts_with", "situations", "note",
     }, f"{e['id']}: unknown field"
 
 
@@ -191,10 +192,132 @@ def test_every_category_has_at_least_one_alert() -> None:
 
 def test_the_readme_lists_every_file() -> None:
     readme = (KB / "README.md").read_text(encoding="utf-8")
-    for name in [*FACT_FILES, "alerts.yaml"]:
+    for name in [*FACT_FILES, "alerts.yaml", "situations.yaml"]:
         assert f"`{name}`" in readme, name
 
 
 def test_there_are_no_stray_files() -> None:
-    expected = {"README.md", "alerts.yaml", *FACT_FILES}
+    expected = {"README.md", "alerts.yaml", "situations.yaml", *FACT_FILES}
     assert {p.name for p in KB.iterdir()} == expected
+
+
+# --- situations -------------------------------------------------------------------
+
+KINDS = {"measured", "forecast", "time", "derived"}
+WEIGHTS = {"strong", "medium", "weak"}
+SITUATION_STATUSES = {"proposed", "in_use", "retired"}
+FACT_AREAS = {"site", "miner", "energy", "rule", "conflict", "open", "situation"}
+SITUATION_IDS = {x["id"] for x in SITUATIONS}
+
+
+def _signals(situation) -> list[tuple[str, dict]]:
+    return [("for", x) for x in situation["for"]] + [("against", x) for x in situation["against"]]
+
+
+def test_situation_ids_and_tags_are_unique_and_match() -> None:
+    assert len(SITUATION_IDS) == len(SITUATIONS)
+    assert len({x["tag"] for x in SITUATIONS}) == len(SITUATIONS)
+    for x in SITUATIONS:
+        assert x["id"] == f"situation.{x['tag']}", x["id"]
+
+
+@pytest.mark.parametrize("situation", SITUATIONS, ids=_label)
+def test_every_situation_is_complete_and_valid(situation) -> None:
+    for field in ("id", "name", "tag", "scope", "summary", "expected", "for", "against",
+                  "exceptions", "in_code", "status"):
+        assert situation.get(field), f"{situation['id']}: missing {field}"
+    assert situation["scope"] in {"site", "miner"}
+    assert situation["status"] in SITUATION_STATUSES
+    assert str(situation["in_code"]).split()[0].strip(":") in {"none", "partial", "full"}, (
+        f"{situation['id']}: in_code starts with none, partial or full"
+    )
+
+
+@pytest.mark.parametrize("situation", SITUATIONS, ids=_label)
+def test_signals_are_well_formed_and_ids_unique_within_a_situation(situation) -> None:
+    ids = []
+    for side, sig in _signals(situation):
+        for field in ("id", "says", "kind", "weight", "available"):
+            assert field in sig, f"{situation['id']}/{side}: signal missing {field}"
+        assert sig["kind"] in KINDS, (situation["id"], sig["id"])
+        assert sig["weight"] in WEIGHTS, (situation["id"], sig["id"])
+        assert isinstance(sig["available"], bool), (situation["id"], sig["id"])
+        assert isinstance(sig.get("uses", []), list)
+        ids.append(sig["id"])
+    assert len(ids) == len(set(ids)), f"{situation['id']}: duplicate signal ids"
+
+
+@pytest.mark.parametrize("situation", SITUATIONS, ids=_label)
+def test_a_situation_needs_evidence_of_more_than_one_kind(situation) -> None:
+    """'Likely' needs two kinds of signal to agree, so there have to be two kinds to agree."""
+    kinds = {sig["kind"] for sig in situation["for"]}
+    assert len(kinds) >= 2, f"{situation['id']}: only {kinds}"
+    assert len(situation["for"]) >= 3 and situation["against"], situation["id"]
+    assert any(sig["weight"] != "weak" for sig in situation["for"]), situation["id"]
+
+
+@pytest.mark.parametrize("situation", SITUATIONS, ids=_label)
+def test_the_clock_alone_is_never_strong_evidence(situation) -> None:
+    for _, sig in _signals(situation):
+        if sig["kind"] == "time":
+            assert sig["weight"] in {"weak", "medium"}, (situation["id"], sig["id"])
+
+
+@pytest.mark.parametrize("situation", SITUATIONS, ids=_label)
+def test_situation_signals_only_use_things_that_exist(situation) -> None:
+    assert "effects" not in situation, "name the situation on the rule instead (situations: [...])"
+    for _, sig in _signals(situation):
+        for used in sig.get("uses") or []:
+            area = used.split(".")[0]
+            if area in FACT_AREAS:  # otherwise it is a Home Assistant entity id
+                assert used in FACT_IDS | SITUATION_IDS, (situation["id"], sig["id"], used)
+
+
+def _referrers() -> list[tuple[str, list[str]]]:
+    return [(e["id"], e.get("situations") or []) for _, e in FACTS] + [
+        (a["id"], a.get("situations") or []) for a in ALERTS
+    ]
+
+
+def test_everything_that_names_a_situation_names_one_that_exists() -> None:
+    for owner, names in _referrers():
+        assert set(names) <= SITUATION_IDS, f"{owner}: {set(names) - SITUATION_IDS}"
+
+
+def test_every_active_situation_is_used_by_a_rule_fact_or_alert() -> None:
+    """A situation nothing refers to does nothing; retire it or use it."""
+    named = {n for _, names in _referrers() for n in names}
+    for situation in SITUATIONS:
+        if situation["status"] != "retired":
+            assert situation["id"] in named, f"{situation['id']}: no rule, fact or alert names it"
+
+
+def test_decisions_can_refer_to_the_miner_situation_tuning() -> None:
+    by_id = {e["id"]: e for _, e in FACTS}
+    assert "situation.tuning" in by_id["rule.no-step-up-while-tuning"]["situations"]
+    assert "situation.tuning" in by_id["miner.tuning-signature"]["situations"]
+
+
+def test_tuning_looks_calm_but_inefficient() -> None:
+    """Measured on Brod1: steady power and hashrate, only low hashrate per watt (high J/TH)."""
+    tuning = next(x for x in SITUATIONS if x["tag"] == "tuning")
+    ids = {sig["id"]: sig for sig in tuning["for"]}
+    assert ids["efficiency-poor"]["weight"] == "strong"
+    assert "steady-at-limit" in ids
+    assert "hashrate-unsteady" not in ids  # contradicted by the measurements
+
+
+def test_every_situation_tag_is_used_by_some_fact() -> None:
+    """A situation nothing is tagged with does nothing; retire it or tag the facts."""
+    used = {t for _, e in FACTS for t in e["tags"]}
+    for situation in SITUATIONS:
+        if situation["status"] != "retired":
+            assert situation["tag"] in used, f"{situation['id']}: no fact is tagged {situation['tag']}"
+
+
+def test_the_situations_we_discussed_exist_and_tuning_is_honest_about_the_code() -> None:
+    by_tag = {x["tag"]: x for x in SITUATIONS}
+    assert {"tuning", "sunrise", "midday", "sunset", "night", "cloud", "curtailed", "dropout"} <= set(by_tag)
+    assert by_tag["tuning"]["scope"] == "miner"
+    assert by_tag["tuning"]["in_code"].startswith("partial")  # one signal of five is implemented
+    assert by_tag["tuning"]["status"] == "in_use"

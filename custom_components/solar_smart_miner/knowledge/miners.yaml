@@ -69,7 +69,8 @@ entries:
     status: decided
     source: "owner, 2026-10-05"
     date: "2026-10-05"
-    tags: [always, allocation]
+    situations: [situation.tuning]
+    tags: [always, allocation, tuning]
     note: Not seen in the recorded data; no limit changes exist in the history.
 
   - id: miner.tuning-not-exposed
@@ -82,7 +83,8 @@ entries:
     status: verified
     source: "measured: HA states, 2026-10-05"
     date: "2026-10-05"
-    tags: [always, allocation]
+    situations: [situation.tuning]
+    tags: [always, allocation, tuning]
 
   - id: miner.limit-change-cost
     title: Cost of a limit change
@@ -93,6 +95,7 @@ entries:
     status: assumed
     source: "requirements doc §5.1"
     date: "2026-10-05"
+    situations: [situation.tuning]
     tags: [allocation]
     note: >
       First sample, 2026-10-06 09:31 (Brod1, 1300 W to 1500 W): the pause switch read off for 40 s
@@ -145,7 +148,8 @@ entries:
     status: verified
     source: "measured: Brod1 history 09:20 to 09:40, 2026-10-06"
     date: "2026-10-06"
-    tags: [allocation, alerts]
+    situations: [situation.tuning]
+    tags: [allocation, alerts, tuning]
     note: >
       The end of the tuning has not been observed yet, so how long it takes and what the settled
       efficiency at 1500 W is are still unknown. No sensor says "tuning"; this is only a proxy.

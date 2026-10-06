@@ -19,6 +19,7 @@ Each file holds a list of `entries`. One entry is one fact:
 | `source` | Who or what says so: `owner`, `requirements doc §x`, `measured: <what, when>`, `observed`, `code`. |
 | `date` | When it was last checked, `YYYY-MM-DD`. |
 | `tags` | Situations where it matters: `sunset`, `sunrise`, `cloud`, `night`, `midday`, `startup`, `always`, plus topics. Used to pick entries for a prompt. |
+| `situations` | (optional) situations this applies in, such as `situation.sunset` or `situation.tuning`. Rules, facts and alerts name the situations they depend on; this is the one place to edit. |
 | `conflicts_with` | (optional) ids this entry disagrees with. Only on `status: conflict`. |
 | `note` | (optional) caveat or what would settle it. |
 
@@ -53,6 +54,7 @@ An `assumed` P1 is a smell: either verify it or lower it.
 | `energy.yaml` | How the energy signals behave and what the sunset looked like. |
 | `rules.yaml` | The control rules (P0 to P2) decided in the requirements doc and since. |
 | `open-questions.yaml` | What is still undecided or unmeasured, and what would settle it. |
+| `situations.yaml` | Named states that nothing measures directly (sunrise, sunset, night, cloud, miner tuning, inverters throttled, sensor dropout) and the evidence for each. |
 | `alerts.yaml` | Edge cases that should not happen in normal operation, and what each one triggers. |
 
 ## How the AI uses it
@@ -70,6 +72,53 @@ An `assumed` P1 is a smell: either verify it or lower it.
 
 Autonomy grows in the stages of the requirements doc (§7): advisory, then the AI picks
 which miners change, then it also picks the watt change. P0 and P1 stay a guard on every stage.
+
+## Situations
+
+A **situation** is a named state of the world that no sensor reports, so it is *inferred*:
+sunrise, sunset, night, a cloud passing, a miner tuning, the inverters being throttled, a
+sensor dropout. None of them is certain and none has a single test. Each is recognised when
+several independent signals point the same way, and it can be wrong when something unusual
+happens (a cloud at sunrise, fog all morning). The tags on facts, rules and alerts are the
+situation names, so "what matters at sunset" is a lookup, not a guess.
+
+Refer to one by its id, for example `situation.sunrise` or `situation.tuning`.
+
+**Signals.** Each situation lists signals `for` it and signals `against` it. A signal has a
+`kind` (`measured`, `forecast`, `time`, `derived`), a `weight` (`strong` 3, `medium` 2,
+`weak` 1), the entities or facts it reads (`uses`), and whether that data is readable today
+(`available`). The clock alone is `time`, and is always `weak`, because the season moves it.
+
+**Scoring** (starting values, to be tuned from the logs): add the weight of every `for`
+signal that holds, subtract the weight of every `against` signal that holds.
+
+| Score | Level | Rule |
+|---|---|---|
+| 6 or more | confirmed | and at least two different kinds of signal agree |
+| 4 to 5 | likely | and at least two different kinds of signal agree |
+| 2 to 3 | possible | |
+| under 2 | not active | |
+
+Two kinds must agree for "likely" or better, so the time of day alone can never make it
+sunrise. A signal that is not `available` yet is skipped, and the entry says what is missing.
+`in_code` says how much of this exists in the integration today; most situations are only
+described. For example `kb.py` currently picks night, sunrise, midday or sunset from the sun's
+elevation alone (one signal) to choose which facts to send; the multi-signal versions below
+are what would replace it, and tuning, cloud, curtailed and dropout are not used by it at all. The tuning flag, for one, currently uses a single signal (time since the limit
+changed), not the several listed.
+
+**Editing.**
+- *Add:* a new entry in `situations.yaml` with a new unique `tag`, `status: proposed`, then
+  put that tag on the facts and rules it affects. The test fails if the tag is unused.
+- *Change:* edit the signals or weights, or `status` (`proposed`, `in_use`, `retired`).
+- *Delete:* set `status: retired` first. Remove the entry only when nothing refers to it;
+  the test names whatever still does.
+- *Use in a decision:* give a rule, fact or alert a `situations: [situation.tuning]` field. Code
+  that decides refers to the situation by id (`situation.tuning`), never by its signals.
+
+A situation is either `scope: site` (one answer for the whole site: sunrise, night, cloud) or
+`scope: miner` (one answer per miner: tuning). A miner situation is evaluated separately for
+Brod1, Brod2 and Brod3, from that miner's own sensors.
 
 ## Alerts
 

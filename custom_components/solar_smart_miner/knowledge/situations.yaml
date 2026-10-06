@@ -1,0 +1,168 @@
+# Situations: named states that nothing measures directly, recognised when enough
+# independent signals agree. Read the README ("Situations") for the scoring and how to edit.
+#
+# Per situation:
+#   id, name, tag     id is situation.<tag>; the tag is what facts, rules and alerts use
+#   scope             site | miner (decided per miner)
+#   summary           one sentence
+#   expected          when it normally happens, if it has a usual time (the "prior")
+#   for / against     the evidence. Each signal: id, says, kind, weight, uses, available
+#                       kind    measured | forecast | time | derived
+#                       weight  strong (3) | medium (2) | weak (1)
+#                       uses    entities or knowledge entries the signal reads
+#                       available  true (readable today) | false (needs a sensor or code)
+#   (what a situation affects is not listed here: rules, facts and alerts name the situations
+#    they apply in, with a `situations:` field, so there is one place to edit)
+#   exceptions        what makes it unreliable
+#   in_code           none | partial | full, and what exists today
+#   status            proposed | in_use | retired
+situations:
+  - id: situation.tuning
+    name: Miner tuning
+    tag: tuning
+    scope: miner
+    summary: A miner is still finding the best settings for its current power limit, so it hashes worse than it will.
+    expected: Starts at every power-limit change and lasts 14 minutes to an hour.
+    for:
+      - {id: recent-change, says: "The power limit changed less than about 60 minutes ago.", kind: derived, weight: medium, uses: [number.brodN_power_limit], available: true}
+      - {id: restart-seen, says: "The pause switch went off and on, or power dropped to nothing and came back, just after the change.", kind: measured, weight: medium, uses: [switch.brodN_active, sensor.brodN_miner_consumption], available: true}
+      - {id: efficiency-poor, says: "J/TH is clearly worse than the miner's own settled value at this step, or than at the previous step.", kind: measured, weight: strong, uses: [sensor.brodN_efficiency, miner.tuning-signature], available: true}
+      - {id: hashrate-low-for-power, says: "TH/s per watt is below the settled value although the power has reached the limit and is steady.", kind: measured, weight: strong, uses: [sensor.brodN_hashrate, sensor.brodN_miner_consumption], available: true}
+      - {id: steady-at-limit, says: "Power has reached the limit and stays steady, and hashrate is steady too, only low: a tuning miner looks calm, just worse.", kind: measured, weight: weak, uses: [sensor.brodN_miner_consumption, sensor.brodN_hashrate, miner.tuning-signature], available: true}
+    against:
+      - {id: efficiency-settled, says: "J/TH has stayed within about 3% for 10 minutes and is near the settled value.", kind: measured, weight: strong, uses: [sensor.brodN_efficiency], available: true}
+      - {id: long-since-change, says: "The limit last changed more than 60 minutes ago.", kind: derived, weight: medium, uses: [number.brodN_power_limit], available: true}
+    exceptions: >
+      There is no settled value to compare against for a step that has never been tuned, so
+      efficiency-poor and hashrate-low-for-power can't fire the first time; only the time and
+      restart signals can.
+    in_code: >
+      partial: only recent-change is used (decision._tuning_left, coordinator._minutes_since_limit_change),
+      and a limit that was already set when Home Assistant started counts as settled.
+    status: in_use
+
+  - id: situation.sunrise
+    name: Sunrise
+    tag: sunrise
+    scope: site
+    summary: The sun is coming up and production is rising, so miners can be added.
+    expected: "Early October: first PV about 07:00, useful production from about 07:30. The window moves with the season."
+    for:
+      - {id: in-window, says: "The time is inside the usual sunrise window for the season.", kind: time, weight: weak, uses: [site.location], available: true}
+      - {id: sun-rising, says: "The sun is above the horizon and its elevation is increasing.", kind: derived, weight: medium, uses: [sun.sun], available: true}
+      - {id: forecast-rising, says: "The forecast for now and for the next hour is rising.", kind: forecast, weight: medium, uses: [sensor.solar_forecast_power_now, sensor.power_production_next_hour], available: true}
+      - {id: pv-rising, says: "Actual PV, or the export balance, has been rising over the last 10 to 20 minutes.", kind: measured, weight: strong, uses: [sensor.active_power_total, sensor.power_meter_active_power], available: true}
+    against:
+      - {id: pv-flat-or-falling, says: "Actual PV is flat or falling while the forecast says it should rise.", kind: measured, weight: strong, uses: [sensor.active_power_total], available: true}
+      - {id: outside-window, says: "It is hours away from the usual sunrise window.", kind: time, weight: medium, uses: [site.location], available: true}
+    exceptions: Cloud or fog can hold production down for hours; the forecast then says "rising" and the measurement says "no".
+    in_code: none
+    status: proposed
+
+  - id: situation.sunset
+    name: Sunset
+    tag: sunset
+    scope: site
+    summary: The sun is going down and production is falling, so miners must be stepped down and stopped in order.
+    expected: "Early October: PV falling from about 17:00, nothing left by about 18:20. The window moves with the season."
+    for:
+      - {id: in-window, says: "The time is inside the usual sunset window for the season.", kind: time, weight: weak, uses: [site.location], available: true}
+      - {id: sun-falling, says: "The sun's elevation is decreasing and low.", kind: derived, weight: medium, uses: [sun.sun], available: true}
+      - {id: forecast-falling, says: "The forecast for now and for the next hour is falling.", kind: forecast, weight: medium, uses: [sensor.solar_forecast_power_now, sensor.power_production_next_hour], available: true}
+      - {id: pv-falling, says: "Actual PV has been falling steadily over the last 20 to 30 minutes.", kind: measured, weight: strong, uses: [sensor.active_power_total], available: true}
+      - {id: import-growing, says: "Grid import keeps growing while the miners' power stays constant.", kind: measured, weight: strong, uses: [sensor.power_meter_active_power, energy.evening-curve], available: true}
+    against:
+      - {id: pv-steady, says: "Actual PV is steady at a high level.", kind: measured, weight: strong, uses: [sensor.active_power_total], available: true}
+      - {id: outside-window, says: "It is hours away from the usual sunset window.", kind: time, weight: medium, uses: [site.location], available: true}
+    exceptions: A heavy cloud late in the afternoon looks like an early sunset until production recovers or not.
+    in_code: none (the decision only sees the budget falling)
+    status: proposed
+
+  - id: situation.midday
+    name: Midday
+    tag: midday
+    scope: site
+    summary: The sun is high and production is at its daily plateau; the steady state in which most decisions are made.
+    expected: "Early October: roughly 09:30 to 16:00. The window moves with the season."
+    for:
+      - {id: sun-high, says: "The sun is well above the horizon and not changing fast.", kind: derived, weight: medium, uses: [sun.sun], available: true}
+      - {id: forecast-high-steady, says: "The forecast for now and the next hour is high and steady.", kind: forecast, weight: medium, uses: [sensor.solar_forecast_power_now, sensor.power_production_next_hour], available: true}
+      - {id: pv-steady, says: "Actual PV (or the load it is throttled to) is steady over the last 20 minutes.", kind: measured, weight: strong, uses: [sensor.active_power_total], available: true}
+      - {id: in-window, says: "The time is inside the usual midday window for the season.", kind: time, weight: weak, uses: [site.location], available: true}
+    against:
+      - {id: pv-changing-fast, says: "Actual PV is rising or falling fast.", kind: measured, weight: strong, uses: [sensor.active_power_total], available: true}
+      - {id: forecast-changing, says: "The forecast is rising or falling over the next hour.", kind: forecast, weight: medium, uses: [sensor.power_production_next_hour], available: true}
+    exceptions: Clouds make production swing at midday too (situation.cloud); the other signals then disagree with pv-steady.
+    in_code: none (kb.py treats the sun's elevation as midday, one signal)
+    status: proposed
+
+  - id: situation.night
+    name: Night
+    tag: night
+    scope: site
+    summary: There is no sun, so no miner should be running on solar.
+    expected: "From shortly after sunset until after sunrise."
+    for:
+      - {id: sun-below-horizon, says: "The sun is below the horizon.", kind: derived, weight: strong, uses: [sun.sun], available: true}
+      - {id: pv-zero, says: "Actual PV is near 0.", kind: measured, weight: strong, uses: [sensor.active_power_total], available: true}
+      - {id: forecast-zero, says: "The forecast is 0 now and for the next hour.", kind: forecast, weight: medium, uses: [sensor.solar_forecast_power_now], available: true}
+      - {id: in-window, says: "The time is outside daylight hours for the season.", kind: time, weight: weak, uses: [site.location], available: true}
+    against:
+      - {id: pv-present, says: "Actual PV is clearly above 0.", kind: measured, weight: strong, uses: [sensor.active_power_total], available: true}
+    exceptions: sensor.active_power_total also reads unknown (energy.pv-sum-unreliable), which is not the same as 0.
+    in_code: none
+    status: proposed
+
+  - id: situation.cloud
+    name: Cloud passing
+    tag: cloud
+    scope: site
+    summary: Production dropped for a short while and will probably come back; don't re-tune for it.
+    expected: Minutes to a few tens of minutes, in daylight, away from sunrise and sunset.
+    for:
+      - {id: pv-dropped-fast, says: "Actual PV fell by a large share within a few minutes.", kind: measured, weight: strong, uses: [sensor.active_power_total], available: true}
+      - {id: forecast-still-high, says: "The forecast still expects high production.", kind: forecast, weight: strong, uses: [sensor.solar_forecast_power_now], available: true}
+      - {id: midday, says: "It is well inside daylight hours, not in a sunrise or sunset window.", kind: time, weight: medium, uses: [situation.sunrise, situation.sunset], available: true}
+      - {id: sun-high, says: "The sun is high.", kind: derived, weight: weak, uses: [sun.sun], available: true}
+    against:
+      - {id: forecast-falling, says: "The forecast falls too.", kind: forecast, weight: strong, uses: [sensor.solar_forecast_power_now], available: true}
+      - {id: low-sun, says: "The sun is low (it is probably sunset).", kind: derived, weight: medium, uses: [sun.sun], available: true}
+      - {id: curtailed, says: "The inverters are throttled, so the drop may only be the load changing.", kind: derived, weight: medium, uses: [situation.curtailed], available: true}
+    exceptions: While the inverters are throttled, actual PV equals the load and can't show a cloud at all.
+    in_code: none
+    status: proposed
+
+  - id: situation.curtailed
+    name: Inverters throttled
+    tag: curtailed
+    scope: site
+    summary: The inverters hold output to the house load, so measured solar says nothing about how much the panels could give.
+    expected: Whenever production could exceed the load, which is most of the day.
+    for:
+      - {id: status-power-limited, says: "The inverters report 'Grid Connection: power limited'.", kind: measured, weight: strong, uses: [sensor.inverter_device_status, site.zero-export], available: true}
+      - {id: pv-equals-load, says: "Actual PV is flat and equal to the house load.", kind: measured, weight: strong, uses: [sensor.active_power_total, site.load-is-miners], available: true}
+      - {id: forecast-above-pv, says: "The forecast is far above actual PV.", kind: forecast, weight: medium, uses: [sensor.solar_forecast_power_now], available: true}
+      - {id: meter-near-zero, says: "The grid meter sits close to 0 W.", kind: measured, weight: medium, uses: [sensor.power_meter_active_power], available: true}
+    against:
+      - {id: import-present, says: "There is a clear grid import: the load is above what the panels give.", kind: measured, weight: strong, uses: [sensor.power_meter_active_power], available: true}
+      - {id: status-not-limited, says: "The inverters do not report power limited.", kind: measured, weight: strong, uses: [sensor.inverter_device_status], available: true}
+    exceptions: A sunset also makes PV fall, but then there is import and the status stops saying power limited.
+    in_code: none
+    status: proposed
+
+  - id: situation.dropout
+    name: Sensor dropout
+    tag: dropout
+    scope: site
+    summary: A sensor is briefly unavailable; the system is fine and should not react.
+    expected: Seconds to a minute or two, most evenings.
+    for:
+      - {id: short, says: "The sensor has been unavailable for only a few minutes.", kind: derived, weight: strong, uses: [energy.meter-dropouts, energy.pv-sum-unreliable], available: true}
+      - {id: others-fine, says: "Other sensors from the same system still report.", kind: measured, weight: medium, uses: [sensor.power_meter_active_power, sensor.active_power_total], available: true}
+      - {id: recovers, says: "It has recovered before, in the same way.", kind: derived, weight: weak, uses: [energy.meter-dropouts], available: true}
+    against:
+      - {id: long, says: "The sensor has been gone for ten minutes or more.", kind: derived, weight: strong, uses: [], available: true}
+      - {id: many-down, says: "Several unrelated sensors are down at once.", kind: measured, weight: strong, uses: [], available: true}
+    exceptions: Past ten minutes it stops being a dropout and becomes the sensor.meter-lost alert.
+    in_code: partial (a missing solar value holds the miners, with no time limit and no check on other sensors)
+    status: in_use

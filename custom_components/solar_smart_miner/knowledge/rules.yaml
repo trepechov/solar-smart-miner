@@ -81,7 +81,8 @@ entries:
     status: decided
     source: "owner, 2026-10-05"
     date: "2026-10-05"
-    tags: [always, allocation]
+    situations: [situation.tuning]
+    tags: [always, allocation, tuning]
 
   - id: rule.stop-below-lowest-step
     title: Stop, don't idle
@@ -94,7 +95,8 @@ entries:
     status: decided
     source: "requirements doc §0 point 7, §5.3; owner, 2026-10-05"
     date: "2026-10-05"
-    tags: [always, sunset, sunrise, allocation]
+    situations: [situation.sunset, situation.night]
+    tags: [always, sunset, sunrise, allocation, night]
 
   - id: rule.hold-on-sensor-drop
     title: A sensor drop holds, it doesn't re-tune
@@ -105,7 +107,8 @@ entries:
     status: decided
     source: "decided 2026-10-05 after the 17:39 and 18:43 dropouts"
     date: "2026-10-05"
-    tags: [always, alerts]
+    situations: [situation.dropout]
+    tags: [always, alerts, dropout]
 
   - id: rule.minimise-restarts
     title: Few restarts
@@ -127,6 +130,7 @@ entries:
     status: decided
     source: "requirements doc §5.2"
     date: "2026-10-05"
+    situations: [situation.tuning]
     tags: [always, allocation]
 
   - id: rule.consolidate-needs-sustained-deficit
@@ -138,6 +142,7 @@ entries:
     status: decided
     source: "requirements doc §5.3"
     date: "2026-10-05"
+    situations: [situation.sunset, situation.cloud]
     tags: [cloud, sunset, allocation]
 
   - id: rule.transitions-tolerant
@@ -149,6 +154,7 @@ entries:
     status: decided
     source: "requirements doc §0.2, §5.4"
     date: "2026-10-05"
+    situations: [situation.sunrise, situation.sunset, situation.cloud]
     tags: [sunrise, sunset, cloud]
 
   - id: rule.small-import-target
@@ -161,6 +167,7 @@ entries:
     status: decided
     source: "requirements doc §6.2"
     date: "2026-10-05"
+    situations: [situation.midday, situation.curtailed]
     tags: [midday, allocation]
     note: Not what the code does yet; see conflict.control-model.
 
@@ -282,6 +289,7 @@ entries:
     status: decided
     source: "requirements doc §5.3"
     date: "2026-10-05"
+    situations: [situation.midday]
     tags: [midday, allocation]
 
   - id: rule.fill-running-first
@@ -361,6 +369,7 @@ entries:
     status: assumed
     source: "requirements doc §5.4 (a suggestion)"
     date: "2026-10-05"
+    situations: [situation.sunrise]
     tags: [sunrise, sunset]
 
   # --- conflicts: needs a decision --------------------------------------------

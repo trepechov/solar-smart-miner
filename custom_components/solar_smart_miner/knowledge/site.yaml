@@ -69,7 +69,7 @@ entries:
     status: verified
     source: "measured: flat 4.0 kWh per hour from 09:00 to 16:00 against a 9.9 kW forecast, 2026-10-05"
     date: "2026-10-05"
-    tags: [always, midday, solar]
+    tags: [always, midday, solar, curtailed]
 
   - id: site.load-is-miners
     title: The house load is the miners

@@ -78,6 +78,7 @@ alerts:
     condition: It is dark (sun below the horizon and PV near 0) and one or more miners still draw power.
     normal: All miners stopped from shortly after sunset until after sunrise.
     not_alert: [normal.transition-import]
+    situations: [situation.night]
     thresholds: {pv_below_w: 100, miners_above_w: 500, minutes: 20}
     action: pause_all
     acts: rules
