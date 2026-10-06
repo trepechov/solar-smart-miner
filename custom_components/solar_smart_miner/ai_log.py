@@ -1,28 +1,20 @@
 """Append-only log of every AI advice request: what it was given and what it said.
 
-One JSON object per line in <config>/solar_smart_miner/ai_log.jsonl, so it can be read
-with a text editor, `jq` or a script. The file rotates at MAX_BYTES and keeps BACKUPS
-older files (ai_log.jsonl.1, .2, ...). Nothing here changes the miners.
+One JSON object per line in <config>/solar_smart_miner/ai_log.jsonl (file handling in
+jsonl_log.py). Nothing here changes the miners.
 """
 from __future__ import annotations
 
-import json
-import logging
 from collections import deque
-from pathlib import Path
 from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from .jsonl_log import JsonlLog
 from .protocols import AiAdvice, CoordinatorSnapshot
 
-_LOGGER = logging.getLogger(__name__)
-
-LOG_DIR = "solar_smart_miner"
 LOG_FILE = "ai_log.jsonl"
-MAX_BYTES = 5_000_000
-BACKUPS = 2
 HISTORY_SIZE = 20  # entries kept in memory for the sensor / dashboard widget
 
 
@@ -128,51 +120,22 @@ def summarise(entry: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-class AiLog:
+class AiLog(JsonlLog):
+    file_name = LOG_FILE
+    label = "AI"
+
     def __init__(self, hass: HomeAssistant) -> None:
-        self._hass = hass
-        self.path = Path(hass.config.path(LOG_DIR, LOG_FILE))
+        super().__init__(hass)
         self.history: deque[dict[str, Any]] = deque(maxlen=HISTORY_SIZE)  # newest first
-
-    # --- file work (runs in the executor) ---------------------------------
-
-    def _write(self, line: str) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        if self.path.exists() and self.path.stat().st_size + len(line) > MAX_BYTES:
-            for n in range(BACKUPS, 0, -1):
-                src = self.path if n == 1 else self.path.with_name(f"{LOG_FILE}.{n - 1}")
-                if src.exists():
-                    src.replace(self.path.with_name(f"{LOG_FILE}.{n}"))
-        with self.path.open("a", encoding="utf-8") as fh:
-            fh.write(line)
-
-    def _read_tail(self, count: int) -> list[dict[str, Any]]:
-        if not self.path.exists():
-            return []
-        entries: list[dict[str, Any]] = []
-        for line in self.path.read_text(encoding="utf-8").splitlines()[-count:]:
-            try:
-                entries.append(json.loads(line))
-            except ValueError:
-                continue  # a half-written line after a crash
-        return entries
-
-    # --- public API -------------------------------------------------------
 
     async def async_load_history(self) -> None:
         """Refill the in-memory history from the file so the widget survives restarts."""
-        try:
-            entries = await self._hass.async_add_executor_job(self._read_tail, HISTORY_SIZE)
-        except OSError as err:
-            _LOGGER.warning("Could not read the AI log %s: %s", self.path, err)
+        entries = await self.async_read_tail(HISTORY_SIZE)
+        if entries is None:
             return
         self.history.clear()
         self.history.extendleft(summarise(e) for e in entries)  # oldest first -> newest ends first
 
     async def async_append(self, entry: dict[str, Any]) -> None:
         self.history.appendleft(summarise(entry))
-        line = json.dumps(entry, ensure_ascii=False, separators=(",", ":")) + "\n"
-        try:
-            await self._hass.async_add_executor_job(self._write, line)
-        except OSError as err:
-            _LOGGER.warning("Could not write the AI log %s: %s", self.path, err)
+        await self.async_write(entry)

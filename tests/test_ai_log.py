@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from custom_components.solar_smart_miner import ai_log
+from custom_components.solar_smart_miner import ai_log, jsonl_log
 from custom_components.solar_smart_miner.ai_log import (
     AiLog,
     build_record,
@@ -188,7 +188,7 @@ async def test_load_history_survives_a_missing_file_and_a_torn_line(hass) -> Non
 
 
 async def test_log_rotates_and_keeps_a_bounded_number_of_files(hass, monkeypatch) -> None:
-    monkeypatch.setattr(ai_log, "MAX_BYTES", 400)
+    monkeypatch.setattr(jsonl_log, "MAX_BYTES", 400)
     log = AiLog(hass)
     for i in range(40):
         await log.async_append({"ts": "2026-10-05T10:00:00+00:00", "n": i, "pad": "x" * 100})

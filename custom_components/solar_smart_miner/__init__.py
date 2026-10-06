@@ -13,6 +13,7 @@ PLATFORMS: list[str] = ["button", "select", "sensor"]
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = SolarMinerCoordinator(hass, entry)
     await coordinator.ai_log.async_load_history()
+    await coordinator.action_log.async_load_history()
     await coordinator.async_load_knowledge()
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator

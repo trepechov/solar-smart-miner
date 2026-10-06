@@ -22,6 +22,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
+from .action_log import ActionLog
 from .ai import async_ask, build_messages
 from .ai_log import AiLog, build_record, complete_record
 from .config_flow import (
@@ -74,6 +75,7 @@ from .const import (
 from .control import (
     RESULT_REFUSED,
     TRIGGER_MANUAL,
+    CommandEvent,
     CommandResult,
     MinerController,
 )
@@ -177,6 +179,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         self._entry = entry
         self._history: deque[dict[str, str]] = deque(maxlen=DECISION_HISTORY_SIZE)
         self.ai_log = AiLog(hass)
+        self.action_log = ActionLog(hass)
         self._ai_advice: AiAdvice | None = None
         self._ai_busy = False
         self._ai_last_request: float | None = None  # time.monotonic()
@@ -186,6 +189,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             hass,
             get_mode=lambda: self.control_mode,
             on_limit_applied=self._mark_limit_changed,
+            on_event=self._async_record_action,
         )
         self.knowledge: list[Fact] = []  # the knowledge base, loaded by async_load_knowledge
 
@@ -370,6 +374,10 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         """
         last_limit, _ = self._limit_seen.get(miner_id, (None, None))
         self._limit_seen[miner_id] = (last_limit, time.monotonic())
+
+    async def _async_record_action(self, event: CommandEvent) -> None:
+        await self.action_log.async_record(event, self.data)
+        self.async_update_listeners()  # the "Last action" sensor and the buttons' availability
 
     def _power_steps(self) -> list[float]:
         return list(self._entry.options.get(CONF_POWER_STEPS) or DEFAULT_POWER_STEPS)
