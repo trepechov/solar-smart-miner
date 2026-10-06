@@ -103,6 +103,19 @@ entries:
     situations: [situation.tuning]
     note: Two samples, both 1300 to 1500 W. A decrease, or a different step, is not measured yet.
 
+  - id: miner.hass-miner-optimistic
+    title: hass-miner reports commands before the miner acts
+    statement: >
+      hass-miner's pause switch and power-limit number show the new value as soon as the command
+      is sent, not when the miner has acted, and the switch keeps that value until the miner
+      agrees. A stop/start error is only logged by hass-miner, never raised. Whether a command took
+      shows in the miner's power and hashrate, not in those two entities.
+    priority: P3
+    status: verified
+    source: "code: hass-miner switch.py async_turn_on/off and number.py async_set_native_value, 2026-10-06"
+    date: "2026-10-06"
+    tags: [always, control]
+
   - id: miner.resume-cost
     title: Resuming a paused miner
     statement: >

@@ -11,10 +11,8 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .config_flow import CONF_BATTERY_ENTITY, CONF_GRID_ENTITY
 from .const import CONTROL_MODE_PREVIEW, DOMAIN
-from .action_log import _ai_view
 from .coordinator import SolarMinerCoordinator
-from .decision import describe_proposal
-from .protocols import MinerPlan, MinerSnapshot
+from .protocols import MinerSnapshot
 
 
 def _hub_device_info(entry: ConfigEntry) -> DeviceInfo:
@@ -66,7 +64,6 @@ async def async_setup_entry(
                 MinerSensor(coordinator, entry, miner.miner_id, miner.name, metric)
                 for metric in _MINER_METRICS
             )
-            new_entities.append(ProposedActionSensor(coordinator, entry, miner.miner_id, miner.name))
         if new_entities:
             async_add_entities(new_entities)
 
@@ -293,11 +290,11 @@ class LastActionSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
 
 
 class ActivitySensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
-    """Proposals and applied actions in one newest-first feed: the card's activity log."""
+    """The farm's proposal now, and proposals and applied actions in one newest-first feed."""
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:timeline-text-outline"
-    _unrecorded_attributes = frozenset({"feed"})
+    _unrecorded_attributes = frozenset({"feed", "proposal", "fingerprint"})
 
     def __init__(self, coordinator: SolarMinerCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
@@ -307,31 +304,28 @@ class ActivitySensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
 
     @property
     def native_value(self) -> str:
-        feed = self.coordinator.activity
-        if not feed:
+        if self.coordinator.data is None:
             return "Nothing yet"
-        last = feed[0]
-        return f"{last['miner']}: {last['plan']} ({last['kind']})"[:255]
+        return self.coordinator.proposal_text()[:255]
 
     @property
     def extra_state_attributes(self) -> dict:
-        data = self.coordinator.data
-        current = (
-            {mid: plan.fingerprint for mid, plan in data.decision.plans.items()}
-            if data is not None and data.decision is not None
-            else {}
+        fingerprint, _ = (
+            self.coordinator._farm_proposal(self.coordinator.data) if self.coordinator.data else ("", "")
         )
-        seen: set[str] = set()
+        seen_proposal = False
         feed = []
         for entry in self.coordinator.activity:  # newest first
-            is_current = False
-            if entry["kind"] == "proposal" and entry["miner_id"] not in seen:
-                seen.add(entry["miner_id"])  # only a miner's newest proposal can still stand
-                is_current = entry.get("fingerprint") == current.get(entry["miner_id"]) and (
-                    entry.get("action") != "hold"
-                )
-            feed.append({**entry, "current": is_current})
-        return {"feed": feed}
+            current = False
+            if entry["kind"] == "proposal" and not seen_proposal:
+                seen_proposal = True  # only the newest proposal can still stand
+                current = bool(fingerprint) and entry.get("fingerprint") == fingerprint
+            feed.append({**entry, "current": current})
+        return {
+            "proposal": self.coordinator.proposal_text(),
+            "fingerprint": fingerprint,
+            "feed": feed,
+        }
 
 
 class BatterySocSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
@@ -431,61 +425,3 @@ class MinerSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
         if miner is None or not miner.is_available:
             return None
         return getattr(miner, self._metric_key)
-
-
-class ProposedActionSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
-    """What the rules want for one miner now: the thing its Apply button carries out."""
-
-    _attr_has_entity_name = True
-    _attr_icon = "mdi:lightbulb-on-outline"
-    _unrecorded_attributes = frozenset(
-        {"fingerprint", "action", "limit_w", "reason", "ai_action", "pending"}
-    )
-
-    def __init__(
-        self,
-        coordinator: SolarMinerCoordinator,
-        entry: ConfigEntry,
-        miner_id: str,
-        miner_name: str,
-    ) -> None:
-        super().__init__(coordinator)
-        self._miner_id = miner_id
-        self._miner_name = miner_name
-        self._attr_unique_id = (
-            f"{entry.unique_id or entry.entry_id}_{miner_id.replace('.', '_')}_proposed_action"
-        )
-        self._attr_name = f"{miner_name} proposed action"
-        self._attr_device_info = _hub_device_info(entry)
-
-    def _plan(self) -> tuple[MinerSnapshot, MinerPlan] | None:
-        data = self.coordinator.data
-        if data is None or data.decision is None:
-            return None
-        miner = next((m for m in data.miners if m.miner_id == self._miner_id), None)
-        plan = data.decision.plans.get(self._miner_id)
-        return (miner, plan) if miner is not None and plan is not None else None
-
-    @property
-    def native_value(self) -> str | None:
-        pair = self._plan()
-        if pair is None:
-            return "No plan"
-        return describe_proposal(*pair)
-
-    @property
-    def extra_state_attributes(self) -> dict | None:
-        pair = self._plan()
-        if pair is None:
-            return None
-        _, plan = pair
-        advice = self.coordinator.data.ai_advice
-        ai = _ai_view(advice, self._miner_name)
-        return {
-            "fingerprint": plan.fingerprint,
-            "action": plan.action,
-            "limit_w": plan.limit_w,
-            "reason": plan.reason,
-            "ai_action": ai["action"] if ai else None,
-            "pending": self.coordinator.controller.is_pending(self._miner_id),
-        }

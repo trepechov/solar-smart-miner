@@ -1,6 +1,6 @@
 # Decision Making — Requirements Notes
 
-**Status:** collecting thoughts (living doc). Review rounds 1–4 done on 2026-10-05 (see §0–§0.3). Round 5 (§0.4) resolves conflicts between earlier rounds and is proposed by Claude.
+**Status:** collecting thoughts (living doc). Review rounds 1–4 done on 2026-10-05 (see §0–§0.3). Round 5 (§0.4) resolves conflicts between earlier rounds and is proposed by Claude. Round 6 (§0.5, 2026-10-06) redefines the profiles and leaves all battery configuration open.
 **Decisions now live in the knowledge base** (`custom_components/solar_smart_miner/knowledge/`, moved on 2026-10-06). That is where they are kept up to date and what the AI is given; this doc stays as the record of how they were reached.
 **Next step:** settle the remaining open questions (§9), then turn this into a plan for the rule engine (the `decision/` package, §11). The AI prompt comes after that.
 
@@ -20,7 +20,7 @@ How to use this doc: add thoughts anywhere under **Notes** blocks. Items marked 
 8. **Restarts are the main cost to keep low** (refined in round 2: a trade-off, not a hard rule). Changing one miner by 600 W beats changing three miners by 200 W each. A decision **may** change several miners when needed (for example pause one and raise another), so the AI answer stays multi-miner.
 9. **Some grid import is fine at sunrise, sunset and during clouds.** Production changes quickly then, so don't chase it.
 10. **Handover:** when the integration starts applying decisions, the fixed-hour schedule automation is switched off. They never run together.
-11. **The battery setup (B) is parked.** The current focus is Setup A (no battery) and Full power.
+11. **The battery setup (B) is parked.** The current focus is Setup A (no battery) ~~and Full power~~. *(Round 6: Full power is dropped and the profiles are redefined, §0.5.)*
 12. **Max grid import cap: dropped.** In practice the miners don't run at hardware max because of cooling, so temperature is the limit that matters.
 
 ## 0.1 Decisions from review round 2 (2026-10-05)
@@ -67,12 +67,24 @@ A check of the whole doc found places where decisions from different rounds cont
 
 ---
 
+## 0.5 Decisions from review round 6 (2026-10-06): profiles
+
+1. **Profiles differ by where the small steady draw comes from.** Only the first is in scope:
+   - **Solar-follow** (no battery). The small, constant draw that proves all solar is used comes from the **grid**. Agreed as described in §6.2.
+   - **Solar-follow with battery** (open). Probably the same controller, with the small draw coming from the **battery** instead of the grid.
+   - **Solar + battery** (open). Uses the battery within predefined limits, aiming for the best efficiency while keeping a battery reserve.
+2. **All battery configuration stays open.** The farm has no battery, so the work focuses on Setup A and the decision making for it (§2–§5, §6.2, §11). The two battery profiles are only placeholders for the shape of the set; nothing about them is decided.
+3. **Full power is dropped.** Running every miner at maximum needs no decisions, rules or AI, so it is not a profile. Grid-agnostic is dropped with it.
+4. Grid-independent stays dropped (§6.2). Battery-focused waits for the battery profiles (§6.3).
+
+---
+
 ## 1. Goal
 
-**Use as much of the excess energy as possible for mining.** "Excess" is defined by the profile: solar only, or everything (Full power).
+**Use as much of the excess energy as possible for mining.** "Excess" means solar: what the panels can give, with a small steady draw from the grid as the proof that none of it is left unused.
 
 - **This does not mean "highest power per miner".** The miners have similar efficiency between about **1000 W and 2000 W**. So 4000 W is better used by three miners at ~1330 W each than by two at 2000 W.
-- **On battery** (parked, §6.3), efficiency comes first: hash per stored Wh.
+- **On battery** (open, §6.3), efficiency was suggested to come first: hash per stored Wh.
 
 Limits come in three kinds:
 
@@ -150,9 +162,8 @@ Limits come in three kinds:
 ### 3.4 Sensor health and battery floor
 - **(suggestion)** Each profile declares the inputs it **requires**. If any of them is unknown, don't increase power. If it stays unknown for a long time, step down or pause.
   - Solar-follow requires **grid import**. It does not need the solar sensor (§6.2).
-  - Full power requires nothing but the miners themselves.
   - This replaces today's rule "solar sensor unavailable → minimum", which in Solar-follow watches the wrong sensor.
-- Battery floor (Setup B): below the floor, **pause**, don't go to minimum.
+- Battery floor (Setup B, open): below the floor, **pause**, don't go to minimum.
 
 > **Notes:**
 
@@ -162,11 +173,10 @@ Limits come in three kinds:
 
 ### 4.1 What "available energy" means
 - **Setup A (no battery):** the measured solar is **not** reliable, because the inverter throttles when load is lower than PV. So the controller does **not** use "production minus house consumption". It steers on **grid import** instead (§6.2).
-- **Full power:** energy is not a limit. Only the hard limits and temperature apply.
-- **Setup B (battery, parked):** the battery absorbs swings, so grid import stays near 0 W. The signal becomes the battery's charge/discharge power.
+- **Setup B (battery, open):** the battery absorbs swings, so grid import stays near 0 W, and the signal would likely be the battery's charge/discharge power (§6.3).
 
 ### 4.2 Battery
-- Parked (§6.3). The battery floor stays a hard limit.
+- Open (§6.3). The battery floor stays a hard limit.
 
 ### 4.3 Grid
 - **Assumption: a grid connection always exists.** It absorbs fluctuations, such as a miner ramping, a cloud, or the inverter throttling.
@@ -264,11 +274,19 @@ All profiles obey §3 (hard limits) and §5 (dynamics).
 | Setup | What it has | Main problem | Status |
 |---|---|---|---|
 | **A. Solar, no battery** | PV + grid | The inverter throttles when load is lower than PV, so the available extra sun is hidden. | **current focus** |
-| **B. Solar + battery** | PV + battery + grid | Deciding when energy goes to miners vs the battery, and protecting battery cycles. | parked |
+| **B. Solar + battery** | PV + battery + grid | Deciding when energy goes to miners vs the battery, and protecting battery cycles. | open (§6.3); no battery at this farm |
 
-**(suggestion)** The setup is a config choice, set once ("Do you have a battery?"). The profile selector then only shows profiles that fit it.
+| Profile | Setup | Small steady draw from | Status |
+|---|---|---|---|
+| Solar-follow | A | grid | decided, current focus |
+| Solar-follow with battery | B | battery | open |
+| Solar + battery | B | battery, spent within limits | open |
+
+**(suggestion, open with Setup B)** The setup is a config choice, set once ("Do you have a battery?"). The profile selector then only shows profiles that fit it.
 
 ### 6.2 Setup A: Solar-follow (replaces Solar-max)
+
+The small steady draw comes from the **grid**.
 
 - **(decided)** **Aim for a small, constant grid import.** A small import proves that all available solar is used. At zero import, a throttled inverter gives no sign that more is available.
   - Import well below target, or none at all: there is spare (possibly throttled) solar. **Step up.**
@@ -280,28 +298,26 @@ All profiles obey §3 (hard limits) and §5 (dynamics).
 - **(suggestion)** Second signal, when configured: actual PV well below *forecast PV now* means the inverter is throttling (§4.4).
 - Grid-independent is dropped as a profile. A low import target in Solar-follow covers it.
 
-### 6.3 Setup B: battery (parked)
+### 6.3 Setup B: battery profiles (open)
 
-Kept for later. Points already agreed:
-- With a battery, the battery absorbs the swings, so Setup B doesn't need a constant grid import. The control signal is battery flow.
-- **Battery-preserving** that uses the battery as the buffer means small, constant battery draws. Those are battery cycles, which this profile is meant to save. Its target has to be "battery flow ≈ 0, excess goes to miners only when the battery is full or charging fast".
-- **Battery-assisted** as first described (morning discharge, charging held back until the peak, forecast-driven battery spend, efficiency-ranked miners) is an optimiser, not a shallow mode. Re-scope it when Setup B is picked up.
-- On battery, prefer efficiency (J/TH). This needs an `efficiency` reason in the AI vocabulary.
+**All battery configuration is open.** The farm has no battery, and the effort goes into the decision making for Setup A. Nothing here is decided; it only records the shape of the set from round 6, to be worked out when Setup B is picked up.
 
-### 6.4 Any setup: Full power (replaces Grid-agnostic)
+- **Solar-follow with battery.** Probably the same controller as §6.2, with the small steady draw coming from the battery instead of the grid (battery discharge as the signal, grid import near 0 W).
+- **Solar + battery.** Uses the battery within predefined limits (for example a SOC band), aiming for the best efficiency (J/TH) while keeping a reserve.
+- Points raised so far, to re-check then: a small constant discharge means continuous shallow battery cycling; discharge target and band defaults; an `efficiency` reason in the AI vocabulary; the earlier optimiser ideas (morning discharge, charging held back until the peak, forecast-driven battery spend, efficiency-ranked miners); the battery floor as a hard limit.
 
-- Raise each miner as far as temperature allows. Sun and battery state are ignored.
-- In practice cooling, not the hardware max, is the ceiling (§3.2).
-- Hard limits (voltage, sensor health, battery floor) still apply.
+### 6.4 Dropped: Full power (round 6)
+
+~~Raise each miner as far as temperature allows, ignoring the sun and the battery.~~ Running everything at maximum needs no decisions, rules or AI, so it is not a profile. A user who wants it sets the miners by hand.
 
 ### 6.5 Mapping from the current profiles
 
 | Current (`const.py`) | New | Setup |
 |---|---|---|
 | `solar_max` | Solar-follow | A |
+| `battery_focused` | battery profiles, open (§6.3) | B |
 | `grid_independent` | dropped. Use Solar-follow with a low import target | A |
-| `battery_focused` | parked (Setup B) | B |
-| `grid_agnostic` | Full power | A, B |
+| `grid_agnostic` | dropped (with Full power) | — |
 
 > **Notes:**
 
@@ -372,7 +388,7 @@ Resolved: round 1 in §0, round 2 in §0.1, round 3 in §0.2, round 4 in §0.3, 
 
 - Electricity tariffs and time-of-use pricing. Note that Solar-follow deliberately buys a small, steady amount of grid power, so tariffs will matter eventually.
 - Pool or hashprice economics, and choosing which miner by profitability.
-- Setup B (battery) profiles.
+- All battery configuration and the battery profiles (§6.3). The farm has no battery.
 - Actually *applying* proposals. This doc defines the decision; applying it is a separate step.
 
 ---
@@ -385,8 +401,7 @@ Resolved: round 1 in §0, round 2 in §0.1, round 3 in §0.2, round 4 in §0.3, 
 custom_components/solar_smart_miner/decision/
   __init__.py            # build_decision(): runs the pipeline below
   common.py              # safety, dynamics gate, allocation, apply rules
-  solar_follow.py        # Setup A (§6.2)
-  full_power.py          # any setup (§6.4)
+  solar_follow.py        # Solar-follow (§6.2)
 ```
 
 **Pipeline, run every decision cycle:**
@@ -398,11 +413,10 @@ custom_components/solar_smart_miner/decision/
 2. **Dynamics gate (§5.2).** Ramp lock, minimum hold time, input smoothing. If a miner is ramping, the result is `hold` and the profile isn't asked.
 3. **Profile strategy.** Each profile answers one question: *how many watts should the miners go up or down by?*
    - Solar-follow: from the import vs target band, with the sunrise and cloud tolerance (§5.4).
-   - Full power: "up", until temperature stops it.
 4. **Allocation and temperature (§3.2, §5.3).** Common to all profiles. Turn the watt delta into per-miner actions (pause / resume / increase / reduce), using the fewest restarts. Temperature blocks step-ups and forces step-downs here, at the normal pace.
 5. **Apply rules.** Minimum step, clamp to the power range, round. The result is a `Decision` that uses the same vocabulary as the AI answer.
 
 **Why split this way:**
-- With Setup B parked, only two profiles are left, and both reduce to "watt delta". Allocation, which miner to change and when to pause, lives in common. That answers the earlier open question about where "which miner first" belongs.
-- When Setup B comes back, Battery-preserving is likely the same controller as Solar-follow with battery flow as the signal, not a new file.
+- With the battery profiles open, one strategy is left, and it reduces to "watt delta". Allocation, which miner to change and when to pause, lives in common. That answers the earlier open question about where "which miner first" belongs.
+- Battery profiles (§6.3) are left out until Setup B is picked up.
 - The AI prompt can follow the same split: a common section (limits, dynamics, output format) plus one profile section.

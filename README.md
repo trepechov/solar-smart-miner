@@ -29,17 +29,17 @@
            ⚡ clean energy ⚡
 ```
 
-A Home Assistant custom integration that uses an AI agent to dynamically control ASIC miner power limits based on real-time solar production, household consumption, and battery state — with hard safety rails, a confirm-each-change control mode, and Telegram notifications.
+A Home Assistant custom integration that steers ASIC miner power limits from real-time solar production, household consumption, and battery state, using a rule-based controller with an AI advisor — with hard safety rails, a confirm-each-change control mode, and Telegram notifications.
 
 ## What it does
 
 Bitcoin ASIC miners are power-hungry and most efficient when run continuously at a fixed wattage. Homes with solar panels and batteries operate in a constantly shifting energy environment: production peaks midday, drops at night, batteries fill and drain. Without automation, miners either waste solar surplus or drain batteries unnecessarily.
 
-Solar Smart Miner closes that gap. An AI agent runs on a configurable interval, reads your current energy state from Home Assistant, and adjusts each miner's power limit accordingly. The AI reasons with your chosen profile (e.g. maximise solar self-consumption, protect battery SOC, never draw from the grid) and logs its reasoning for every decision it makes.
+Solar Smart Miner closes that gap. On every update a rule-based controller reads your current energy state from Home Assistant and proposes a power step (or a stop/start) for each miner, which you apply with a button. An AI advisor reviews the same inputs and the proposal on a configurable interval; it reasons with your chosen profile (e.g. maximise solar self-consumption, protect battery SOC, never draw from the grid) and logs its reasoning for every decision it makes.
 
 ## Features
 
-- **AI-driven power control** — an agent powered by any OpenRouter-compatible model (including free Llama/Gemma) sets per-miner power limits based on live energy data
+- **Rule-based power control with an AI advisor**: the rules propose per-miner power steps from live energy data; an agent on any OpenRouter-compatible model (including free Llama/Gemma) comments on each proposal, and gains authority only in later, evidence-gated stages
 - **Four built-in profiles** — Battery-focused, Solar-max, Grid-agnostic, Grid-independent; switchable from the HA UI without restart
 - **Hard safety layer** — temperature ceiling, battery SOC floor, and solar fault checks run before every AI decision and cannot be reasoned around
 - **Preview and Manual control** — in Preview (the default) the integration only shows what it would do; in Manual you press Apply for each proposed action, or Apply all, and only then is a miner touched; switchable from the HA UI
@@ -119,6 +119,8 @@ The last 20 entries are also on the **AI advice** sensor (`history` and `actions
 
 ## Profiles
 
+> **Being replaced.** These four are from the first versions. The focus is **Solar-follow** for setups without a battery: a small steady draw from the grid proves all solar is used (Solar-max already works this way). Battery profiles are not designed yet. See [decision-making requirements §6](docs/brainstorms/2026-10-05-decision-making-requirements.md).
+
 | Profile | Behaviour |
 |---|---|
 | **Battery-focused** | Prioritise preserving battery SOC; run at efficiency-optimal wattage; back off as battery drops |
@@ -152,22 +154,23 @@ The **Control mode** select (also under Configure → Settings) says whether the
 | Mode | What happens |
 |---|---|
 | **Preview** (default) | Plans are only shown. Every Apply button is greyed out. |
-| **Manual** | Each miner gets a **proposed action** sensor and an **Apply** button under it, and there is an **Apply all proposals** button. Nothing is sent to a miner until you press one (the dashboard card asks to confirm). |
+| **Manual** | The farm gets one **proposal** (what every miner that would change should do) and one **Apply proposal** button. Nothing is sent to a miner until you press it (the dashboard card asks to confirm). |
 
 An automatic mode will come later as another value of this select; it will use the same code path as the buttons.
 
 How Apply works:
 
-- **What you saw is what runs.** On press the integration reads everything again. If the plan for that miner changed in the meantime, nothing is sent and a notification says "the proposal changed, check again". A failed update refuses too: stale readings are worse than no action.
-- **Only the rule plan is applied**, never the AI answer. The AI's view of the same miner is shown on the proposed-action sensor (`ai_action`) and recorded in the action log.
+- **One proposal for the whole farm.** The plans come from one shared power budget, so they are applied as a bundle: if any part changed since you looked, nothing is sent.
+- **What you saw is what runs.** On press the integration reads everything again. If the proposal changed in the meantime, nothing is sent and a notification says "the proposal changed, check again". A failed update refuses too: stale readings are worse than no action.
+- **Only the rule plan is applied**, never the AI answer. The AI's view of each miner is recorded in the action log.
 - **Guards.** A limit that is not one of the miner's power steps is refused, never clamped. A second press for a miner is refused while its previous command is still being checked.
-- **Apply all** sends stops and step-downs first, then step-ups and starts, so the house never briefly draws both.
+- **Apply proposal** sends stops and step-downs first, then step-ups and starts, so the house never briefly draws both. The proposal text lists the steps in that order.
 - **Every command is checked.** The miner's entity must show the new value within 60 s (300 s for a relay start, the miner has to boot). A start is two steps: switch on, then set the limit once the miner is back. If it doesn't take, you get a notification (**a command didn't take**), one per miner.
 - **Schedule automations still run.** If you still have the 07:00 / 19:00 pause-and-resume automation, it can undo an applied action. Retire it before automatic mode.
 
 ### Activity log card
 
-**Add to dashboard** builds the card for this. Under the settings list it has an **Activity log**: a **Now** block with each miner's current proposal, then a newest-first feed of proposals (`Brod1 proposes 1,300 W (from 1,100 W) ◀ current`) and applied actions (`Brod1 applied 1,300 W: ok`). Directly under it are the **Apply** buttons, one per miner plus **Apply all**, each asking to confirm. A proposal is marked **◀ current** only while it is still what the rules propose. The feed is kept in memory (30 entries); after a restart it starts again from the applied actions in the action log. It is also on the **Activity** sensor (`feed` attribute).
+**Add to dashboard** builds the card for this. Under the settings list it has an **Activity log**: the line **Proposal now** (for example `Brod2 1,300 W (from 1,500 W) · Brod1 1,500 W (from 900 W)`, or `no action`), then a newest-first feed of proposals (`Proposal: … ◀ current`) and applied actions (`Brod1 applied 1,500 W: ok`). Directly under it is the **Apply proposal** button, which asks to confirm. A proposal is marked **◀ current** only while it is still what the rules propose. The feed is kept in memory (30 entries); after a restart it starts again from the applied actions in the action log. It is also on the **Activity** sensor (`proposal` and `feed` attributes).
 
 ### Action log
 
@@ -176,12 +179,12 @@ Every command is written to `<config>/solar_smart_miner/actions.jsonl` (rotated 
 ### First-run checklist
 
 1. Control mode **Preview**: nothing can be pressed; the card title says preview.
-2. Switch to **Manual**, midday, one miner, a step-down the rules propose: press Apply, watch the number change, check `actions.jsonl` has a `pending` then an `ok` line, and that the next cycle treats the miner as tuning.
+2. Switch to **Manual**, midday, a step-down the rules propose: press Apply proposal, watch the number change, check `actions.jsonl` has a `pending` then an `ok` line, and that the next cycle treats the miner as tuning.
 3. A step-up on the same miner after it has settled.
 4. A stop with the pause method, then a start: note whether the limit can be set while paused and how long until it is back.
 5. Let a plan change between looking and pressing (change the profile): confirm the "proposal changed" notification.
 6. Pull the network or switch the miner off and press: confirm `failed` after the grace time and the notification.
-7. Apply all with two miners moving in opposite directions: the reduction goes first.
+7. A proposal with two miners moving in opposite directions: the reduction goes first.
 8. Write what you saw into the knowledge base (`miners.yaml`, `alerts.yaml`).
 
 ## Decision log

@@ -115,7 +115,36 @@ entries:
     tags: [startup]
     note: >
       The manual-apply phase (rule.apply-by-hand-first) gathers it: the action log shows how
-      many plans were applied as shown, skipped, or reversed within an hour.
+      many plans were applied as shown, expired unpressed, or reversed within an hour, per
+      situation. Needs plan S14 (proposal and outcome lines); counts only for the rule-engine
+      version that produced it.
+
+  - id: open.ai-authority-evidence
+    title: When does the AI get more authority?
+    statement: >
+      What evidence moves the AI from advisor to choosing allocation (requirements doc §7
+      roadmap stage 2)? This is a separate gate from switching the rules to automatic.
+    priority: P3
+    status: open
+    source: "doc review of plan 2026-10-06-001, 2026-10-06"
+    date: "2026-10-06"
+    tags: [ai, startup]
+    note: >
+      Candidate measure: from actions.jsonl joined with ai_log.jsonl, how often the AI differed
+      from the rule plan (including on hold plans) and how outcomes compare when the owner applied
+      a plan the AI agreed with versus one it disagreed with.
+
+  - id: open.ai-answer-format
+    title: Should the AI answer name a step per miner?
+    statement: >
+      The requirements doc §7 decided a target wattage per miner in the AI answer; the prompt now
+      says "never suggest other wattages" and the answer is only increase/reduce/hold/stop/start.
+      An AI answer can only be applied (stage 2) if it names a target, most likely a power step.
+    priority: P3
+    status: open
+    source: "requirements doc §7 against ai.py prompt, 2026-10-06"
+    date: "2026-10-06"
+    tags: [ai]
 
   - id: open.west-shading
     title: Is the west slope shaded in the evening?

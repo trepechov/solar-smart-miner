@@ -71,8 +71,13 @@ def test_every_fact_has_the_required_fields_in_the_right_shape(item) -> None:
 
 @pytest.mark.parametrize("item", FACTS, ids=_label)
 def test_binding_entries_are_not_guesses(item) -> None:
-    """P0 and P1 are what the AI's answer is checked against: no unverified claims."""
+    """P0 and P1 are what the AI's answer is checked against: no unverified claims.
+
+    A retired entry is never sent or checked against, so it keeps its old priority.
+    """
     _, e = item
+    if e["status"] == "retired":
+        return
     if e["priority"] == "P0":
         assert e["status"] in {"decided", "verified"}, e["id"]
     if e["priority"] in {"P0", "P1"}:
@@ -117,11 +122,12 @@ def test_the_agreed_decisions_are_in_the_base() -> None:
         "rule.temperature-after-change",
         "rule.transition-by-agreement",
         "rule.sunset-one-by-one",
-        "rule.full-power",
     ):
         assert by_id[rule_id]["status"] == "decided", rule_id
     # Round 5 reversed "down quickly, up slowly"; the old rule must not be sent as a fact.
     assert by_id["rule.asymmetric-reaction"]["status"] == "retired"
+    # Round 6 dropped Full power as a profile.
+    assert by_id["rule.full-power"]["status"] == "retired"
 
 
 # --- alerts ---------------------------------------------------------------------

@@ -7,7 +7,7 @@ import logging
 from homeassistant.components.button import ButtonEntity
 from homeassistant.components.persistent_notification import async_create as pn_create
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry, entity_registry
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -47,20 +47,6 @@ async def async_setup_entry(
     coordinator: SolarMinerCoordinator = entry.runtime_data
     async_add_entities([AddToDashboardButton(entry), AskAiButton(entry), ApplyAllButton(coordinator, entry)])
 
-    # Miners come from hass-miner and can appear after startup: give each one its Apply button.
-    known_miner_ids: set[str] = set()
-
-    @callback
-    def _add_new_miners() -> None:
-        if coordinator.data is None:
-            return
-        new = [m for m in coordinator.data.miners if m.miner_id not in known_miner_ids]
-        known_miner_ids.update(m.miner_id for m in new)
-        if new:
-            async_add_entities(ApplyButton(coordinator, entry, m.miner_id, m.name) for m in new)
-
-    _add_new_miners()
-    entry.async_on_unload(coordinator.async_add_listener(_add_new_miners))
 
 
 class AddToDashboardButton(ButtonEntity):
@@ -93,12 +79,14 @@ class AddToDashboardButton(ButtonEntity):
 
         log_entity_id = next((e.entity_id for e in ids_ending("sensor", "_decision_log")), None)
         ai_entity_id = next((e.entity_id for e in ids_ending("sensor", "_ai_advice")), None)
-        proposed = sorted(ids_ending("sensor", "_proposed_action"), key=lambda e: e.entity_id)
+        old_proposed = ids_ending("sensor", "_proposed_action")  # per-miner sensors of v0.6.0
         last_action_id = next((e.entity_id for e in ids_ending("sensor", "_last_action")), None)
         activity_id = next((e.entity_id for e in ids_ending("sensor", "_activity")), None)
         apply_all_id = next((e.entity_id for e in ids_ending("button", "_apply_all")), None)
-        # Shown in the "Proposed actions" section (or the markdown card) instead of the list.
-        elsewhere = {log_entity_id, ai_entity_id, last_action_id, activity_id} | {e.entity_id for e in proposed}
+        # Shown in the activity log (or the markdown card) instead of the list.
+        elsewhere = {log_entity_id, ai_entity_id, last_action_id, activity_id} | {
+            e.entity_id for e in old_proposed
+        }
         entity_ids = sorted(
             e.entity_id
             for e in hub_entities
@@ -114,24 +102,16 @@ class AddToDashboardButton(ButtonEntity):
             )
             return
 
-        apply_rows: list[tuple[str, str, str]] = []  # (proposal sensor, apply button, miner name)
-        for sensor in proposed:
-            button_uid = sensor.unique_id.removesuffix("_proposed_action") + "_apply"
-            button = next((e for e in ids_ending("button", "_apply") if e.unique_id == button_uid), None)
-            if button is not None:
-                name = (button.original_name or button.entity_id).removesuffix(" apply")
-                apply_rows.append((sensor.entity_id, button.entity_id, name))
-
         cards = [
             _child_card(
                 ["type: entities", f"title: {self._entry.title}", "entities:"]
                 + [f"  - {eid}" for eid in entity_ids]
             )
         ]
-        if apply_rows or apply_all_id:
-            if activity_id:
-                cards.append(_activity_card(activity_id, apply_rows))
-            cards.append(_apply_buttons_card(apply_rows, apply_all_id))
+        if activity_id:
+            cards.append(_activity_card(activity_id))
+        if apply_all_id:
+            cards.append(_apply_button_card(apply_all_id))
         if log_entity_id:
             mode = self._entry.options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)
             cards.append(_decision_log_card(log_entity_id, ai_entity_id, mode))
@@ -176,43 +156,14 @@ def _raise_if_turned_away(name: str, result: CommandResult) -> None:
         raise HomeAssistantError(f"{name}: {result.reason}")
 
 
-class ApplyButton(CoordinatorEntity[SolarMinerCoordinator], ButtonEntity):
-    """Carry out the action proposed for one miner, as it was shown."""
-
-    _attr_has_entity_name = True
-    _attr_icon = "mdi:check-circle-outline"
-
-    def __init__(
-        self,
-        coordinator: SolarMinerCoordinator,
-        entry: ConfigEntry,
-        miner_id: str,
-        miner_name: str,
-    ) -> None:
-        super().__init__(coordinator)
-        self._miner_id = miner_id
-        self._miner_name = miner_name
-        self._attr_unique_id = f"{entry.entry_id}_{miner_id.replace('.', '_')}_apply"
-        self._attr_name = f"{miner_name} apply"
-        self._attr_device_info = _hub_device_info(entry)
-
-    @property
-    def available(self) -> bool:
-        return super().available and self.coordinator.can_apply(self._miner_id)
-
-    async def async_press(self) -> None:
-        fingerprint = self.coordinator.shown_fingerprint(self._miner_id)
-        if fingerprint is None:
-            raise HomeAssistantError(f"{self._miner_name}: there is no plan to apply")
-        result = await self.coordinator.async_apply_shown(self._miner_id, fingerprint)
-        _raise_if_turned_away(self._miner_name, result)
-
-
 class ApplyAllButton(CoordinatorEntity[SolarMinerCoordinator], ButtonEntity):
-    """Carry out every proposed action: stops and step-downs first, then step-ups and starts."""
+    """Carry out the farm's proposal as shown: stops and step-downs first, then step-ups and starts.
+
+    The proposal is one bundle worked out from one power budget, so it is applied whole or not at all.
+    """
 
     _attr_has_entity_name = True
-    _attr_name = "Apply all proposals"
+    _attr_name = "Apply proposal"
     _attr_icon = "mdi:check-all"
 
     def __init__(self, coordinator: SolarMinerCoordinator, entry: ConfigEntry) -> None:
@@ -241,12 +192,12 @@ def _quoted(text: str) -> str:
     return json.dumps(text, ensure_ascii=False)  # a double-quoted YAML string
 
 
-def _apply_button_card(button_id: str, label: str, confirm: str) -> list[str]:
-    """A button card whose press asks for confirmation first (the dialog text is static)."""
+def _apply_button_card(button_id: str) -> list[str]:
+    """The Apply button, under the activity log. Its press asks for confirmation first."""
     return [
         "  - type: button",
         f"    entity: {button_id}",
-        f"    name: {_quoted(label)}",
+        '    name: "Apply proposal"',
         "    icon: mdi:check-circle-outline",
         "    show_state: false",
         "    tap_action:",
@@ -255,49 +206,26 @@ def _apply_button_card(button_id: str, label: str, confirm: str) -> list[str]:
         "      target:",
         f"        entity_id: {button_id}",
         "      confirmation:",
-        f"        text: {_quoted(confirm)}",
+        '        text: "Apply the proposal shown above?"',
     ]
 
 
-def _activity_card(activity_id: str, rows: list[tuple[str, str, str]]) -> list[str]:
-    """The activity log: what each miner is proposed now, then proposals and applied actions."""
-    now = [
-        f"      - **{name}**: {{{{ states('{sensor_id}') }}}}" for sensor_id, _, name in rows
-    ]
+def _activity_card(activity_id: str) -> list[str]:
+    """The activity log: the farm's proposal now, then proposals and applied actions."""
     return [
         "  - type: markdown",
         "    title: Activity log",
         "    content: |",
-        "      **Now**",
-        *now,
+        f"      **Proposal now:** {{{{ state_attr('{activity_id}', 'proposal') }}}}",
         "",
         "      **Latest first**",
         f"      {{% for e in (state_attr('{activity_id}', 'feed') or [])[:15] %}}",
         "      - `{{ e.time }}` "
         "{% if e.kind == 'applied' %}**{{ e.miner }}** applied {{ e.plan }}: **{{ e.result }}**"
         "{% if e.reason and e.result != 'ok' %} ({{ e.reason }}){% endif %}"
-        "{% else %}**{{ e.miner }}** proposes {{ e.plan }}"
-        "{% if e.current %} **◀ current**{% endif %}"
-        "{% if e.reason %} _({{ e.reason }})_{% endif %}{% endif %}",
+        "{% else %}Proposal: {{ e.plan }}"
+        "{% if e.current %} **◀ current**{% endif %}{% endif %}",
         "      {% endfor %}",
-    ]
-
-
-def _apply_buttons_card(rows: list[tuple[str, str, str]], apply_all_id: str | None) -> list[str]:
-    """The Apply buttons, side by side, right under the activity log."""
-    cards: list[str] = []
-    for _, button_id, name in rows:
-        cards += _apply_button_card(
-            button_id, f"Apply {name}", f"Apply the proposed action for {name}?"
-        )
-    if apply_all_id:
-        cards += _apply_button_card(
-            apply_all_id, "Apply all", "Apply every proposed action, reductions first?"
-        )
-    return [
-        "  - type: horizontal-stack",
-        "    cards:",
-        *["    " + line for line in cards],
     ]
 
 

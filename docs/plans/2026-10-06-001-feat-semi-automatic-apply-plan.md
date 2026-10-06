@@ -354,3 +354,15 @@ Phase 2 automates the **rules**. The requirements doc §7 roadmap also moves aut
 | The schedule automation undoes a manual action at 07:00/19:00 | Warning in Manual mode (S10); the owner retires the schedule before Auto (A2). |
 | A command is logged `ok` but the miner never acted | Verify against power and hashrate, not hass-miner's optimistic state (S11). |
 | HA restarts mid-command | The pending state is lost; the next cycle's plan shows reality. The log line stays `pending`; accepted for Phase 1. |
+
+---
+
+## Deferred / Open Questions
+
+### From 2026-10-06 review
+
+- **AI answer format: target per miner, or direction only?** — Decisions, point 1; requirements doc §7 (P1, coherence, product-lens, adversarial, confidence 100)
+
+  The requirements doc §7 decided the AI answer carries a target wattage per miner, so it can later choose allocation and the watt delta inside the rules' envelope. The prompt in `ai.py` now says "never suggest other wattages" and the answer is only increase/reduce/hold/stop/start. With direction only, no AI answer can ever be applied, and the action log can't score what the AI would have done. Phase 3 needs this settled first. A target **step** per miner (not an arbitrary wattage) would fit `rule.power-steps`. Tracked as `open.ai-answer-format`.
+
+  <!-- dedup-key: section="decisions point 1 requirements doc 7" title="ai answer format target per miner or direction only" evidence="Only the rule plan is applied. The AI has no wattage in its answer, and the rules are the controller" -->

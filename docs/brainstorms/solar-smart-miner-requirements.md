@@ -5,6 +5,13 @@ topic: solar-smart-miner
 
 # Solar Smart Miner — Home Assistant Integration
 
+> **Partly superseded (2026-10-06).** How decisions are made and applied is now defined by
+> [decision-making requirements](2026-10-05-decision-making-requirements.md) and the
+> [semi-automatic apply plan](../plans/2026-10-06-001-feat-semi-automatic-apply-plan.md): rule-based
+> controller, AI advisory with authority growing in stages, Preview/Manual control mode instead of
+> dry-run. R5–R7, R9–R11 and R14–R17 below describe the earlier AI-controller design and are kept
+> for the record.
+
 ## Summary
 
 A Home Assistant custom integration that uses a single AI agent to dynamically control ASIC miner power limits based on real-time solar, consumption, and battery data — with user-configurable profiles, hard safety rails the AI cannot override, dry-run mode for safe onboarding, and Telegram notifications for every action taken.
@@ -105,6 +112,8 @@ The target user is a technically-capable homeowner who already runs HA, has at l
 - R17. Dry-run mode is togglable from the HA UI without restarting the integration
 
 **Profiles**
+
+> Superseded (2026-10-06, round 6): the profile for setups without a battery is Solar-follow; battery profiles are open; see [decision-making requirements §6](2026-10-05-decision-making-requirements.md). R18–R21 are kept for the record.
 
 - R18. Battery-focused: prioritise preserving battery SOC; use efficiency-optimal wattage; reduce power as battery drops; stop before hitting battery floor
 - R19. Solar-max: during periods of high solar production (production significantly exceeds consumption), run miners at maximum rated wattage; back off when production drops

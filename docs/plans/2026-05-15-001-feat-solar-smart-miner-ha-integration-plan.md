@@ -8,6 +8,13 @@ origin: docs/brainstorms/solar-smart-miner-requirements.md
 
 # feat: Solar Smart Miner — Home Assistant Integration
 
+> **Partly superseded (2026-10-06).** The safety-then-AI-then-apply pipeline below (R5–R17, AE2/AE5,
+> U4–U6, the dry-run switch in U7, AI-applied changes in U8) was replaced: the rules in `decision.py`
+> are the controller, the AI is advisory and gains authority in stages
+> ([decision-making requirements](../brainstorms/2026-10-05-decision-making-requirements.md) §7), and
+> applying goes through the [semi-automatic apply plan](2026-10-06-001-feat-semi-automatic-apply-plan.md).
+> Safety plans no longer fire in a dry-run; in Manual mode they wait for the button like any plan.
+
 ## Summary
 
 Build a greenfield Home Assistant custom integration using `integration_blueprint` as the scaffold, organized around a single `DataUpdateCoordinator` that reads solar/battery/miner state from existing HA entities, passes it through a deterministic safety layer and then an OpenRouter AI agent, and applies power limit decisions back to hass-miner via HA service calls. All major components (agent, safety, notifier) are defined behind Protocol interfaces for clean extensibility.

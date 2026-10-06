@@ -12,17 +12,26 @@ entries:
     source: "requirements doc §7"
     date: "2026-10-05"
     tags: [always]
+    note: >
+      Enforced once AI proposals can be applied (requirements doc §7 roadmap stage 2, plan
+      2026-10-06-001 Phase 3). Today no AI answer reaches control.py, so there is nothing to
+      filter yet; the enforcement point will be the same async_apply guards the rule plan uses.
 
   - id: rule.one-controller
     title: One controller at a time
     statement: >
       The fixed-hour schedule automation and this integration never control the miners
-      together. The schedule is switched off when applying starts.
+      automatically together. The schedule is switched off before automatic applying starts.
+      In Manual mode the owner is the controller and is warned while the schedule is on.
     priority: P0
     status: decided
-    source: "requirements doc §0 point 10"
-    date: "2026-10-05"
+    source: "requirements doc §0 point 10; Manual exception: plan 2026-10-06-001 Decision 4"
+    date: "2026-10-06"
     tags: [always, startup]
+    note: >
+      Until 2026-10-06 this read "never control the miners together; the schedule is switched off
+      when applying starts". Narrowed to automatic control when the manual Apply buttons came in.
+      The Manual-mode warning needs the schedule-automation setting (plan S10).
 
   - id: rule.miner-range
     title: Stay inside the miner's range
@@ -64,8 +73,9 @@ entries:
     title: Applying starts by hand
     statement: >
       Decisions are first applied only when the owner presses Apply for a proposed action, and
-      only the plan that was shown is carried out. Only the rule plan is applied, never the AI
-      answer. Automatic applying comes later as a toggle on the same path, once the manual phase
+      only the plan that was shown is carried out. In this phase only the rule plan is applied,
+      not the AI answer (the AI gains authority later, in stages, requirements doc §7). Automatic
+      applying comes later as a toggle on the same path, once the manual phase
       shows the plans can be trusted.
     priority: P1
     status: decided
@@ -297,10 +307,13 @@ entries:
       In Full power, every miner goes as high as temperature allows, whatever the sun and the
       battery. The hard limits (voltage, sensor health, battery floor) still apply.
     priority: P1
-    status: decided
+    status: retired
     source: "requirements doc §6.4"
-    date: "2026-10-05"
+    date: "2026-10-06"
     tags: [always]
+    note: >
+      Dropped in round 6 (requirements doc §0.5, §6.5): running everything at maximum needs no
+      decisions, so it is not a profile.
 
   # --- P2: guidance ----------------------------------------------------------
   - id: rule.prefer-spread

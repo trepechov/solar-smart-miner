@@ -55,6 +55,7 @@ from .const import (
     CONF_MOCK_SOLAR_ENABLED,
     CONF_MOCK_SOLAR_ENTITY,
     ACTIVITY_SIZE,
+    NO_ACTION_TEXT,
     ASK_AI_COOLDOWN,
     DECISION_HISTORY_SIZE,
     DEFAULT_AI_INTERVAL,
@@ -149,6 +150,17 @@ def _find_entity(entities, domain: str, suffix: str):
     )
 
 
+def _is_reduction(miner: MinerSnapshot, plan: MinerPlan) -> bool:
+    """A stop or step down: applied before step-ups and starts, so the house never draws both."""
+    if plan.action == ACTION_STOP:
+        return True
+    return (
+        plan.action == ACTION_SET_LIMIT
+        and miner.power_limit_w is not None
+        and plan.limit_w < miner.power_limit_w
+    )
+
+
 def miner_display_name(hass: HomeAssistant) -> list[tuple[str, str]]:
     """(miner id, name) for every enabled hass-miner entry, named like the controller does."""
     dr = device_registry.async_get(hass)
@@ -183,7 +195,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         self.action_log = ActionLog(hass)
         # Proposals and applied actions, newest first: what the card's activity log shows.
         self.activity: deque[dict] = deque(maxlen=ACTIVITY_SIZE)
-        self._proposed: dict[str, str] = {}  # miner id -> fingerprint of its last recorded proposal
+        self._proposed: str | None = None  # fingerprint of the last recorded farm proposal
         self._ai_advice: AiAdvice | None = None
         self._ai_busy = False
         self._ai_last_request: float | None = None  # time.monotonic()
@@ -384,32 +396,44 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         for entry in reversed(self.action_log.history):
             self.activity.appendleft({"kind": "applied", **entry})
 
+    @staticmethod
+    def _farm_proposal(snapshot: CoordinatorSnapshot) -> tuple[str, str]:
+        """(fingerprint, text) of the whole farm's proposal: the plans that would change something."""
+        if snapshot.decision is None:
+            return "", NO_ACTION_TEXT
+        miners = {m.miner_id: m for m in snapshot.miners}
+        steps = [  # in the order Apply sends them: reductions first
+            (miners[mid], plan)
+            for mid, plan in snapshot.decision.plans.items()
+            if plan.action != ACTION_HOLD and mid in miners
+        ]
+        steps.sort(key=lambda pair: not _is_reduction(*pair))
+        fingerprint = ";".join(
+            f"{m.miner_id}:{plan.fingerprint}" for m, plan in sorted(steps, key=lambda p: p[0].miner_id)
+        )
+        text = " · ".join(f"{m.name} {describe_proposal(m, plan)}" for m, plan in steps)
+        return fingerprint, text or NO_ACTION_TEXT
+
     def _record_proposals(self, snapshot: CoordinatorSnapshot) -> None:
-        """Add a feed entry whenever a miner's proposal changes (a new hold alone is not news)."""
+        """Add a feed entry whenever the farm's proposal changes (a first "no action" is not news)."""
         if snapshot.decision is None:
             return
-        miners = {m.miner_id: m for m in snapshot.miners}
-        for miner_id, plan in snapshot.decision.plans.items():
-            fingerprint = plan.fingerprint
-            previous = self._proposed.get(miner_id)
-            if fingerprint == previous:
-                continue
-            self._proposed[miner_id] = fingerprint
-            if previous is None and plan.action == ACTION_HOLD:
-                continue
-            miner = miners.get(miner_id)
-            self.activity.appendleft(
-                {
-                    "kind": "proposal",
-                    "time": dt_util.now().strftime("%H:%M:%S"),
-                    "miner": miner.name if miner else miner_id,
-                    "miner_id": miner_id,
-                    "plan": describe_proposal(miner, plan),
-                    "action": plan.action,
-                    "reason": plan.reason,
-                    "fingerprint": fingerprint,
-                }
-            )
+        fingerprint, text = self._farm_proposal(snapshot)
+        previous, self._proposed = self._proposed, fingerprint
+        if fingerprint == previous or (previous is None and not fingerprint):
+            return
+        self.activity.appendleft(
+            {
+                "kind": "proposal",
+                "time": dt_util.now().strftime("%H:%M:%S"),
+                "plan": text,
+                "fingerprint": fingerprint,
+            }
+        )
+
+    def proposal_text(self) -> str:
+        """The farm's current proposal in words, for the card."""
+        return self._farm_proposal(self.data)[1] if self.data is not None else NO_ACTION_TEXT
 
     async def _async_record_action(self, event: CommandEvent) -> None:
         await self.action_log.async_record(event, self.data)
@@ -556,31 +580,30 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         if (reason := await self._async_refresh_for_apply()) is not None:
             return await self._async_refuse_all(shown, trigger, reason)
 
-        results: dict[str, CommandResult] = {}
-        todo: list[tuple[MinerSnapshot, MinerPlan]] = []
-        for mid, fingerprint in shown.items():
-            pair = self._plan_for(mid)
-            if pair is None:
-                continue
-            miner, plan = pair
-            if plan.fingerprint != fingerprint:
-                results[mid] = await self.controller.async_refuse(
-                    miner, plan, trigger, f"changed: now {_describe_plan(plan)}"
-                )
-                continue
-            todo.append(pair)
-
-        def reduces(pair: tuple[MinerSnapshot, MinerPlan]) -> bool:
-            miner, plan = pair
-            if plan.action == ACTION_STOP:
-                return True
-            return (
-                plan.action == ACTION_SET_LIMIT
-                and miner.power_limit_w is not None
-                and plan.limit_w < miner.power_limit_w
+        # The proposal is one bundle: the plans are worked out from one shared budget, so if any
+        # of them changed after the refresh none is applied.
+        now = {
+            mid: plan.fingerprint
+            for mid, plan in self.data.decision.plans.items()
+            if plan.action != ACTION_HOLD
+        }
+        if now != shown:
+            text = self.proposal_text()
+            results = await self._async_refuse_all(
+                {**shown, **now}, trigger, f"changed: now {text}"
             )
+            for result in results.values():
+                result.notified = True
+            self._notify_changed(
+                "apply_changed",
+                f"The proposal changed (now: {text}). Check it and press Apply again.",
+            )
+            return results
 
-        for miner, plan in sorted(todo, key=lambda pair: not reduces(pair)):  # stable: reductions first
+        results: dict[str, CommandResult] = {}
+        todo = [pair for mid in shown if (pair := self._plan_for(mid))]
+
+        for miner, plan in sorted(todo, key=lambda pair: not _is_reduction(*pair)):  # stable: reductions first
             results[miner.miner_id] = await self.controller.async_apply(
                 miner, plan, trigger=trigger, steps=self._power_steps()
             )

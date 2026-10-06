@@ -113,7 +113,8 @@ entries:
     statement: >
       Home Assistant automations pause and resume the miners at fixed hours: resume at
       07:00, 07:05 and 07:10, pause at 19:00, 19:05 and 19:10 (Brod1, Brod2, Brod3). They are
-      to be switched off when the integration starts applying decisions, never both at once.
+      to be switched off before the integration applies decisions automatically (rule.one-controller);
+      with manual Apply they may still run, and the owner is warned.
     priority: P3
     status: verified
     source: "measured: switch history 2026-09-25 to 2026-10-05; handover decided in requirements doc §0 point 10"
@@ -123,12 +124,11 @@ entries:
   - id: site.profiles-planned
     title: The profiles being moved to
     statement: >
-      Two profiles are planned for this site: Solar-follow (aim for a small steady grid
-      import) and Full power (as high as temperature allows). Solar-max and Grid-agnostic are
-      their current forerunners, Grid-independent is dropped, and Battery-focused is parked
-      because there is no battery.
+      This farm has no battery, so its profile is Solar-follow: aim for a small steady draw
+      from the grid. Solar-max is its current forerunner. Battery profiles are left open.
+      Full power, Grid-agnostic and Grid-independent are dropped.
     priority: P3
     status: decided
-    source: "requirements doc §0 point 11, §6.5"
-    date: "2026-10-05"
+    source: "requirements doc §0.5 (round 6), §6"
+    date: "2026-10-06"
     tags: [always]

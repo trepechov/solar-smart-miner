@@ -301,7 +301,7 @@ alerts:
     condition: A limit change, stop or start was sent but the entity didn't reach the value, or the service call failed.
     normal: The state follows within seconds.
     not_alert: []
-    thresholds: {grace_s: 60}
+    thresholds: {grace_s: 60, relay_start_grace_s: 300}
     action: freeze
     acts: human
     notify: [log, dashboard, push]
@@ -326,7 +326,9 @@ alerts:
     cooldown_min: 60
     resolves_when: The automation is off.
     related: [rule.one-controller, site.schedule-automation]
-    note: The integration refuses to apply rather than fight the schedule. Needs the automation entity as an option.
+    note: >
+      In Auto mode the integration refuses to apply rather than fight the schedule. In Manual mode it
+      only warns (plan 2026-10-06-001 Decision 4). Both need the automation entity as an option (plan S10).
 
   - id: control.stuck-holding
     title: Holding while clearly off target

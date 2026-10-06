@@ -187,7 +187,8 @@ async def test_apply_all_stops_before_step_ups(hass, add_hass_miner) -> None:
     assert order[1] == f"set {up['power_limit'].entity_id}"
 
 
-async def test_apply_all_skips_changed_plans_and_reports_them(hass, add_hass_miner) -> None:
+async def test_apply_all_applies_nothing_when_any_part_of_the_bundle_changed(hass, add_hass_miner) -> None:
+    """The plans share one budget, so a change to any of them withdraws the whole proposal."""
     entities = _two_miners(hass, add_hass_miner)
     calls = async_mock_service(hass, "number", "set_value")
     coordinator = _coordinator(hass)
@@ -197,11 +198,27 @@ async def test_apply_all_skips_changed_plans_and_reports_them(hass, add_hass_min
     results = await coordinator.async_apply_all()
     await hass.async_block_till_done()
 
-    by_name = {m.name: results[m.miner_id].status for m in coordinator.data.miners}
-    assert by_name == {"Brod1": "refused", "Brod2": "pending"}
-    assert [c.data["entity_id"] for c in calls] == [entities["down"]]
-    note = hass.data["persistent_notification"]["solar_smart_miner_apply_all_skipped"]["message"]
-    assert "Brod1" in note and "changed" in note
+    assert {r.status for r in results.values()} == {"refused"}
+    assert all(r.reason.startswith("changed") and r.notified for r in results.values())
+    assert not calls  # not even Brod2, whose own step down is unchanged
+    note = hass.data["persistent_notification"]["solar_smart_miner_apply_changed"]["message"]
+    assert "The proposal changed" in note and "Brod2" in note
+
+
+async def test_apply_all_refuses_when_a_new_step_appears_after_the_refresh(hass, add_hass_miner) -> None:
+    entities = _two_miners(hass, add_hass_miner)
+    calls = async_mock_service(hass, "number", "set_value")
+    coordinator = _coordinator(hass)
+    await coordinator.async_refresh()
+    # Pretend the owner looked while Brod1 was holding, so only Brod2's step was on screen.
+    brod1 = next(m for m in coordinator.data.miners if m.name == "Brod1")
+    coordinator.data.decision.plans[brod1.miner_id] = MinerPlan("hold", reason="tuning")
+
+    results = await coordinator.async_apply_all()
+
+    assert {r.status for r in results.values()} == {"refused"}
+    assert not calls
+    assert entities  # both miners are in the refusal: the bundle is judged as a whole
 
 
 async def test_apply_all_with_nothing_actionable_does_nothing(hass, add_hass_miner) -> None:
