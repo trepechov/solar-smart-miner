@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # all tags and commits, for the notes
 
       - name: Tag matches manifest version
         run: |
@@ -23,7 +25,18 @@ jobs:
             exit 1
           fi
 
+      # Work goes straight to main (no PRs), so the notes are the commits since the last tag,
+      # without the release commits themselves.
+      - name: Release notes
+        run: |
+          PREV=$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || true)
+          {
+            echo "## Changes"
+            git log --no-merges --format='- %s' ${PREV:+"$PREV.."}"$GITHUB_REF_NAME" | grep -v '^- chore(release):'
+          } > notes.md
+          cat notes.md
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag

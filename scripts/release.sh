@@ -35,15 +35,17 @@ if ! python3 -c "import sys;o,n=(tuple(map(int,v.split('.'))) for v in sys.argv[
     exit 1
 fi
 
+# Only the version line changes, so the rest of the file keeps its formatting.
 python3 - "$MANIFEST" "$NEW" <<'EOF'
-import json, sys
+import json, re, sys
 path, version = sys.argv[1:]
 with open(path) as f:
-    manifest = json.load(f)
-manifest["version"] = version
+    text = f.read()
+text, count = re.subn(r'("version":\s*")[^"]*(")', rf"\g<1>{version}\g<2>", text)
+if count != 1 or json.loads(text)["version"] != version:
+    sys.exit(f"could not set the version in {path}")
 with open(path, "w") as f:
-    json.dump(manifest, f, indent=2)
-    f.write("\n")
+    f.write(text)
 EOF
 
 git add "$MANIFEST"
