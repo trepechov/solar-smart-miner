@@ -14,8 +14,9 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # Not in the home-assistant/brands repo, and the repo has no GitHub topics.
-          ignore: brands topics
+          # Not in the home-assistant/brands repo, no GitHub topics, and no LICENSE chosen yet
+          # (custom repositories install without one; drop "license" once a LICENSE is added).
+          ignore: brands topics license
 
   hassfest:
     runs-on: ubuntu-latest
