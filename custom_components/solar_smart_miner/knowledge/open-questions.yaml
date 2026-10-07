@@ -106,22 +106,6 @@ entries:
     date: "2026-10-05"
     tags: [ai]
 
-  - id: open.go-live-evidence
-    title: When does applying start?
-    statement: What evidence is enough to switch off the schedule and let the integration apply decisions?
-    priority: P3
-    status: open
-    source: "requirements doc §9 point 8"
-    date: "2026-10-06"
-    tags: [startup]
-    note: >
-      The manual-apply phase (rule.apply-by-hand-first) gathers it: the action log shows how
-      many plans were applied as shown, expired unpressed, or reversed within an hour, per
-      situation. Needs plan S14 (proposal and outcome lines); counts only for the rule-engine
-      version that produced it. Worth counting too: the time from a proposal to the press. On
-      2026-10-07 the sunset stop of Brod3 was proposed at 17:04 and applied at 17:10, with 1.2 to
-      1.4 kW of import in between; Brod2's stop waited 3 minutes (17:28 to 17:31).
-
   - id: open.ai-authority-evidence
     title: When does the AI get more authority?
     statement: >

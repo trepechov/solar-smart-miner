@@ -42,7 +42,7 @@ Solar Smart Miner closes that gap. On every update a rule-based controller reads
 - **Rule-based power control with an AI advisor**: the rules propose per-miner power steps from live energy data; an agent on any OpenRouter-compatible model (including free Llama/Gemma) comments on each proposal, and gains authority only in later, evidence-gated stages
 - **Four built-in profiles** — Battery-focused, Solar-max, Grid-agnostic, Grid-independent; switchable from the HA UI without restart
 - **Hard safety layer** — temperature ceiling, battery SOC floor, and solar fault checks run before every AI decision and cannot be reasoned around
-- **Preview and Manual control** — in Preview (the default) the integration only shows what it would do; in Manual the farm gets one proposal and you press **Apply proposal**, and only then is a miner touched; switchable from the HA UI
+- **Manual and Automatic control** — in Manual (the default) the farm gets one proposal and you press **Apply proposal**, and only then is a miner touched; in Automatic the proposal is applied every cycle, paced by the ramp lock; switchable from the HA UI
 - **Telegram notifications** — every power limit change and every safety override sends a message with the reason
 - **HACS-ready** — distributed as a standard HA custom component; install and configure entirely through the Home Assistant UI
 
@@ -139,7 +139,7 @@ Every power-limit change restarts a miner: it draws almost nothing for 2 to 4 mi
 - **Stopping.** When the budget is below the lowest step the miner is **stopped**, not just turned down to a minimum. How is configured per miner under Configure → Miner stop method: a **relay** switch (for miners cut off with a relay) or, when none is set, the miner's own **pause** switch (`switch.<miner>_active` from hass-miner). A stopped miner is started again when its lowest step plus the margin fits. A miner with neither is dropped to its lowest step instead.
 - **Tuning.** Off by default (0 minutes): every configured step has been tuned before. If you add a step a miner has never run, set the tuning time (Configure → Settings) to about 50 minutes: for that long after its limit changed a miner is not stepped up and its temperature is ignored. hass-miner doesn't report the tuning state, so it is estimated from the time since the limit last changed.
 
-The rules work out one plan per miner every cycle. In **Preview** mode the decision log and the AI advice only show what would be done; in **Manual** mode the plans are bundled into one proposal that you apply with a button (see [Control mode](#control-mode)).
+The rules work out one plan per miner every cycle and bundle them into one proposal. In **Manual** mode you apply it with a button; in **Automatic** mode it is applied at the end of the cycle (see [Control mode](#control-mode)).
 
 ## Safety layer
 
@@ -151,14 +151,21 @@ The following overrides run before every AI decision and cannot be bypassed — 
 
 ## Control mode
 
-The **Control mode** select (also under Configure → Settings) says whether the integration may touch the miners:
+The **Control mode** select (also under Configure → Settings) says how a proposal reaches the miners:
 
 | Mode | What happens |
 |---|---|
-| **Preview** (default) | Plans are only shown. Every Apply button is greyed out. |
-| **Manual** | The farm gets one **proposal** (what every miner that would change should do) and one **Apply proposal** button. Nothing is sent to a miner until you press it (the dashboard card asks to confirm). |
+| **Manual** (default) | The farm gets one **proposal** (what every miner that would change should do) and one **Apply proposal** button. Nothing is sent to a miner until you press it (the dashboard card asks to confirm). |
+| **Automatic** | The proposal is applied at the end of every cycle, through the same code path as the button. The Apply button is greyed out; switch to Manual to act by hand. |
 
-An automatic mode will come later as another value of this select; it will use the same code path as the buttons.
+Preview mode is gone (0.7.2): an install that was on Preview comes up in Manual, which still sends nothing until you press.
+
+How Automatic is paced:
+
+- **The ramp lock.** A miner needs about 4 to 5 minutes to settle after a change, and changing anything sooner starts a change loop. So after any change (a command sent, even one that failed, or a miner seen stopping or starting) every miner holds for 4 minutes, and while a command is still being checked. The lock survives a reload or an HA restart: it is restored from the action log.
+- **One miner per proposal**, as in Manual; only safety changes several at once.
+- **A refused plan is logged once** (for example a miner whose entity is unavailable) and is not retried until the plan or the reason changes.
+- **Turn the fixed-hour schedule automation off first.** The integration doesn't check for it yet; if it still runs, it and Automatic both act on the miners.
 
 How Apply works:
 
@@ -168,7 +175,7 @@ How Apply works:
 - **Guards.** A limit that is not one of the miner's power steps is refused, never clamped. A second press for a miner is refused while its previous command is still being checked.
 - **Apply proposal** sends stops and step-downs first, then step-ups and starts, so the house never briefly draws both. The proposal text lists the steps in that order.
 - **Every command is checked.** The miner's entity must show the new value within 60 s (300 s for a relay start, the miner has to boot). A start is two steps: switch on, then set the limit once the miner is back. If it doesn't take, you get a notification (**a command didn't take**), one per miner.
-- **Schedule automations still run.** If you still have the 07:00 / 19:00 pause-and-resume automation, it can undo an applied action. Retire it before automatic mode.
+- **Schedule automations still run.** If you still have the 07:00 / 19:00 pause-and-resume automation, it can undo an applied action. Turn it off before choosing Automatic.
 
 ### Activity log card
 
@@ -180,18 +187,19 @@ Every command is written to `<config>/solar_smart_miner/actions.jsonl` (rotated 
 
 ### First-run checklist
 
-1. Control mode **Preview**: nothing can be pressed; the card title says preview.
-2. Switch to **Manual**, midday, a step-down the rules propose: press Apply proposal, watch the number change, check `actions.jsonl` has a `pending` then an `ok` line, and that the next cycle treats the miner as tuning.
+1. Control mode **Manual** (the default)
+2. Midday, a step-down the rules propose: press Apply proposal, watch the number change, check `actions.jsonl` has a `pending` then an `ok` line, and that the next cycle treats the miner as tuning.
 3. A step-up on the same miner after it has settled.
 4. A stop with the pause method, then a start: note whether the limit can be set while paused and how long until it is back.
 5. Let a plan change between looking and pressing (change the profile): confirm the "proposal changed" notification.
 6. Pull the network or switch the miner off and press: confirm `failed` after the grace time and the notification.
 7. A proposal with two miners moving in opposite directions: the reduction goes first.
-8. Write what you saw into the knowledge base (`miners.yaml`, `alerts.yaml`).
+8. Turn the fixed-hour schedule automation off, then switch to **Automatic**: the next proposal is applied within one cycle, the card title says "applied automatically", `actions.jsonl` lines carry `"trigger": "auto"`, and nothing else is sent for 4 minutes after a change.
+9. Write what you saw into the knowledge base (`miners.yaml`, `alerts.yaml`).
 
 ## Decision log
 
-The **Decision log** sensor shows what the controller read, how it reasoned and what it proposes for each miner (applied only when you press Apply in Manual mode). The state is the one-line summary; the `trace`, `proposals` and `history` attributes hold the detail. Use the **Add to dashboard** button for a ready-made card that also shows the AI advice.
+The **Decision log** sensor shows what the controller read, how it reasoned and what it proposes for each miner (applied when you press Apply in Manual mode, or every cycle in Automatic). The state is the one-line summary; the `trace`, `proposals` and `history` attributes hold the detail. Use the **Add to dashboard** button for a ready-made card that also shows the AI advice.
 
 ## Development
 
@@ -298,7 +306,7 @@ docker restart <container-name>
 scp -r custom_components/solar_smart_miner/ ha-user@ha-host:/config/custom_components/
 ```
 
-Then restart Home Assistant. Leave the control mode on Preview for at least 24 hours before switching to Manual, and walk through the [first-run checklist](#first-run-checklist) on the real miners.
+Then restart Home Assistant. Start in Manual (the default), walk through the [first-run checklist](#first-run-checklist) on the real miners, and only then switch to Automatic.
 
 ## Roadmap
 

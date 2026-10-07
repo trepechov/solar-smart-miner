@@ -55,10 +55,10 @@ Check off each unit after it is implemented, tested and committed.
 
 **Phase 2: automatic (planned 2026-10-07, below)**
 
-- [ ] **A3**: Modes: Preview removed, Automatic offered, Manual the default; stored `preview` reads as Manual
-- [ ] **A1**: Automatic: the executor accepts trigger `auto`, and the coordinator applies the proposal each cycle
-- [ ] **A4**: Entities, card and wording follow the two modes
-- [ ] **A5**: README and knowledge base
+- [x] **A3**: Modes: Preview removed, Automatic offered, Manual the default; stored `preview` reads as Manual
+- [x] **A1**: Automatic: the executor accepts trigger `auto`, and the coordinator applies the proposal each cycle
+- [x] **A4**: Entities, card and wording follow the two modes
+- [x] **A5**: README and knowledge base
 - [ ] **A2**: Automation-only guards: **deferred** (owner, 2026-10-07). The ramp lock and one-miner-per-proposal part is done (commit 3ca794c).
 
 **Phase 3: AI authority (later, separate plan)**

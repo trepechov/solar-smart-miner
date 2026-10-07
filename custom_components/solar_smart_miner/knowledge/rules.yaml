@@ -32,6 +32,8 @@ entries:
       Until 2026-10-06 this read "never control the miners together; the schedule is switched off
       when applying starts". Narrowed to automatic control when the manual Apply buttons came in.
       The Manual-mode warning needs the schedule-automation setting (plan S10).
+      With Automatic available (2026-10-07) the owner switches the schedule off before choosing it;
+      the integration doesn't check (S10 is a follow-up, not a prerequisite).
 
   - id: rule.miner-range
     title: Stay inside the miner's range
@@ -80,10 +82,35 @@ entries:
       applying comes later as a toggle on the same path, once the manual phase
       shows the plans can be trusted.
     priority: P1
-    status: decided
+    status: retired
     source: "owner, 2026-10-06; plan docs/plans/2026-10-06-001-feat-semi-automatic-apply-plan.md"
-    date: "2026-10-06"
+    date: "2026-10-07"
     tags: [always, startup]
+    note: >
+      The manual phase ended on 2026-10-07: after two days of applying proposals by hand the
+      owner judged them good enough to run on their own. Replaced by rule.automatic-mode.
+
+  - id: rule.automatic-mode
+    title: Automatic applies the rule plan every cycle
+    statement: >
+      In the Automatic control mode the rule plan is applied at the end of every cycle, through
+      the same path as the Apply button, stops and step-downs first. In Manual (the default)
+      nothing is applied without a press. Only the rule plan is applied, never the AI answer.
+    priority: P1
+    status: decided
+    source: "owner, 2026-10-07; plan docs/plans/2026-10-06-001-feat-semi-automatic-apply-plan.md Phase 2"
+    date: "2026-10-07"
+    tags: [always, startup]
+    note: >
+      The ramp lock (rule.ramp-lock) is its only pacing; the owner ruled out a persistence window,
+      an hourly cap, a failure freeze and a schedule guard as prerequisites. A refused plan is
+      logged once and not retried until the plan or the reason changes. Preview mode was removed
+      at the same time: Manual already applies nothing unless the owner presses.
+      This answers the former open.go-live-evidence (requirements doc §9 point 8) by judgement,
+      not by counts: two days of applying by hand were enough. Counting proposals applied,
+      expired or reversed (plan S14) is still worth doing to tune the rules. Seen in the manual
+      phase: the 2026-10-07 sunset stop of Brod3 was proposed at 17:04 and pressed at 17:10, with
+      1.2 to 1.4 kW of import in between; Brod2's stop waited 3 minutes (17:28 to 17:31).
 
   - id: rule.power-steps
     title: Move between fixed steps
@@ -244,6 +271,10 @@ entries:
       right after Brod1 went to 2,100 W the rules proposed Brod2 up as if Brod1 drew 0 W, and after
       the 16:02 bundle they proposed starting all three at 1,900 W. Still open: a miner that is
       still unreadable after the 4 minutes counts as stopped again.
+      Owner, 2026-10-07: a miner needs about 4 to 5 minutes to settle after a change, and changing
+      anything inside that window starts an endless change loop. In Automatic this lock is the only
+      pacing (rule.automatic-mode). A failed send starts it too, and it is restored from the action
+      log after a reload or restart.
 
   - id: rule.consolidate-needs-sustained-deficit
     title: Don't consolidate on a cloud
