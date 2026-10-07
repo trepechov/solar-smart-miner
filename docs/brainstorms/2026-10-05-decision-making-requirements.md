@@ -1,6 +1,6 @@
 # Decision Making — Requirements Notes
 
-**Status:** collecting thoughts (living doc). Review rounds 1–4 done on 2026-10-05 (see §0–§0.3). Round 5 (§0.4) resolves conflicts between earlier rounds and is proposed by Claude. Round 6 (§0.5, 2026-10-06) redefines the profiles and leaves all battery configuration open.
+**Status:** collecting thoughts (living doc). Review rounds 1–4 done on 2026-10-05 (see §0–§0.3). Round 5 (§0.4) resolves conflicts between earlier rounds and is proposed by Claude. Round 6 (§0.5, 2026-10-06) redefines the profiles and leaves all battery configuration open. Round 7 (§0.6, 2026-10-07) answers the questions that blocked implementing Solar-follow.
 **Decisions now live in the knowledge base** (`custom_components/solar_smart_miner/knowledge/`, moved on 2026-10-06). That is where they are kept up to date and what the AI is given; this doc stays as the record of how they were reached.
 **Next step:** settle the remaining open questions (§9), then turn this into a plan for the rule engine (the `decision/` package, §11). The AI prompt comes after that.
 
@@ -16,7 +16,7 @@ How to use this doc: add thoughts anywhere under **Notes** blocks. Items marked 
 4. **Small constant grid import (Setup A) is confirmed.** Without a battery, importing a little is the only proof that all available solar is used. Otherwise the inverter throttles and nothing shows that the miners could go higher.
 5. **The miners run in immersion mode, with no fans.** Temperature follows power and cooling directly. The only Braiins OS temperature setting that matters is the **cutoff**.
 6. **Temperature is not an emergency.** A miner that is too hot at minimum power is left to the Braiins OS cutoff, which restarts it. ~~We monitor and log it.~~ *(Superseded by round 4, point 4: at most a note in the decision trace.)* Temperature steps follow the normal pace and never skip the queue.
-7. **Below ~1000 W a miner is not worth running.** That is the point to pause it with Braiins OS pause, not to idle it at its hardware minimum.
+7. **Below ~1000 W a miner is not worth running.** *(Round 7: 900 W is fine; the lowest power step is the pause threshold, §0.6.)* That is the point to pause it with Braiins OS pause, not to idle it at its hardware minimum.
 8. **Restarts are the main cost to keep low** (refined in round 2: a trade-off, not a hard rule). Changing one miner by 600 W beats changing three miners by 200 W each. A decision **may** change several miners when needed (for example pause one and raise another), so the AI answer stays multi-miner.
 9. **Some grid import is fine at sunrise, sunset and during clouds.** Production changes quickly then, so don't chase it.
 10. **Handover:** when the integration starts applying decisions, the fixed-hour schedule automation is switched off. They never run together.
@@ -77,6 +77,19 @@ A check of the whole doc found places where decisions from different rounds cont
 3. **Full power is dropped.** Running every miner at maximum needs no decisions, rules or AI, so it is not a profile. Grid-agnostic is dropped with it.
 4. Grid-independent stays dropped (§6.2). Battery-focused waits for the battery profiles (§6.3).
 
+## 0.6 Decisions from review round 7 (2026-10-07): before implementing Solar-follow
+
+1. **Pause threshold = the lowest power step (900 W).** Running at 900 W is fine; the 1000 W figure is dropped. A shortfall must outlast the cloud tolerance before a miner is paused.
+2. **Ramp and tuning.** The 2–3 min ramp and 10–15 min hold figures are retired. On a step the miner has already tuned, it reaches full hashrate in **3–4 minutes**, so the ramp lock is about 4 minutes. **Temperature takes longer** to come back after the restart; how long is open (§9) and sets the minimum hold time. **Tuning** (about 50 minutes) is an exception, the `situation.tuning` for a step the miner has never run, not the normal cost of a change.
+3. **Sunrise: start the next miner at the lowest step, don't raise the running one.** Production keeps rising at sunrise, and raising one miner again and again costs a restart each time. So start each miner at the lowest step, and start the next one when there is budget for its lowest step. The code's "fill a running miner first" is dropped.
+4. **Required inputs (confirmed).** Solar-follow needs the grid import, not the solar sensor. While the grid import is unknown, nothing steps up; if it stays unknown, step down or pause (the meter-lost alert: warning at 10 min, step down at 30). This replaces "solar sensor unavailable → minimum".
+5. **Temperature only limits.** A low temperature is never a reason to step up; a high one stops step-ups and forces step-downs. No extra margin below the target.
+6. **Agreed as recommended:**
+   - Input smoothing: energy inputs averaged over **3 minutes**; temperature isn't smoothed.
+   - A `ramping` hold reason in the log and the AI vocabulary.
+   - A miner paused by the schedule is detected (hass-miner state, else 0 W and 0 TH/s while reachable) and left out of allocation and the ramp check.
+   - Moving off the old profiles: rename `solar_max` → `solar_follow`, and map stored `battery_focused`, `grid_agnostic` and `grid_independent` to `solar_follow`, logging the migration once.
+
 ---
 
 ## 1. Goal
@@ -116,7 +129,7 @@ Limits come in three kinds:
 
 **While the schedule still runs (advisory phase):**
 - A miner at ~0 W and 0 TH/s may simply be **paused by the schedule**. The decision trace, the AI prompt and the log should show "paused (external)" so the advice isn't misread.
-- **(suggestion)** Detect the paused state from hass-miner if it exposes it, otherwise from 0 W plus 0 TH/s while the miner is still reachable. Exclude paused miners from allocation and from the ramp check.
+- **(decided, round 7)** Detect the paused state from hass-miner if it exposes it, otherwise from 0 W plus 0 TH/s while the miner is still reachable. Exclude paused miners from allocation and from the ramp check.
 - **(suggestion)** When applying starts, the integration warns if the schedule automation is still enabled. This needs an option that names the automation entity.
 
 > **Notes:**
@@ -128,7 +141,7 @@ Limits come in three kinds:
 ### 3.1 Miner power range
 - Each miner has a min/max power limit that hass-miner exposes (`min_power_w` / `max_power_w`).
 - Proposals are clamped to this range and rounded to 10 W.
-- The useful lower bound is the **pause threshold** (~1000 W, §5.3), not the hardware minimum.
+- The useful lower bound is the **pause threshold**, which is the lowest power step (900 W, round 7), not the hardware minimum.
 - **(open, low priority)** A per-miner max below the hardware max. It may not be needed, because temperature already limits each miner in practice.
 
 ### 3.2 Temperature: target and tolerance
@@ -139,7 +152,7 @@ Limits come in three kinds:
 
 | Miner temperature | Meaning | Action |
 |---|---|---|
-| below target (< 65 °C) | thermal headroom | may **step up**, if energy allows |
+| below target (< 65 °C) | no limit from temperature | a step-up only if the **energy** calls for one; a low temperature is never the reason (round 7) |
 | target … target + tolerance (65–75 °C) | in range | **hold** (no step up, even with spare energy) |
 | at or above target + tolerance (≥ 75 °C) | too warm | **step down** (`temperature_limit`) |
 
@@ -150,7 +163,8 @@ Limits come in three kinds:
   - At the new setting it may climb back to target + tolerance. That's normal, and the next step down happens then, at the normal pace.
   - No separate "wait for it to settle before stepping down again" rule is needed. The restart itself makes the temperature fall.
 - **(proposed, round 5)** A miner's temperature is **settling** until its minimum hold time has passed (§5.2). While settling, the miner isn't a step-up candidate and its temperature doesn't trigger a step-down.
-- **(open)** Is there also a margin below the target before stepping up (for example step up only below target − 5 °C)? Without one, a miner at 64 °C steps up, lands at 66 °C and holds, which is fine. But a miner sitting right at the boundary could step up after every hold time.
+  - **(decided, round 7)** Temperature takes longer to come back than the 3–4 min hashrate ramp. **(open)** How long (§9); it sets the minimum hold time.
+- **(decided, round 7)** No margin below the target. Temperature only limits; it is never the reason for a step-up.
 
 ### 3.3 Inverter voltage
 - Mining below **~210 V** is not recommended. The threshold is configurable.
@@ -160,7 +174,7 @@ Limits come in three kinds:
 - **(open)** Which entity provides voltage (inverter AC or grid), and is there a lower hard-stop threshold (for example 200 V → pause all)?
 
 ### 3.4 Sensor health and battery floor
-- **(suggestion)** Each profile declares the inputs it **requires**. If any of them is unknown, don't increase power. If it stays unknown for a long time, step down or pause.
+- **(decided, round 7)** Each profile declares the inputs it **requires**. If any of them is unknown, don't increase power. If it stays unknown for a long time, step down or pause (the meter-lost alert: warning at 10 min, step down at 30).
   - Solar-follow requires **grid import**. It does not need the solar sensor (§6.2).
   - This replaces today's rule "solar sensor unavailable → minimum", which in Solar-follow watches the wrong sensor.
 - Battery floor (Setup B, open): below the floor, **pause**, don't go to minimum.
@@ -197,10 +211,10 @@ Limits come in three kinds:
 ## 5. Control dynamics (important)
 
 ### 5.1 Every power change costs a restart
-- **Assumed:** changing a miner's power limit restarts it. Consumption drops to **0 W immediately**, then takes **~2–3 minutes** to ramp to the new target.
-- **(open)** Verify this by measurement, and measure the cost of Braiins OS pause / resume. Every number in §5 depends on it.
+- **Measured (2026-10-06):** changing a miner's power limit restarts it. On a step it has run before, it is back at full hashrate in **3–4 minutes** (round 7). The ~50 min tuning only happens on a step it has never run (`situation.tuning`, an exception).
+- **(open)** The cost of Braiins OS pause / resume, and how long the temperature takes to come back (§9).
 - So:
-  - A change costs about 2–3 min of hashing on that miner. The cost scales with the miner's **current** power, not with the step size.
+  - A change costs about 3–4 min of hashing on that miner. The cost scales with the miner's **current** power, not with the step size.
   - While a miner ramps, readings are misleading: its draw is low, so import looks lower than it really is.
   - Reacting to short-term changes (a passing cloud, a kettle) loses more than it gains.
 
@@ -210,16 +224,16 @@ Limits come in three kinds:
 - **(proposed, round 5) Step size when the surplus is hidden (Setup A):**
   - Step **down** by the measured deficit (import − target).
   - Step **up** by the measured export if there is any. Otherwise use the forecast headroom (*forecast PV now* − *actual PV*) when configured. Otherwise use a fixed **probe step** (default 400 W).
-- **Ramp lock:** while any miner is ramping, the decision is "hold". A miner has finished ramping when its draw is within X % of its new limit, or a timeout passes. **(suggestion)** Add a `ramping` reason so the log shows why it held.
-- **(suggestion)** **Minimum hold time per miner** after a change (for example 10–15 min), except for safety.
-- **(suggestion)** **Smooth the energy inputs** (import, solar): decide on averaged values (for example 2–5 min) rather than the latest sample. Temperature isn't smoothed (round 4).
+- **Ramp lock:** while any miner is ramping, the decision is "hold". A miner has finished ramping when its draw is within X % of its new limit, or a timeout passes (**about 4 min**, round 7). **(decided, round 7)** A `ramping` reason shows in the log why it held.
+- **(decided, round 7)** **Minimum hold time per miner** after a change, except for safety. It is the temperature settling time; the value is open (§9). ~~10–15 min~~ is retired.
+- **(decided, round 7)** **Smooth the energy inputs** (import, solar): decide on values averaged over **3 minutes** rather than the latest sample. Temperature isn't smoothed (round 4).
 - **(proposed, round 5)** **Step down slowly, step up promptly.**
   - Step **down** only after the deficit has lasted longer than the **cloud tolerance**, so a passing cloud costs no restarts.
   - Step **up** once the surplus has held for the smoothing window.
   - Fast reactions are for safety only (§3.3, §3.4). The evening decline is handled by sunset mode (§5.4).
 
 ### 5.3 Allocation across miners: spread, pause, resume
-- **(decided)** A miner below the **pause threshold (~1000 W)** isn't worth running. It is **paused** (Braiins OS pause), not left idling at minimum.
+- **(decided)** A miner below the **pause threshold** isn't worth running. The threshold is the lowest power step, **900 W** (round 7). It is **paused** (Braiins OS pause), not left idling at minimum.
 - **(decided)** Spreading the load over more miners in the efficient range (~1000–2000 W) is better than running fewer miners harder.
 - **(decided)** Consolidating (pausing one miner and raising the others) restarts every miner involved, and a passing cloud can force the reverse change soon after. So consolidating needs a **sustained** deficit, not a momentary one.
 - New actions: `pause` and `resume` alongside `increase` / `reduce` / `hold`. Each action carries a **target wattage**.
@@ -228,7 +242,7 @@ Limits come in three kinds:
   - **Step up:** if the surplus is enough to run a paused miner at the threshold or above, **resume** it. Otherwise give the whole surplus to the running miner that is lowest in the efficient range and has thermal headroom. Push any miner above ~2000 W only when every running miner is already near the top of the range or too warm.
   - **Step down (proposed, round 5):** take the whole deficit from the **highest-power miner that stays at or above the pause threshold** after the cut. Only if no running miner can absorb it, **pause** the lowest-power one, and let the next step-up rebalance. Hot miners aren't chosen here. They already step down through the temperature rule (§3.2).
 - **(open)** Is efficiency really worse above ~2000 W on these miners? That decides whether "prefer more miners" still holds when the sun is strong enough to run every miner at 2000 W or more.
-- **(open)** Default pause threshold (1000 W?) and how long a deficit must last before pausing.
+- **(decided, round 7)** Pause threshold = lowest step (900 W). A deficit must outlast the cloud tolerance before a pause.
 
 ### 5.4 Transitions: sunrise, sunset, clouds
 - **(decided)** Temporary import is acceptable while production changes quickly.
@@ -243,7 +257,7 @@ When most of them agree, the controller is in **sunrise mode** or **sunset mode*
 **Sunrise mode:**
 - **(open)** What starts the first miner, and at what power. This will be set from the rise-speed study below.
 - **(decided)** The sun can rise fast, so sunrise mode **relaxes the minimum hold time**. The ramp lock still applies: never decide while a miner's readings are still settling.
-- **(suggestion)** In sunrise mode, **resume the next paused miner** at ~1000 W rather than raising the one that just started. Raising it restarts it and throws away the ramp it just finished. Starting another miner adds load without losing any.
+- **(decided, round 7)** In sunrise mode, **resume the next paused miner at the lowest step** (900 W) rather than raising the one that just started. Production keeps rising, so raising one miner again and again costs a restart each time. Start the next one when there is budget for its lowest step.
 
 **Sunset mode:**
 - Step down and pause in order, one miner at a time, without chasing every dip.
@@ -319,6 +333,8 @@ The small steady draw comes from the **grid**.
 | `grid_independent` | dropped. Use Solar-follow with a low import target | A |
 | `grid_agnostic` | dropped (with Full power) | — |
 
+**(decided, round 7)** Rename `solar_max` → `solar_follow`. Installs stored on `battery_focused`, `grid_agnostic` or `grid_independent` are migrated to `solar_follow`, and the migration is logged once.
+
 > **Notes:**
 
 ---
@@ -352,15 +368,17 @@ All **(suggestion)** until agreed:
 | Target temperature | 65 °C | 3.2 |
 | Temperature tolerance (above target) | 10 °C | 3.2 |
 | Voltage sensor entity | — | 3.3 |
+| Required-input gap before step-down | 10 min warning, 30 min step down (meter-lost alert) | 3.4 |
 | Low-voltage threshold | 210 V | 3.3 |
 | Voltage debounce window | 60 s | 3.3 |
 | Minimum power step | 200 W | 5.2 |
-| Ramp timeout | 3 min | 5.2 |
-| Minimum hold time per miner | 10 min | 5.2 |
-| Input smoothing window (energy only) | 3 min | 5.2 |
+| Ramp timeout | 4 min (decided, round 7) | 5.2 |
+| Minimum hold time per miner (temperature settling) | open, §9 | 5.2 |
+| Tuning window (only for a step never run, `situation.tuning`) | 50 min | 5.1 |
+| Input smoothing window (energy only) | 3 min (decided, round 7) | 5.2 |
 | Cloud tolerance (deficit time before a step-down) | from the §5.4 study | 5.2, 5.4 |
 | Probe step (step-up when surplus is hidden) | 400 W | 5.2 |
-| Pause threshold | 1000 W | 5.3 |
+| Pause threshold | lowest power step, 900 W (decided, round 7) | 5.3 |
 | Efficient range, upper end | 2000 W | 5.3 |
 | Setup: has battery | yes / no | 6.1 |
 | Import target and band (Solar-follow) | tune from logs, band > 200 W | 6.2 |
@@ -369,16 +387,19 @@ All **(suggestion)** until agreed:
 
 ---
 
-## 9. Open questions (round 4)
+## 9. Open questions (round 7)
 
-Resolved: round 1 in §0, round 2 in §0.1, round 3 in §0.2, round 4 in §0.3, conflicts in §0.4.
+Resolved: round 1 in §0, round 2 in §0.1, round 3 in §0.2, round 4 in §0.3, conflicts in §0.4, profiles in §0.5, the blockers for Solar-follow in §0.6.
 
+**Needed for Solar-follow, but it can start with a default and be tuned:**
 1. **Rise and fall speed study.** How fast does production rise in the morning and fall in the evening? It sets the start and stop triggers, the pace in each mode and the **cloud tolerance**. Watch for throttled history. (§5.4)
-2. **Verify the cost of a change.** Does a power-target change really drop the miner to 0 W and ramp for 2–3 min? What do pause and resume cost? (§5.1)
-3. Is efficiency worse above ~2000 W? (§5.3)
-4. Import target and band defaults for normal (non-transition) operation. (§6.2)
-5. Voltage sensor source and the hard-stop threshold. (§3.3)
-6. Temperature margin below the target? (§3.2)
+2. **Temperature settling time.** How long after a change until the temperature means something again? It sets the minimum hold time. Measure from the 2026-10-06 changes. (§3.2, §5.2)
+3. Import target and band defaults for normal (non-transition) operation. 400 W is in the code. (§6.2)
+
+**Not blocking Solar-follow:**
+4. The cost of Braiins OS pause / resume. (§5.1)
+5. Is efficiency worse above ~2000 W? Moot while the steps stop at 1500 W. (§5.3)
+6. Voltage sensor source and the hard-stop threshold. (§3.3)
 7. How does the AI learn from the history: examples in the prompt, statistics, or offline review? (§7)
 8. **When does applying start?** What evidence is enough to switch off the schedule and go live? (§2.1)
 
