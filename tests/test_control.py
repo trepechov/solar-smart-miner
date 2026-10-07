@@ -166,11 +166,22 @@ async def test_automatic_mode_refuses_a_manual_trigger(h) -> None:
     assert not h.number_calls
 
 
-async def test_auto_trigger_is_not_allowed_yet(h) -> None:
+async def test_manual_mode_refuses_an_auto_trigger(h) -> None:
     result = await h.apply(_set_limit(), trigger=TRIGGER_AUTO)
 
     assert result.status == RESULT_REFUSED
+    assert "manual" in result.reason
     assert not h.number_calls
+
+
+async def test_automatic_mode_sends_an_auto_trigger(h) -> None:
+    h.mode = CONTROL_MODE_AUTO
+
+    result = await h.apply(_set_limit(), trigger=TRIGGER_AUTO)
+
+    assert result.status == "pending"
+    assert len(h.number_calls) == 1
+    assert h.events[-1].trigger == TRIGGER_AUTO
 
 
 @pytest.mark.parametrize("limit_w", [1000.0, 700.0, 4000.0])

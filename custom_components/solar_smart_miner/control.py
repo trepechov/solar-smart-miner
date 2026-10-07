@@ -1,8 +1,8 @@
 """Turns a MinerPlan into HA service calls and checks that they took.
 
-The one place that touches the miners. Today it is reached from the Apply buttons
-(trigger "manual", control mode Manual); automatic mode will call the same
-`async_apply` with trigger "auto". Every command is checked before it is sent
+The one place that touches the miners. It is reached from the Apply button (trigger
+"manual", control mode Manual) and from the coordinator's cycle (trigger "auto", control
+mode Automatic). Every command is checked before it is sent
 (guards), sent with blocking service calls, then watched until the miner's entity shows
 the expected value or the grace time runs out. Each step is reported to `on_event`
 (the action log) and a failure raises the `control.apply-failed` notification.
@@ -25,6 +25,7 @@ from homeassistant.util import dt as dt_util
 from .const import (
     APPLY_VERIFY_GRACE_RELAY_START_S,
     APPLY_VERIFY_GRACE_S,
+    CONTROL_MODE_AUTO,
     CONTROL_MODE_MANUAL,
     DOMAIN,
 )
@@ -53,7 +54,7 @@ RESULT_FAILED = "failed"  # the call raised, or the value never showed up
 _LIMIT_TOLERANCE_W = 0.5  # the number entity reads back the limit as a float
 
 # Which control modes allow which trigger.
-_MODES_FOR_TRIGGER = {TRIGGER_MANUAL: {CONTROL_MODE_MANUAL}}
+_MODES_FOR_TRIGGER = {TRIGGER_MANUAL: {CONTROL_MODE_MANUAL}, TRIGGER_AUTO: {CONTROL_MODE_AUTO}}
 
 _STAGE_SWITCH = "switch"  # waiting for a stop / start switch to reach its state
 _STAGE_LIMIT = "limit"  # waiting for the power limit to read back
@@ -140,7 +141,7 @@ class MinerController:
             return f"{what} entity {entity_id} is unavailable"
         return None
 
-    def _refusal(
+    def refusal(
         self, miner: MinerSnapshot, plan: MinerPlan, trigger: str, steps: list[float]
     ) -> str | None:
         """Why this plan must not run now, or None. The guards, in order."""
@@ -192,7 +193,7 @@ class MinerController:
         self, miner: MinerSnapshot, plan: MinerPlan, *, trigger: str, steps: list[float]
     ) -> CommandResult:
         command_id = uuid.uuid4().hex[:8]
-        reason = self._refusal(miner, plan, trigger, steps)
+        reason = self.refusal(miner, plan, trigger, steps)
         if reason is not None:
             result = CommandResult(RESULT_REFUSED, reason, command_id=command_id)
             await self._emit(command_id, trigger, miner.miner_id, miner.name, plan, result)

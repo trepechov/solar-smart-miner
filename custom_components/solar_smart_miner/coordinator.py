@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import deque
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import yaml
 from homeassistant.components.persistent_notification import async_create as pn_create
@@ -50,6 +50,7 @@ from .config_flow import (
     DEFAULT_OPENROUTER_MODEL,
 )
 from .const import (
+    CONTROL_MODE_AUTO,
     CONF_MOCK_CONSUMPTION_ENABLED,
     CONF_MOCK_SOLAR_ENABLED,
     CONF_MOCK_SOLAR_ENTITY,
@@ -74,8 +75,10 @@ from .const import (
     control_mode_of,
 )
 from .control import (
+    RESULT_FAILED,
     RESULT_PENDING,
     RESULT_REFUSED,
+    TRIGGER_AUTO,
     TRIGGER_MANUAL,
     CommandEvent,
     CommandResult,
@@ -203,6 +206,9 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         self._limit_seen: dict[str, tuple[float | None, float | None]] = {}
         self._stopped_seen: dict[str, bool] = {}  # miner id -> stopped at the last read
         self._last_change: float | None = None  # time.monotonic() of the last command or stop/start seen
+        self._building: CoordinatorSnapshot | None = None  # the snapshot of the cycle being worked out
+        # miner id -> (plan fingerprint, reason) of the last automatic refusal, so it isn't repeated
+        self._auto_refused: dict[str, tuple[str, str]] = {}
         self.controller = MinerController(
             hass,
             get_mode=lambda: self.control_mode,
@@ -406,9 +412,17 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         return min(ages, default=None)
 
     def seed_activity(self) -> None:
-        """After a restart, start the feed from the applied actions in the action log."""
+        """After a restart or reload, start from the action log: the feed of applied actions, and
+        the ramp lock of the last command sent, so a reload can't send the next one too soon."""
         for entry in reversed(self.action_log.history):
             self.activity.appendleft({"kind": "applied", **entry})
+        try:
+            sent = datetime.fromisoformat(self.action_log.last_sent_ts or "")
+            age_s = (dt_util.now() - sent).total_seconds()
+        except (TypeError, ValueError):
+            return
+        if age_s >= 0:
+            self._last_change = time.monotonic() - age_s
 
     @staticmethod
     def _farm_proposal(snapshot: CoordinatorSnapshot) -> tuple[str, str]:
@@ -450,9 +464,12 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         return self._farm_proposal(self.data)[1] if self.data is not None else NO_ACTION_TEXT
 
     async def _async_record_action(self, event: CommandEvent) -> None:
-        if event.status == RESULT_PENDING:
-            self._last_change = time.monotonic()  # sent: the miner restarts now
-        await self.action_log.async_record(event, self.data)
+        if event.status == RESULT_PENDING or (event.status == RESULT_FAILED and event.calls):
+            # Sent, or tried to: the miner may restart now. A failed send waits out the ramp lock
+            # too, so Automatic doesn't retry it every cycle.
+            self._last_change = time.monotonic()
+        # During a cycle, the plan came from the snapshot being built, not the previous one.
+        await self.action_log.async_record(event, self._building or self.data)
         self.activity.appendleft({"kind": "applied", **self.action_log.history[0]})
         self.async_update_listeners()  # the "Last action" sensor and the buttons' availability
 
@@ -638,6 +655,40 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             )
         return results
 
+    async def _async_apply_auto(self, snapshot: CoordinatorSnapshot) -> None:
+        """Automatic mode: apply this cycle's plans, reductions first.
+
+        The ramp lock in the decision paces it: after any change every plan is hold for a few
+        minutes. A plan the guards refused is not tried or logged again until the plan or the
+        reason changes.
+        """
+        if self.control_mode != CONTROL_MODE_AUTO or snapshot.decision is None:
+            return
+        miners = {m.miner_id: m for m in snapshot.miners}
+        todo = []
+        for mid, plan in snapshot.decision.plans.items():
+            if plan.action == ACTION_HOLD or mid not in miners:
+                self._auto_refused.pop(mid, None)
+            else:
+                todo.append((miners[mid], plan))
+        steps = self._power_steps()
+        for miner, plan in sorted(todo, key=lambda pair: not _is_reduction(*pair)):
+            mid = miner.miner_id
+            if self.controller.is_pending(mid):
+                continue
+            reason = self.controller.refusal(miner, plan, TRIGGER_AUTO, steps)
+            if reason is not None and self._auto_refused.get(mid) == (plan.fingerprint, reason):
+                continue
+            try:
+                result = await self.controller.async_apply(miner, plan, trigger=TRIGGER_AUTO, steps=steps)
+            except Exception:  # noqa: BLE001 - one miner must not stop the update
+                _LOGGER.exception("Automatic apply for %s failed", miner.name)
+                continue
+            if result.status == RESULT_REFUSED:
+                self._auto_refused[mid] = (plan.fingerprint, result.reason)
+            else:
+                self._auto_refused.pop(mid, None)
+
     # --- AI advisor (advisory only: nothing here changes the miners) -----------
 
     @property
@@ -755,6 +806,11 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             )
         snapshot.decision = decision
         self._record_proposals(snapshot)
+        self._building = snapshot
+        try:
+            await self._async_apply_auto(snapshot)
+        finally:
+            self._building = None
         snapshot.decision_history = list(self._history)
         self._maybe_request_ai(snapshot)
         # After the request: a very fast answer can already be in by now.

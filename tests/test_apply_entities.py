@@ -261,7 +261,21 @@ async def test_activity_feed_restarts_from_the_action_log(hass, add_hass_miner) 
     await hass.async_block_till_done()
 
     kinds = [e["kind"] for e in _state(hass, "sensor", "_activity").attributes["feed"]]
-    assert kinds == ["proposal", "applied"]  # the proposal is new; the applied action came from the file
+    # The applied action came from the file; no new proposal, the ramp lock outlives the reload.
+    assert kinds == ["applied"]
+
+
+async def test_the_ramp_lock_outlives_a_reload(hass, add_hass_miner) -> None:
+    entry, _ = await _setup(hass, add_hass_miner)
+    async_mock_service(hass, "number", "set_value")
+    await _press(hass, _entity_id(hass, "button", "_apply_all"))
+
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    decision = entry.runtime_data.data.decision
+    assert all(plan.action == "hold" for plan in decision.plans.values())
+    assert any("ramp lock" in line for line in decision.trace)
 
 
 async def test_unique_ids_are_stable_across_a_reload(hass, add_hass_miner) -> None:

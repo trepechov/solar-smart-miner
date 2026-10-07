@@ -123,6 +123,7 @@ class ActionLog(JsonlLog):
         super().__init__(hass)
         self.history: deque[dict[str, Any]] = deque(maxlen=HISTORY_SIZE)  # newest first
         self._open: set[str] = set()  # commands whose first line is written, outcome still due
+        self.last_sent_ts: str | None = None  # newest line that sent something, as loaded from disk
 
     async def async_load_history(self) -> None:
         entries = await self.async_read_tail(HISTORY_SIZE)
@@ -130,6 +131,7 @@ class ActionLog(JsonlLog):
             return
         self.history.clear()
         self.history.extendleft(summarise(e) for e in entries)
+        self.last_sent_ts = next((e.get("ts") for e in reversed(entries) if e.get("calls")), None)
 
     async def async_record(self, event: CommandEvent, snapshot: CoordinatorSnapshot | None) -> None:
         first = event.command_id not in self._open
