@@ -268,3 +268,27 @@ async def test_unique_ids_are_stable_across_a_reload(hass, add_hass_miner) -> No
     after = sorted(e.unique_id for e in er.entities.values() if e.platform == DOMAIN)
     assert after == before
     assert any(u.endswith("_apply_all") for u in after)
+
+
+async def test_per_miner_entities_of_v060_are_removed_on_setup(hass, add_hass_miner) -> None:
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_SOLAR_ENTITY: SOLAR, CONF_GRID_ENTITY: GRID})
+    entry.add_to_hass(hass)
+    er = er_module.async_get(hass)
+    old_button = er.async_get_or_create(
+        "button", DOMAIN, f"{entry.entry_id}_192_168_1_10_apply", config_entry=entry
+    )
+    old_sensor = er.async_get_or_create(
+        "sensor", DOMAIN, f"{entry.entry_id}_192_168_1_10_proposed_action", config_entry=entry
+    )
+    hass.states.async_set(SOLAR, "5000")
+    hass.states.async_set(GRID, "1500")
+    add_hass_miner("192.168.1.10", name="Brod1", limit="1100", power="1100", limit_attrs=LIMITS)
+
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert er.async_get(old_button.entity_id) is None
+    assert er.async_get(old_sensor.entity_id) is None
+    assert any(  # the farm-level Apply button stays
+        e.unique_id.endswith("_apply_all") for e in er.entities.values() if e.platform == DOMAIN
+    )
