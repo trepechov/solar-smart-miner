@@ -55,12 +55,17 @@ def _snapshot(available_w: float | None, miners=None, **energy) -> CoordinatorSn
     )
 
 
+# A short ladder keeps the allocation tests readable; the default ladder has its own test.
+STEPS = [900, 1100, 1300, 1500]
+
+
 def _decide(
     snapshot, profile="solar_max", temp_target=65, temp_tolerance=10, battery_floor=20, **kw
 ):
     # Import target 0: these tests check the allocation against a given budget. The
     # Solar-follow import target has its own tests below.
     kw.setdefault("import_target_w", 0)
+    kw.setdefault("power_steps", STEPS)
     return build_decision(snapshot, profile, temp_target, temp_tolerance, battery_floor, **kw)
 
 
@@ -76,7 +81,16 @@ def _actions(decision) -> dict[str, str]:
 
 
 def test_default_steps_are_the_agreed_ladder() -> None:
-    assert DEFAULT_POWER_STEPS == [900, 1100, 1300, 1500]
+    # Owner, 2026-10-07: 900 to 2,500 W in 200 W steps are the normal ladder.
+    assert DEFAULT_POWER_STEPS == [900, 1100, 1300, 1500, 1700, 1900, 2100, 2300, 2500]
+
+
+def test_without_configured_steps_the_default_ladder_is_used() -> None:
+    decision = build_decision(
+        _snapshot(9000.0, [_miner("a", limit=900.0)]), "solar_max", 65, 10, 20,
+        import_target_w=0,
+    )
+    assert decision.proposals == {"a": 2500.0}
 
 
 def test_enough_budget_holds_the_current_steps() -> None:

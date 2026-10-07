@@ -6,7 +6,7 @@ DEFAULT_POLLING_INTERVAL = 15  # seconds
 MIN_POLLING_INTERVAL = 1  # seconds; hass-miner itself refreshes every 10 s
 # Below the target a miner may step up; from target to target + tolerance it holds;
 # at or above target + tolerance it steps down one step.
-DEFAULT_TEMP_TARGET = 65  # °C
+DEFAULT_TEMP_TARGET = 60  # °C
 DEFAULT_TEMP_TOLERANCE = 10  # °C above the target
 DEFAULT_BATTERY_FLOOR = 20  # % SOC
 DEFAULT_AI_TIMEOUT = 40  # seconds; OpenRouter call timeout (free models can be slow)
@@ -20,9 +20,10 @@ KB_PROMPT_BUDGET_CHARS = 6000
 KB_NIGHT_ELEVATION = -3  # deg; sun at or below this is night
 KB_TRANSITION_ELEVATION = 15  # deg; below this the sun is rising or setting
 
-# Miners re-tune every time the power limit changes (14 min to an hour), so the limit
-# only ever moves between these steps. W; each miner uses the ones inside its own range.
-DEFAULT_POWER_STEPS = [900, 1100, 1300, 1500]
+# Every limit change restarts a miner, and a wattage it has never run takes up to an hour
+# to tune, so the limit only ever moves between these steps (900 to 2,500 W, every one run
+# on every miner). W; each miner uses the ones inside its own range.
+DEFAULT_POWER_STEPS = [900, 1100, 1300, 1500, 1700, 1900, 2100, 2300, 2500]
 # Extra minutes a miner counts as tuning after a limit change (no step up, temperature ignored).
 # 0: every configured step has been tuned before, so a change is only a restart (ramp lock).
 DEFAULT_TUNING_SETTLE_MINUTES = 0

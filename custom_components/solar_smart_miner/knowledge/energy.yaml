@@ -26,6 +26,25 @@ entries:
     situations: [situation.curtailed]
     tags: [midday, allocation, curtailed]
 
+  - id: energy.forecast-headroom-flips
+    title: The forecast headroom comes and goes
+    statement: >
+      While the meter sits near 0 W, Solar-max adds the forecast for now minus the actual PV to
+      the budget. It needs both readings, so in a cycle where the PV reading is missing the
+      headroom disappears and the budget drops by that much.
+    priority: P3
+    status: verified
+    source: "measured: decision log and grid history from the live HA, 2026-10-07; code: decision._solar_follow_extra"
+    date: "2026-10-07"
+    situations: [situation.curtailed]
+    tags: [midday, allocation, curtailed]
+    note: >
+      On 2026-10-07 from 12:00 to 14:30 the grid stayed within 75 W of 0 and the measured budget
+      near 6,100 W, while the full budget swung between 6,100 and 7,600 to 8,700 W from one minute
+      to the next. The plan went between "Brod1 2,100 W only" and "every miner to 2,500 W" with it.
+      Smoothing (rule.smooth-inputs) or keeping the last headroom over a missing reading would
+      steady it.
+
   - id: energy.evening-curve
     title: What the sunset looked like
     statement: >

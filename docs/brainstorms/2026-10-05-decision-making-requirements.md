@@ -1,6 +1,6 @@
 # Decision Making — Requirements Notes
 
-**Status:** collecting thoughts (living doc). Review rounds 1–4 done on 2026-10-05 (see §0–§0.3). Round 5 (§0.4) resolves conflicts between earlier rounds and is proposed by Claude. Round 6 (§0.5, 2026-10-06) redefines the profiles and leaves all battery configuration open. Round 7 (§0.6, 2026-10-07) answers the questions that blocked implementing Solar-follow.
+**Status:** collecting thoughts (living doc). Review rounds 1–4 done on 2026-10-05 (see §0–§0.3). Round 5 (§0.4) resolves conflicts between earlier rounds and is proposed by Claude. Round 6 (§0.5, 2026-10-06) redefines the profiles and leaves all battery configuration open. Round 7 (§0.6, 2026-10-07) answers the questions that blocked implementing Solar-follow. Round 8 (§0.7, 2026-10-07) sets the power steps and the temperature defaults after the first day of applying proposals.
 **Decisions now live in the knowledge base** (`custom_components/solar_smart_miner/knowledge/`, moved on 2026-10-06). That is where they are kept up to date and what the AI is given; this doc stays as the record of how they were reached.
 **Next step:** settle the remaining open questions (§9), then turn this into a plan for the rule engine (the `decision/` package, §11). The AI prompt comes after that.
 
@@ -90,6 +90,12 @@ A check of the whole doc found places where decisions from different rounds cont
    - A miner paused by the schedule is detected (hass-miner state, else 0 W and 0 TH/s while reachable) and left out of allocation and the ramp check.
    - Moving off the old profiles: rename `solar_max` → `solar_follow`, and map stored `battery_focused`, `grid_agnostic` and `grid_independent` to `solar_follow`, logging the migration once.
 
+## 0.7 Decisions from review round 8 (2026-10-07): after the first day of applying
+
+1. **Power steps 900 to 2,500 W, in 200 W steps, are normal.** 900 to 1,500 W was only the first ladder. Every miner has run all of these steps, so a change between them is a restart, not a tuning. They are now the default steps.
+2. **Higher steps are welcome later.** If the miners stay below the temperature limits, steps above 2,500 W may be added.
+3. **Temperature defaults: target 60 °C, tolerance 10 °C** (step down at 70 °C). They were 65 °C and 10 °C.
+
 ---
 
 ## 1. Goal
@@ -148,13 +154,13 @@ Limits come in three kinds:
 *Not a safety step: temperature is applied in allocation, at the normal pace (§11 step 4).*
 - **(decided)** The miners run in immersion mode, with no fans. Temperature responds directly to power and cooling, so it is a usable control signal.
 - **(decided)** The Braiins OS cutoff (~80 °C, set on the miner) is the **final line of defense**: the miner restarts and cools down. The plugin has **no emergency temperature action** and doesn't track the cutoff.
-- **(decided)** The plugin only follows **target + tolerance**. Example: target 65 °C, tolerance 10 °C. The user makes sure the range is wide enough.
+- **(decided)** The plugin only follows **target + tolerance**. Example: target 60 °C, tolerance 10 °C (the defaults since round 8). The user makes sure the range is wide enough.
 
 | Miner temperature | Meaning | Action |
 |---|---|---|
-| below target (< 65 °C) | no limit from temperature | a step-up only if the **energy** calls for one; a low temperature is never the reason (round 7) |
-| target … target + tolerance (65–75 °C) | in range | **hold** (no step up, even with spare energy) |
-| at or above target + tolerance (≥ 75 °C) | too warm | **step down** (`temperature_limit`) |
+| below target (< 60 °C) | no limit from temperature | a step-up only if the **energy** calls for one; a low temperature is never the reason (round 7) |
+| target … target + tolerance (60–70 °C) | in range | **hold** (no step up, even with spare energy) |
+| at or above target + tolerance (≥ 70 °C) | too warm | **step down** (`temperature_limit`) |
 
 - **(decided)** Temperature steps follow the normal pace (§5). They don't skip the queue.
 - **(decided, round 4)** Too hot at the pause threshold or at minimum power: **not the plugin's job**. Something is wrong (cooling, ambient, hardware) and other mechanisms handle it. At most it's noted in the decision trace.
@@ -365,8 +371,9 @@ All **(suggestion)** until agreed:
 
 | Setting | Example default | Section |
 |---|---|---|
-| Target temperature | 65 °C | 3.2 |
-| Temperature tolerance (above target) | 10 °C | 3.2 |
+| Power steps | 900 to 2,500 W in 200 W steps (decided, round 8) | 5.1 |
+| Target temperature | 60 °C (decided, round 8) | 3.2 |
+| Temperature tolerance (above target) | 10 °C (decided, round 8) | 3.2 |
 | Voltage sensor entity | — | 3.3 |
 | Required-input gap before step-down | 10 min warning, 30 min step down (meter-lost alert) | 3.4 |
 | Low-voltage threshold | 210 V | 3.3 |
@@ -398,7 +405,7 @@ Resolved: round 1 in §0, round 2 in §0.1, round 3 in §0.2, round 4 in §0.3, 
 
 **Not blocking Solar-follow:**
 4. The cost of Braiins OS pause / resume. (§5.1)
-5. Is efficiency worse above ~2000 W? Moot while the steps stop at 1500 W. (§5.3)
+5. Is efficiency worse above ~2000 W? No longer moot: the steps go up to 2,500 W since round 8. (§5.3)
 6. Voltage sensor source and the hard-stop threshold. (§3.3)
 7. How does the AI learn from the history: examples in the prompt, statistics, or offline review? (§7)
 8. **When does applying start?** What evidence is enough to switch off the schedule and go live? (§2.1)

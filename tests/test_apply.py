@@ -9,6 +9,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry, async_
 from custom_components.solar_smart_miner.config_flow import (
     CONF_BATTERY_ENTITY,
     CONF_GRID_ENTITY,
+    CONF_POWER_STEPS,
     CONF_SOLAR_ENTITY,
 )
 from custom_components.solar_smart_miner.const import (
@@ -29,7 +30,8 @@ def _coordinator(hass, mode: str = CONTROL_MODE_MANUAL) -> SolarMinerCoordinator
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={CONF_SOLAR_ENTITY: SOLAR, CONF_GRID_ENTITY: GRID, CONF_BATTERY_ENTITY: None},
-        options={CONF_CONTROL_MODE: mode},
+        # The short ladder these tests were written for; the default ladder is tested elsewhere.
+        options={CONF_CONTROL_MODE: mode, CONF_POWER_STEPS: [900, 1100, 1300, 1500]},
     )
     entry.add_to_hass(hass)
     return SolarMinerCoordinator(hass, entry)

@@ -86,14 +86,18 @@ entries:
   - id: rule.power-steps
     title: Move between fixed steps
     statement: >
-      Limits only move between the power steps (900, 1100, 1300 and 1500 W by default, each
+      Limits only move between the power steps, 900 to 2,500 W in 200 W steps by default (each
       miner using the ones in its own range). Never ask for an arbitrary wattage such as
       1,280 W or 190 W. The smallest change is one step (200 W).
     priority: P1
     status: decided
-    source: "owner, 2026-10-05"
-    date: "2026-10-05"
+    source: "owner, 2026-10-05; ladder to 2,500 W, owner 2026-10-07"
+    date: "2026-10-07"
     tags: [always, allocation]
+    note: >
+      900 to 1,500 W was the first ladder (2026-10-05). Owner, 2026-10-07: up to 2,500 W is normal
+      and every miner has run these steps; steps above 2,500 W are welcome later if the temperature
+      limits (rule.temperature-band) are not hit.
 
   - id: rule.no-step-up-while-tuning
     title: No step up while tuning
@@ -154,7 +158,12 @@ entries:
     date: "2026-10-07"
     situations: [situation.dropout]
     tags: [always, alerts, dropout]
-    note: Replaces the code's "solar sensor unavailable → minimum", which watches the wrong sensor.
+    note: >
+      Replaces the code's "solar sensor unavailable → minimum", which watches the wrong sensor.
+      Not in the code yet (v0.7.1 still holds every miner on a solar dropout). Seen 2026-10-07:
+      it fired about 10 times from 09:32 to 13:30, each time turning the plan to hold all for one
+      cycle and back the next. The AI did the same at 17:33, holding "due to unknown solar
+      production".
 
   - id: rule.jump-several-steps
     title: A change may skip steps
@@ -304,7 +313,12 @@ entries:
     source: "requirements doc §0.4 round 5 point 2, accepted 2026-10-06"
     date: "2026-10-06"
     tags: [always, cloud, allocation]
-    note: The cloud tolerance and the smoothing window are not set yet (open.rise-and-fall-speed).
+    note: >
+      The cloud tolerance and the smoothing window are not set yet (open.rise-and-fall-speed).
+      Not in the code yet (v0.7.1 steps down on one reading once the shortfall passes 150 W).
+      Seen 2026-10-07 at sunset: with import about 160 W above the target the plan went Brod1
+      1,300 to 1,100 W (17:21), to 900 W (17:22), then stop Brod2 (17:28), three different
+      plans in 7 minutes.
 
   - id: rule.temperature-band
     title: Follow a target temperature with a tolerance
@@ -320,7 +334,8 @@ entries:
     date: "2026-10-07"
     tags: [always, temperature, allocation]
     note: >
-      In the settings since 2026-10-06 (target 65 deg C, tolerance 10 deg C by default), replacing
+      Default target 60 deg C, tolerance 10 deg C (owner, 2026-10-07; 65 deg C before). In the
+      settings since 2026-10-06, replacing
       the old 80 deg C ceiling. A too-warm miner steps down one step; one too warm at its lowest
       step is held there and only noted in the trace.
 
@@ -477,6 +492,11 @@ entries:
     source: "requirements doc §0.6 round 7; owner, 2026-10-07"
     date: "2026-10-07"
     tags: [always, allocation]
+    note: >
+      Not in the code yet (v0.7.1 decides on the latest sample). Seen 2026-10-07 12:00 to 14:30:
+      the budget swung between about 6,100 and 7,600 to 8,700 W from one minute to the next
+      (energy.forecast-headroom-flips) and the plan flipped with it, so two applies were refused
+      as stale (12:04, 14:41).
 
   - id: rule.stop-trigger-below-start
     title: Stop at a lower level than start
@@ -553,3 +573,25 @@ entries:
     date: "2026-10-07"
     tags: [sunrise, allocation]
     note: Settled 2026-10-07 (round 7) for rule.resume-next-at-sunrise; rule.fill-running-first is retired.
+
+  - id: conflict.power-steps-config
+    title: Which power steps does the farm use?
+    statement: >
+      The farm's settings have nine steps, 900 to 2,500 W in 200 W steps. rule.power-steps says
+      900 to 1,500 W, and the miners are measured only up to 1,900 W (miner.settled-values). The
+      2,100 to 2,500 W steps may still need a first tuning of about 50 minutes on some miners,
+      not a 4-minute restart.
+    priority: P1
+    status: retired
+    source: "measured: decision trace from the live HA, 2026-10-07; settled by owner 2026-10-07"
+    date: "2026-10-07"
+    tags: [always, allocation, tuning]
+    note: >
+      Settled 2026-10-07 by the owner: 900 to 2,500 W is the normal ladder and every miner has run
+      it (rule.power-steps, miner.revisit-is-a-restart); the default steps are now the same. Seen
+      before that: 2026-10-07 used them: Brod1 2,100 W at 12:30 and 2,300 W at 13:20, Brod2 2,100 and 2,300 W,
+      Brod3 2,300 W at 14:48, with plans for 2,500 W all afternoon. Whether a miner had run these
+      steps before is not known from the logs. The code waits 0 minutes for tuning
+      (DEFAULT_TUNING_SETTLE_MINUTES), so it treats every step as already tuned. Settle by the
+      owner confirming the steps, and by checking the efficiency in the first hour after each
+      miner's first change to 2,100 W or more.

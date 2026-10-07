@@ -130,7 +130,7 @@ The last 20 entries are also on the **AI advice** sensor (`history` and `actions
 
 ## Power steps, stopping and tuning
 
-Every power-limit change restarts a miner: it draws almost nothing for 2 to 4 minutes while it loads. A miner tunes itself the first time it runs a wattage (14 minutes to an hour) and keeps those settings, so going back to a step it has run before is only the restart. So the controller never asks for an arbitrary wattage: limits move only between **power steps**, **900, 1100, 1300 and 1500 W** by default (Configure → Settings; each miner uses the steps inside its own range).
+Every power-limit change restarts a miner: it draws almost nothing for 2 to 4 minutes while it loads. A miner tunes itself the first time it runs a wattage (14 minutes to an hour) and keeps those settings, so going back to a step it has run before is only the restart. So the controller never asks for an arbitrary wattage: limits move only between **power steps**, **900 to 2,500 W in 200 W steps** by default (Configure → Settings; each miner uses the steps inside its own range).
 
 - **One miner per proposal.** Apart from safety, a proposal changes one miner. If several restarted together the farm's load would drop to almost 0 W, the zero-export inverters would throttle down, and the grid would cover the gap when the miners came back. A shortfall goes to the hungriest miner that can take all of it and keep running; if none can, the lowest-power miner is stopped. Spare power starts a stopped miner at its lowest step first, otherwise it raises the weakest running miner.
 - **A change may skip steps.** That one change goes straight to the step that fits (1,500 → 1,100 W is one restart, not two).
@@ -145,7 +145,7 @@ The rules work out one plan per miner every cycle. In **Preview** mode the decis
 
 The following overrides run before every AI decision and cannot be bypassed — not even by pressing Apply:
 
-- **Temperature ceiling** — if any miner exceeds the configured board/chip temperature, it is dropped to its lowest power step
+- **Temperature band** — a miner at or above the target plus the tolerance (60 °C + 10 °C by default) steps down one step; between the target and target + tolerance it holds even with spare energy. A low temperature is never a reason to step up
 - **Battery SOC floor** — if battery drops below the configured %, all miners are stopped
 - **Solar fault** — if the solar entity is unavailable, every miner is held as it is: a short sensor drop must not make the miners re-tune
 

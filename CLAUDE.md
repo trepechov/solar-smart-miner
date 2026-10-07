@@ -75,7 +75,7 @@ Uses `pytest-homeassistant-custom-component` — keep the HA test harness versio
 ## Key Concepts
 
 - **Coordinator** (`coordinator.py`) reads hass-miner entities from `hass.states` by matching unit-of-measurement when device class is absent. All entity data flows through a `MinerSnapshot` dataclass.
-- **Power steps** (`const.DEFAULT_POWER_STEPS`): miners re-tune for up to an hour after each limit change, so limits only move between fixed steps and are never arbitrary watts. Stopping a miner is a separate plan action (relay or pause switch), not a power limit.
+- **Power steps** (`const.DEFAULT_POWER_STEPS`, 900 to 2,500 W in 200 W steps): every limit change restarts a miner (about 4 minutes), and a wattage it has never run takes up to an hour to tune, so limits only move between fixed steps and are never arbitrary watts. Stopping a miner is a separate plan action (relay or pause switch), not a power limit.
 - **Hub device** (`DeviceInfo` with `identifiers`) groups all integration entities under one HA dashboard card.
 - **Sensor entities** subclass `CoordinatorEntity`; per-miner sensors are generated from a `MINER_METRICS` descriptor list.
 - **hass-miner** is the sibling integration that talks to the physical miners; this integration reads its exposed entities.

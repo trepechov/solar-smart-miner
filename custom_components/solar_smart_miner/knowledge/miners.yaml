@@ -192,7 +192,7 @@ entries:
       A miner keeps the settings from its first tuning at a wattage. Changing to a step it has run
       before costs only the restart, 2 to 3 minutes until it loads and settles at that power (measured
       about 4 minutes to the new power); the long tuning (miner.tuning-duration) is for a step it has
-      never run. All the configured steps have been run on every miner.
+      never run. Every miner has run the steps from 900 to 2,500 W.
     priority: P3
     status: decided
     source: "owner, 2026-10-07; restart time measured 2026-10-06 (miner.limit-change-cost)"
@@ -201,7 +201,9 @@ entries:
     tags: [always, allocation, tuning]
     note: >
       Not measured yet: check on the first applied change to a step tuned before that efficiency is
-      near miner.settled-values within about 5 minutes. Then raise to verified.
+      near miner.settled-values within about 5 minutes. Then raise to verified. The steps up to
+      2,500 W confirmed by the owner on 2026-10-07 (conflict.power-steps-config); settled values are
+      measured only up to 1,900 W.
 
   - id: miner.settled-values
     title: What a tuned miner gives at each step

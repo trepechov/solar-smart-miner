@@ -827,8 +827,13 @@ async def test_settings_default_to_the_agreed_steps(hass: HomeAssistant) -> None
     entry = _make_entry(hass)
     await _get_options_flow_result(hass, entry, options_input={})
 
-    assert entry.options[CONF_POWER_STEPS] == [900, 1100, 1300, 1500]
+    assert entry.options[CONF_POWER_STEPS] == [900, 1100, 1300, 1500, 1700, 1900, 2100, 2300, 2500]
     assert entry.options[CONF_TUNING_SETTLE] == 0  # every step is tuned: a change is only a restart
+
+
+def test_temperature_defaults_are_the_agreed_band() -> None:
+    # Owner, 2026-10-07: target 60 °C, step down at 70 °C.
+    assert (DEFAULT_TEMP_TARGET, DEFAULT_TEMP_TOLERANCE) == (60, 10)
 
 
 async def test_settings_reject_unusable_power_steps_and_keep_the_form(hass: HomeAssistant) -> None:

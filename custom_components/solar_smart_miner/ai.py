@@ -33,7 +33,7 @@ SYSTEM_PROMPT = (
     "because of a limit (voltage, temperature, battery). hold = leave it. stop = switch it "
     "off because even the lowest power step is more than the available power (e.g. after "
     "sunset). start = switch a stopped miner back on because there is room for it.\n"
-    "Power limits only ever move between fixed steps (900, 1100, 1300, 1500 W by default); "
+    "Power limits only ever move between fixed steps (900 to 2,500 W in 200 W steps by default); "
     "never suggest other wattages. Every change restarts the miner: it draws almost nothing "
     "for 2 to 4 minutes. So change ONE miner per answer (a change may skip steps) and hold "
     "the others, unless safety needs more; while a miner is restarting, hold every miner. "

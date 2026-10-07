@@ -109,7 +109,7 @@ def test_the_agreed_decisions_are_in_the_base() -> None:
     """Spot-check that the things decided in the sessions didn't get lost in an edit."""
     by_id = {e["id"]: e for _, e in FACTS}
     assert by_id["rule.power-steps"]["priority"] == "P1"
-    assert "900, 1100, 1300 and 1500" in by_id["rule.power-steps"]["statement"]
+    assert "900 to 2,500 W in 200 W steps" in by_id["rule.power-steps"]["statement"]
     assert by_id["rule.guard-above-ai"]["priority"] == "P0"
     assert by_id["rule.one-controller"]["priority"] == "P0"
     assert by_id["rule.temperature-is-braiins"]["priority"] == "P0"
