@@ -47,14 +47,16 @@ entries:
   - id: rule.sustained-low-voltage
     title: Low voltage steps miners down
     statement: >
-      A sustained low voltage (below about 210 V, averaged over 30 to 60 seconds, never a
-      single dip) steps the miners down, and may change several at once.
+      A sustained low voltage (below the configured voltage limit, averaged over 30 to 60
+      seconds, never a single dip) steps the miners down, and may change several at once.
     priority: P0
     status: decided
-    source: "requirements doc §3.3 (the threshold is a suggestion)"
-    date: "2026-10-05"
+    source: "requirements doc §3.3; limit made a setting, owner 2026-10-07"
+    date: "2026-10-07"
     tags: [always, voltage]
-    note: The sensor and a hard-stop threshold are still open.
+    note: >
+      The voltage limit is a setting, 210 V by default (the reference farm, on a 230 V supply);
+      the setting is not in the code yet. The sensor and a hard-stop threshold are still open.
 
   - id: rule.temperature-is-braiins
     title: The miner's cutoff is the last defense
@@ -86,15 +88,16 @@ entries:
   - id: rule.power-steps
     title: Move between fixed steps
     statement: >
-      Limits only move between the power steps, 900 to 2,500 W in 200 W steps by default (each
-      miner using the ones in its own range). Never ask for an arbitrary wattage such as
-      1,280 W or 190 W. The smallest change is one step (200 W).
+      Limits only move between the configured power steps (each miner using the ones in its
+      own range). Never ask for a wattage between two steps. The smallest change is one step.
     priority: P1
     status: decided
     source: "owner, 2026-10-05; ladder to 2,500 W, owner 2026-10-07"
     date: "2026-10-07"
     tags: [always, allocation]
     note: >
+      The steps depend on the miner type and are a setting. The default is the reference farm's
+      ladder (S9s), 900 to 2,500 W in 200 W steps.
       900 to 1,500 W was the first ladder (2026-10-05). Owner, 2026-10-07: up to 2,500 W is normal
       and every miner has run these steps; steps above 2,500 W are welcome later if the temperature
       limits (rule.temperature-band) are not hit.
@@ -102,8 +105,8 @@ entries:
   - id: rule.no-step-up-while-tuning
     title: No step up while tuning
     statement: >
-      A miner is not stepped up while it is still tuning after its last change (measured about 50
-      minutes). Stepping down and stopping are always allowed.
+      A miner is not stepped up while it is still tuning after its last change. Stepping down and
+      stopping are always allowed.
     priority: P1
     status: decided
     source: "owner, 2026-10-05; scope from round 7, 2026-10-07"
@@ -113,6 +116,7 @@ entries:
     note: >
       Tuning is an exception, not the normal cost of a change: it happens on a step a miner has
       never run (miner.revisit-is-a-restart). A change to a tuned step costs only the ramp lock.
+      On the reference farm (S9s, Braiins OS) tuning takes about 50 minutes.
 
   - id: rule.stop-below-lowest-step
     title: Stop, don't idle
@@ -120,8 +124,8 @@ entries:
       When the budget doesn't cover the lowest step, the miner is stopped through its stop
       procedure (a relay switch if configured, otherwise its own pause switch), not left
       running at a hardware minimum. It is started again when its lowest step fits with a
-      margin of 100 W. The lowest step (900 W) is the pause threshold; there is no separate
-      1000 W threshold. A shortfall must outlast the cloud tolerance before a miner is paused
+      small margin. The miner's lowest configured step is the pause threshold; there is no
+      separate one. A shortfall must outlast the cloud tolerance before a miner is paused
       (rule.down-slowly-up-promptly).
     priority: P1
     status: decided
@@ -129,6 +133,9 @@ entries:
     date: "2026-10-07"
     situations: [situation.sunset, situation.night]
     tags: [always, sunset, sunrise, allocation, night]
+    note: >
+      On the reference farm the lowest step is 900 W (the 1000 W threshold was dropped in
+      round 7) and the start margin is 100 W.
 
   - id: rule.hold-on-sensor-drop
     title: A sensor drop holds, it doesn't re-tune
@@ -181,10 +188,10 @@ entries:
     title: One miner restarts at a time
     statement: >
       A normal change touches one miner. The next miner changes only after the previous one is
-      back at its new power (the ramp lock, about 4 minutes) and the readings still call for it.
-      Only safety may change several miners at once. A change that restarts several miners
-      together drops the farm's load to almost 0 W for minutes; the zero-export inverters throttle
-      down to the house and the grid covers the gap when the miners come back.
+      back at its new power (the ramp lock) and the readings still call for it. Only safety may
+      change several miners at once. A change that restarts several miners together drops the
+      farm's load to almost nothing for minutes; zero-export inverters throttle down to the house and
+      the grid covers the gap when the miners come back.
     priority: P1
     status: decided
     source: "owner, 2026-10-07; requirements doc §5 (minimise restarts per decision, safety skips the queue)"
@@ -218,8 +225,8 @@ entries:
     title: No decision while ramping
     statement: >
       While any miner is ramping after a change, the decision is hold. Its readings are
-      misleading then. On a step it has run before a miner reaches full hashrate in 3 to 4
-      minutes, so the ramp lock is about 4 minutes; the log gives the reason as ramping.
+      misleading then. The ramp lock is how long a miner takes to reach full hashrate on a step
+      it has run before; the log gives the reason as ramping.
     priority: P1
     status: decided
     source: "requirements doc §5.2, §0.6 round 7; owner, 2026-10-07"
@@ -227,6 +234,9 @@ entries:
     situations: [situation.tuning]
     tags: [always, allocation]
     note: >
+      The ramp time depends on the miner type and is to become a setting like the power steps
+      (owner, 2026-10-07). On the reference farm (S9s, Braiins OS) a miner is back in 3 to 4
+      minutes, so the lock is 4 minutes.
       In the code since 2026-10-07: every miner holds for 4 minutes after any change (a command
       sent, or a limit, stop or start seen on a miner) and while a command is still being checked.
       Safety doesn't wait. The trace and summary say "Waiting for a miner to restart".
@@ -264,7 +274,9 @@ entries:
     statement: >
       In Solar-follow, aim for a small constant grid import. Import well below target means
       spare solar: step up. Well above: step down. Inside the band: hold. The band must be
-      wider than one step (200 W).
+      wider than one power step. Solar-follow is for a farm with no battery whose inverters
+      limit export; with export allowed, steer on the export instead, and with a battery
+      these rules don't apply (battery profiles are open).
     priority: P1
     status: decided
     source: "requirements doc §6.2"
@@ -297,13 +309,12 @@ entries:
   - id: rule.goal
     title: Use as much excess energy as possible
     statement: >
-      The goal is to mine with as much of the excess energy as possible. That does not mean
-      the highest power per miner: the same energy spread over more miners in their efficient
-      range is better.
+      The goal is the most hashrate from as much of the excess energy as possible. That does
+      not mean the highest power per miner (rule.prefer-spread).
     priority: P1
     status: decided
-    source: "requirements doc §0 point 3, §1"
-    date: "2026-10-05"
+    source: "requirements doc §0 point 3, §1; mixed fleets, review 2026-10-07"
+    date: "2026-10-07"
     tags: [always]
 
   - id: rule.ai-is-advisor
@@ -423,12 +434,13 @@ entries:
   - id: rule.prefer-spread
     title: More miners in the efficient range
     statement: >
-      Prefer several miners in the efficient range over fewer miners pushed harder, as long as
-      each is above the pause threshold.
+      With miners of similar efficiency (J/TH), prefer several in their efficient range over
+      fewer pushed harder, as long as each is above the pause threshold. With mixed models,
+      power goes to the most efficient miners first and is cut from the least efficient first.
     priority: P2
     status: decided
-    source: "requirements doc §5.3"
-    date: "2026-10-05"
+    source: "requirements doc §5.3; mixed fleets, review 2026-10-07"
+    date: "2026-10-07"
     situations: [situation.midday]
     tags: [midday, allocation]
 

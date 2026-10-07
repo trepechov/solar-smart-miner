@@ -140,6 +140,8 @@ def test_format_marks_priority_and_unverified_entries() -> None:
     assert text.startswith("KNOWLEDGE BASE (situation: sunset)")
     assert "- [P0] rule.a: Never." in text
     assert "- [P3, unverified] miner.b: Maybe." in text
+    # Knowledge-base numbers are the reference farm's; the farm's own settings win.
+    assert "settings and readings always win" in text
 
 
 def test_format_of_nothing_is_empty() -> None:

@@ -191,3 +191,42 @@ entries:
     note: >
       Example: about 1.9 kW for about 8 minutes on 2026-10-07 from 15:55, origin unknown. Its size
       and timing vary, so the answer is a sensor or a rule, not a fixed value or hour.
+
+  - id: open.per-miner-steps
+    title: Should each miner have its own power steps?
+    statement: >
+      One global ladder is clipped to each miner's min and max, but hass-miner's range (500 to
+      3,500 W here) is a generic slider, not the hardware's. A mixed fleet (an 800 W miner next
+      to a 3.2 kW one) gets the same steps. Is a per-miner step setting needed?
+    priority: P3
+    status: open
+    source: "genericity review, 2026-10-07 (deferred by the owner)"
+    date: "2026-10-07"
+    tags: [allocation]
+    note: >
+      Proposed: a per-miner steps map like the relay map, the global steps staying the default.
+
+  - id: open.model-scoped-facts
+    title: Which miner facts belong to one model or firmware?
+    statement: >
+      The miner facts (tuning time, ramp, efficient range, hashrate band, "every change
+      restarts") were measured on the reference farm's S9s with Braiins OS but read as true for
+      every miner. Should they carry a model or firmware scope, so another model gets its own?
+    priority: P3
+    status: open
+    source: "genericity review, 2026-10-07 (deferred by the owner)"
+    date: "2026-10-07"
+    tags: [allocation, tuning]
+
+  - id: open.cooling-type
+    title: Do air-cooled miners need other temperature defaults?
+    statement: >
+      The 60 deg C target and 10 deg C tolerance, and "temperature follows power", come from
+      the reference farm's immersion cooling. Air-cooled boards often run above 70 deg C and
+      would be held at the lowest step. Should setup ask for the cooling type and set its own
+      defaults?
+    priority: P3
+    status: open
+    source: "genericity review, 2026-10-07 (deferred by the owner)"
+    date: "2026-10-07"
+    tags: [temperature]

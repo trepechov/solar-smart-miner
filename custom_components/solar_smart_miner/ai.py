@@ -33,13 +33,15 @@ SYSTEM_PROMPT = (
     "because of a limit (voltage, temperature, battery). hold = leave it. stop = switch it "
     "off because even the lowest power step is more than the available power (e.g. after "
     "sunset). start = switch a stopped miner back on because there is room for it.\n"
-    "Power limits only ever move between fixed steps (900 to 2,500 W in 200 W steps by default); "
+    "Power limits only ever move between the configured power steps listed in the readings; "
     "never suggest other wattages. Every change restarts the miner: it draws almost nothing "
-    "for 2 to 4 minutes. So change ONE miner per answer (a change may skip steps) and hold "
-    "the others, unless safety needs more; while a miner is restarting, hold every miner. "
-    "Several miners restarting together drop the farm's load to almost 0 W.\n"
-    "The inverters may be power-limited (zero export), so actual PV can be far below the "
-    "forecast: the forecast is what the panels could give, not power that is available."
+    "until the ramp lock has passed. So change ONE miner per answer (a change may skip steps) "
+    "and hold the others, unless safety needs more; while a miner is restarting, hold every "
+    "miner. Several miners restarting together drop the farm's load to almost 0 W.\n"
+    "The miners are only those in the readings. The settings and readings are this farm's live "
+    "configuration; numbers in the knowledge base are examples from a reference farm.\n"
+    "If the inverters limit export (zero export), actual PV can be far below the forecast: "
+    "the forecast is what the panels could give, not power that is available."
 )
 
 ACTIONS = ("increase", "reduce", "hold", "stop", "start")

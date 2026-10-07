@@ -344,7 +344,10 @@ def test_parse_advice_understands_stop_and_start_and_their_aliases() -> None:
 def test_system_prompt_explains_steps_restarts_and_stopping() -> None:
     assert "stop" in SYSTEM_PROMPT and "start" in SYSTEM_PROMPT
     assert "restarts the miner" in SYSTEM_PROMPT
-    assert "900 to 2,500 W in 200 W steps" in SYSTEM_PROMPT
+    assert "configured power steps" in SYSTEM_PROMPT
+    # The reference farm's ladder is an example, not something every farm is told.
+    assert "900" not in SYSTEM_PROMPT and "2,500" not in SYSTEM_PROMPT
+    assert "live configuration" in SYSTEM_PROMPT
 
 
 def test_system_prompt_asks_for_one_miner_per_answer() -> None:

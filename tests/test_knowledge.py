@@ -109,7 +109,8 @@ def test_the_agreed_decisions_are_in_the_base() -> None:
     """Spot-check that the things decided in the sessions didn't get lost in an edit."""
     by_id = {e["id"]: e for _, e in FACTS}
     assert by_id["rule.power-steps"]["priority"] == "P1"
-    assert "900 to 2,500 W in 200 W steps" in by_id["rule.power-steps"]["statement"]
+    assert "configured power steps" in by_id["rule.power-steps"]["statement"]
+    assert "900 to 2,500 W in 200 W steps" in by_id["rule.power-steps"]["note"]
     assert by_id["rule.guard-above-ai"]["priority"] == "P0"
     assert by_id["rule.one-controller"]["priority"] == "P0"
     assert by_id["rule.temperature-is-braiins"]["priority"] == "P0"
@@ -340,3 +341,17 @@ def test_the_situations_we_discussed_exist_and_tuning_is_honest_about_the_code()
     assert by_tag["tuning"]["scope"] == "miner"
     assert by_tag["tuning"]["in_code"].startswith("partial")  # one signal of five is implemented
     assert by_tag["tuning"]["status"] == "in_use"
+
+
+def test_rules_sent_to_the_ai_carry_no_reference_farm_numbers() -> None:
+    """The farm the base was measured on is an example: its numbers live in notes.
+
+    A P0 or P1 rule is sent on every request, so a wattage, voltage or miner name in its
+    statement would reach every other farm's AI as a hard rule (review 2026-10-07).
+    """
+    import re
+
+    farm_specific = re.compile(r"\d[\d,]* ?(W|V)\b|Brod\d|Brodilovo")
+    for _, e in FACTS:
+        if e["id"].startswith("rule.") and e["priority"] in ("P0", "P1") and e["status"] == "decided":
+            assert not farm_specific.search(e["statement"]), f"{e['id']}: {e['statement']}"

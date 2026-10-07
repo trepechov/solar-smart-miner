@@ -102,7 +102,9 @@ A check of the whole doc found places where decisions from different rounds cont
 
 **Use as much of the excess energy as possible for mining.** "Excess" means solar: what the panels can give, with a small steady draw from the grid as the proof that none of it is left unused.
 
-- **This does not mean "highest power per miner".** The miners have similar efficiency between about **1000 W and 2000 W**. So 4000 W is better used by three miners at ~1330 W each than by two at 2000 W.
+**Scope (review 2026-10-07).** The integration serves farms of any size, miner model, cooling and inverter. The first farm (three S9s on Braiins OS, immersion cooled, zero-export inverters, no battery) is the **reference example**: its numbers in this document show how to reason and become defaults, never fixed rules. The §8 table says which values are which. Success criterion carried over from the original requirements: someone with a different solar brand and no battery can install the integration, configure it for their own miners in the HA UI, and reach a working preview.
+
+- **This does not mean "highest power per miner".** On the reference farm the miners have similar efficiency between about **1000 W and 2000 W**, so 4000 W is better used by three miners at ~1330 W each than by two at 2000 W. With mixed models, the most efficient miners get power first.
 - **On battery** (open, §6.3), efficiency was suggested to come first: hash per stored Wh.
 
 Limits come in three kinds:
@@ -296,6 +298,8 @@ All profiles obey §3 (hard limits) and §5 (dynamics).
 | **A. Solar, no battery** | PV + grid | The inverter throttles when load is lower than PV, so the available extra sun is hidden. | **current focus** |
 | **B. Solar + battery** | PV + battery + grid | Deciding when energy goes to miners vs the battery, and protecting battery cycles. | open (§6.3); no battery at this farm |
 
+A second axis is the **export policy**. Setup A as described assumes zero-export inverters (the reference farm): throttling hides the surplus, so a small steady import is the proof that it is used. With export allowed, the export reading already shows the surplus and Solar-follow steers on the export instead of an import target (not designed yet).
+
 | Profile | Setup | Small steady draw from | Status |
 |---|---|---|---|
 | Solar-follow | A | grid | decided, current focus |
@@ -369,28 +373,29 @@ In every stage, safety (§3.3–3.4) and the ramp lock still sit **on top of** t
 
 All **(suggestion)** until agreed:
 
-| Setting | Example default | Section |
-|---|---|---|
-| Power steps | 900 to 2,500 W in 200 W steps (decided, round 8) | 5.1 |
-| Target temperature | 60 °C (decided, round 8) | 3.2 |
-| Temperature tolerance (above target) | 10 °C (decided, round 8) | 3.2 |
-| Voltage sensor entity | — | 3.3 |
-| Required-input gap before step-down | 10 min warning, 30 min step down (meter-lost alert) | 3.4 |
-| Low-voltage threshold | 210 V | 3.3 |
-| Voltage debounce window | 60 s | 3.3 |
-| Minimum power step | 200 W | 5.2 |
-| Ramp timeout | 4 min (decided, round 7) | 5.2 |
-| Minimum hold time per miner (temperature settling) | open, §9 | 5.2 |
-| Tuning window (only for a step never run, `situation.tuning`) | 50 min | 5.1 |
-| Input smoothing window (energy only) | 3 min (decided, round 7) | 5.2 |
-| Cloud tolerance (deficit time before a step-down) | from the §5.4 study | 5.2, 5.4 |
-| Probe step (step-up when surplus is hidden) | 400 W | 5.2 |
-| Pause threshold | lowest power step, 900 W (decided, round 7) | 5.3 |
-| Efficient range, upper end | 2000 W | 5.3 |
-| Setup: has battery | yes / no | 6.1 |
-| Import target and band (Solar-follow) | tune from logs, band > 200 W | 6.2 |
-| Schedule automation entity (handover warning) | — | 2.1 |
-| Start / stop triggers for sunrise and sunset | from the §5.4 study | 5.4 |
+| Setting | Example default | Basis | Section |
+|---|---|---|---|
+| Power steps | 900 to 2,500 W in 200 W steps (decided, round 8) | miner type; reference farm (S9) | 5.1 |
+| Target temperature | 60 °C (decided, round 8) | cooling; reference farm (immersion) | 3.2 |
+| Temperature tolerance (above target) | 10 °C (decided, round 8) | cooling; reference farm (immersion) | 3.2 |
+| Voltage sensor entity | — | site | 3.3 |
+| Required-input gap before step-down | 10 min warning, 30 min step down (meter-lost alert) | generic default | 3.4 |
+| Low-voltage threshold | 210 V | site (grid); configurable, default 210 V from the reference farm's 230 V supply | 3.3 |
+| Voltage debounce window | 60 s | generic default | 3.3 |
+| Minimum power step | one step (200 W on the reference farm) | derived: one configured step | 5.2 |
+| Ramp timeout | 4 min (decided, round 7) | miner type; reference farm (S9, Braiins OS) | 5.2 |
+| Minimum hold time per miner (temperature settling) | open, §9 | miner type and cooling | 5.2 |
+| Tuning window (only for a step never run, `situation.tuning`) | 50 min | miner type; reference farm (S9, Braiins OS) | 5.1 |
+| Input smoothing window (energy only) | 3 min (decided, round 7) | generic default | 5.2 |
+| Cloud tolerance (deficit time before a step-down) | from the §5.4 study | site | 5.2, 5.4 |
+| Probe step (step-up when surplus is hidden) | 400 W | derived from the power steps | 5.2 |
+| Pause threshold | lowest power step (900 W on the reference farm, decided round 7) | derived: the lowest configured step | 5.3 |
+| Efficient range, upper end | 2000 W | miner type; reference farm (S9) | 5.3 |
+| Setup: has battery | yes / no | site | 6.1 |
+| Setup: export policy | zero export / export allowed | site | 6.1 |
+| Import target and band (Solar-follow) | tune from logs, band wider than one step | site; band derived: wider than one step | 6.2 |
+| Schedule automation entity (handover warning) | — | site | 2.1 |
+| Start / stop triggers for sunrise and sunset | from the §5.4 study | site | 5.4 |
 
 ---
 

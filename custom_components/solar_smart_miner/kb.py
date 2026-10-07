@@ -136,6 +136,8 @@ def format_facts(facts: list[Fact], now: str | None) -> str:
         "P0 = hard limit, never broken. P1 = operating rule, followed unless a P0 says "
         "otherwise. P2 = guidance you may depart from with a reason, given in the note. "
         "P3 = context for reasoning. Entries marked unverified are believed, not measured. "
+        "Numbers here are measured on a reference farm and show how to reason; this farm's "
+        "settings and readings always win over them. "
         "Where the rule-based proposal goes against a P0 or P1 here, say so."
     ]
     for f in facts:
