@@ -49,6 +49,23 @@ entries:
     tags: [sunrise]
     note: Throttling distorts the history. Use periods with import, the forecast, or actual PV.
 
+  - id: energy.unseen-load
+    title: A load outside the miners can appear
+    statement: >
+      On 2026-10-07 from 15:55 to about 16:02 (local) the grid import jumped from 1.75 to 3.6 kW in
+      one minute while PV (5.26 kW, three inverters) and the miners (6.97 kW) didn't change: about
+      1.9 kW of load the integration doesn't see, since house consumption is not configured. The
+      budget counts it as power the miners must give up.
+    priority: P3
+    status: verified
+    source: "measured: HA history, grid import, inverter active power and miner sum, 2026-10-07"
+    date: "2026-10-07"
+    tags: [always, grid, sunset]
+    note: >
+      Against site.load-is-miners (about 98% miners). What the load was is open.unseen-load. It
+      lasted about 8 minutes, longer than the 3-minute input smoothing, so smoothing alone would
+      not have ignored it.
+
   - id: energy.pv-sum-unreliable
     title: The PV sum drops out
     statement: >

@@ -165,3 +165,18 @@ entries:
     source: "owner, 2026-10-05"
     date: "2026-10-05"
     tags: [alerts]
+
+  - id: open.unseen-load
+    title: What was the 1.9 kW load on 2026-10-07?
+    statement: >
+      About 1.9 kW of load outside the miners for about 8 minutes from 15:55 (energy.unseen-load).
+      Was it a house appliance, another consumer behind the meter, or a meter artefact? If such
+      loads are normal, should the controller wait them out before pausing a miner?
+    priority: P2
+    status: open
+    source: "measured: HA history, 2026-10-07"
+    date: "2026-10-07"
+    tags: [grid, alerts]
+    note: >
+      Settle by asking what ran at that time, or by configuring a house consumption sensor so the
+      budget can tell the miners' load from the rest.

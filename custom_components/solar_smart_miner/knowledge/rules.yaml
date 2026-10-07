@@ -187,6 +187,12 @@ entries:
       the hungriest miner that can take all of it (rule.step-down-allocation), else the lowest-power
       one stops; spare power starts a stopped miner at its lowest step first, else raises the weakest
       running miner as far as it fits (rule.jump-several-steps). The AI prompt asks for one miner too.
+      Seen again 2026-10-07 16:02 (local), on v0.7.0 which didn't have the rule yet: a 3.4 kW
+      shortfall gave one proposal of Brod1 and Brod2 2,300 to 1,300 W and Brod3 to 1,100 W. Applied
+      by hand, all three restarted in the same cycle: the miners' load fell from 6.95 kW to almost
+      0, the inverters throttled to about 225 W each, and the next two decisions read the restarting
+      miners as stopped (budget 234 W, "all stopped", then "start all at 1,900 W"). The same
+      readings on the rule's code propose pausing Brod3 only, Brod1 and Brod2 holding.
 
   - id: rule.minimise-restarts
     title: Few restarts
@@ -215,6 +221,10 @@ entries:
       In the code since 2026-10-07: every miner holds for 4 minutes after any change (a command
       sent, or a limit, stop or start seen on a miner) and while a command is still being checked.
       Safety doesn't wait. The trace and summary say "Waiting for a miner to restart".
+      Without it (v0.7.0, 2026-10-07) a restarting miner reports nothing and is read as stopped:
+      right after Brod1 went to 2,100 W the rules proposed Brod2 up as if Brod1 drew 0 W, and after
+      the 16:02 bundle they proposed starting all three at 1,900 W. Still open: a miner that is
+      still unreadable after the 4 minutes counts as stopped again.
 
   - id: rule.consolidate-needs-sustained-deficit
     title: Don't consolidate on a cloud
@@ -424,9 +434,14 @@ entries:
       temperature rule.
     priority: P2
     status: decided
-    source: "requirements doc §0.4 round 5 point 4, §5.3"
-    date: "2026-10-06"
+    source: "requirements doc §0.4 round 5 point 4, §5.3; owner, 2026-10-07"
+    date: "2026-10-07"
     tags: [cloud, sunset, allocation]
+    note: >
+      Owner, 2026-10-07: for a big cut, pausing one miner is the efficient way. It is one change,
+      and the other two keep running. Example: a 3.4 kW shortfall with three miners at 2,300 W
+      pauses one miner (about 2.3 kW) and leaves the others; the next decision, after the ramp
+      lock, takes what is left.
 
   - id: rule.resume-next-at-sunrise
     title: Start the next miner rather than raise the last
