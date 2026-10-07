@@ -116,12 +116,19 @@ SOLAR_ENTITY_TYPES = [
 
 # Control mode: whether the integration may touch the miners (control.py).
 CONF_CONTROL_MODE = "control_mode"
-CONTROL_MODE_PREVIEW = "preview"  # decisions are only shown
-CONTROL_MODE_MANUAL = "manual"  # the owner applies each proposed action with a button
-CONTROL_MODE_AUTO = "auto"  # reserved for automatic applying; not offered yet
-CONTROL_MODES = [CONTROL_MODE_PREVIEW, CONTROL_MODE_MANUAL]
-DEFAULT_CONTROL_MODE = CONTROL_MODE_PREVIEW  # an upgrade changes nothing until the owner chooses
-CONTROL_MODE_LABELS = {CONTROL_MODE_PREVIEW: "Preview", CONTROL_MODE_MANUAL: "Manual"}
+CONTROL_MODE_MANUAL = "manual"  # the owner applies the proposal with the Apply button
+CONTROL_MODE_AUTO = "auto"  # the coordinator applies the proposal every cycle
+CONTROL_MODES = [CONTROL_MODE_MANUAL, CONTROL_MODE_AUTO]
+DEFAULT_CONTROL_MODE = CONTROL_MODE_MANUAL  # nothing is applied until the owner presses or chooses Auto
+CONTROL_MODE_LABELS = {CONTROL_MODE_MANUAL: "Manual", CONTROL_MODE_AUTO: "Automatic"}
+LEGACY_CONTROL_MODE_PREVIEW = "preview"  # removed in 0.7.2; a stored value reads as Manual
+
+
+def control_mode_of(options) -> str:
+    """The control mode in these options; anything not a current mode (an old "preview") is Manual."""
+    mode = options.get(CONF_CONTROL_MODE)
+    return mode if mode in CONTROL_MODES else DEFAULT_CONTROL_MODE
+
 
 # How long an applied command may take to show in the miner's entity before it counts as failed.
 # A relay start is slower: the miner has to boot before its limit entity is back.

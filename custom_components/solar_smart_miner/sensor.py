@@ -10,7 +10,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .config_flow import CONF_BATTERY_ENTITY, CONF_GRID_ENTITY
-from .const import CONTROL_MODE_PREVIEW, DOMAIN
+from .const import DOMAIN
 from .coordinator import SolarMinerCoordinator
 from .protocols import MinerSnapshot
 
@@ -201,7 +201,7 @@ class DecisionLogSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
             return None
         names = {m.miner_id: m.name for m in data.miners}
         return {
-            "preview_only": self.coordinator.control_mode == CONTROL_MODE_PREVIEW,
+            "control_mode": self.coordinator.control_mode,
             "trace": data.decision.trace,
             "proposals": {names.get(mid, mid): w for mid, w in data.decision.proposals.items()},
             "plans": {
@@ -245,7 +245,7 @@ class AiAdviceSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
     def extra_state_attributes(self) -> dict | None:
         log = self.coordinator.ai_log
         attrs: dict = {
-            "preview_only": self.coordinator.control_mode == CONTROL_MODE_PREVIEW,
+            "control_mode": self.coordinator.control_mode,
             "history": list(log.history),
             "log_file": str(log.path),
         }

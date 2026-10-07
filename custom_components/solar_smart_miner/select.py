@@ -11,10 +11,10 @@ from .config_flow import CONF_PROFILE
 from .const import (
     CONF_CONTROL_MODE,
     CONTROL_MODE_LABELS,
-    DEFAULT_CONTROL_MODE,
     DEFAULT_PROFILE,
     DOMAIN,
     PROFILES,
+    control_mode_of,
 )
 
 _LABEL_BY_NAME = {p["name"]: p["display_name"] for p in PROFILES}
@@ -61,7 +61,7 @@ class ProfileSelect(SelectEntity):
 
 
 class ControlModeSelect(SelectEntity):
-    """Whether the integration may touch the miners: Preview (never) or Manual (on a button press)."""
+    """How proposals reach the miners: Manual (on a button press) or Automatic (every cycle)."""
 
     _attr_has_entity_name = True
     _attr_name = "Control mode"
@@ -75,9 +75,7 @@ class ControlModeSelect(SelectEntity):
 
     @property
     def current_option(self) -> str | None:
-        return CONTROL_MODE_LABELS.get(
-            self._entry.options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)
-        )
+        return CONTROL_MODE_LABELS[control_mode_of(self._entry.options)]
 
     async def async_select_option(self, option: str) -> None:
         self.hass.config_entries.async_update_entry(

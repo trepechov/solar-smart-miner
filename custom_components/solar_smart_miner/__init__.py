@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import logging
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry
 
-from .const import DOMAIN  # noqa: F401
+from .const import (  # noqa: F401
+    CONF_CONTROL_MODE,
+    DOMAIN,
+    LEGACY_CONTROL_MODE_PREVIEW,
+    control_mode_of,
+)
 from .coordinator import SolarMinerCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 # number/switch added in U7.
 PLATFORMS: list[str] = ["button", "select", "sensor"]
@@ -19,6 +28,8 @@ RETIRED_ENTITIES: tuple[tuple[str, str], ...] = (
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    # First, before the reload listener exists: rewriting the options later would reload at once.
+    _migrate_control_mode(hass, entry)
     _remove_retired_entities(hass, entry)
     coordinator = SolarMinerCoordinator(hass, entry)
     await coordinator.ai_log.async_load_history()
@@ -50,3 +61,14 @@ def _remove_retired_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
             for domain, suffix in RETIRED_ENTITIES
         ):
             er.async_remove(entity.entity_id)
+
+
+def _migrate_control_mode(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Preview mode is gone (0.7.2): a stored "preview" becomes Manual, which still applies
+    nothing without a press. Done once, so Configure shows the mode in use."""
+    if entry.options.get(CONF_CONTROL_MODE) != LEGACY_CONTROL_MODE_PREVIEW:
+        return
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, CONF_CONTROL_MODE: control_mode_of({})}
+    )
+    _LOGGER.info("Control mode Preview no longer exists; switched to Manual")

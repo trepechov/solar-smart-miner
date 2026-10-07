@@ -50,7 +50,6 @@ from .config_flow import (
     DEFAULT_OPENROUTER_MODEL,
 )
 from .const import (
-    CONF_CONTROL_MODE,
     CONF_MOCK_CONSUMPTION_ENABLED,
     CONF_MOCK_SOLAR_ENABLED,
     CONF_MOCK_SOLAR_ENTITY,
@@ -60,7 +59,6 @@ from .const import (
     DECISION_HISTORY_SIZE,
     DEFAULT_AI_INTERVAL,
     DEFAULT_BATTERY_FLOOR,
-    DEFAULT_CONTROL_MODE,
     DEFAULT_IMPORT_TARGET_W,
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_POWER_STEPS,
@@ -73,6 +71,7 @@ from .const import (
     MIN_AI_INTERVAL,
     SOLAR_ENTITY_TYPE_NET_IMPORT,
     SOLAR_ENTITY_TYPE_PRODUCTION,
+    control_mode_of,
 )
 from .control import (
     RESULT_PENDING,
@@ -214,8 +213,8 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
 
     @property
     def control_mode(self) -> str:
-        """preview or manual: whether plans may be applied to the miners."""
-        return self._entry.options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)
+        """manual or auto: whether the proposal waits for the Apply button or is applied every cycle."""
+        return control_mode_of(self._entry.options)
 
     async def async_load_knowledge(self) -> None:
         """Read the knowledge base for the AI prompt. Without it the AI still works, just knows less."""

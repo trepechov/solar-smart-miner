@@ -512,7 +512,7 @@ async def test_decision_log_sensor_exposes_trace(hass, add_hass_miner) -> None:
     state = next(
         s for s in hass.states.async_all("sensor") if s.entity_id.endswith("decision_log")
     )
-    assert state.attributes["preview_only"] is True
+    assert state.attributes["control_mode"] == "manual"
     assert state.attributes["trace"][0] == "READ"
     assert "ASIC 1" in state.attributes["proposals"]
     assert len(state.state) <= 255
@@ -552,7 +552,7 @@ async def test_ai_sensor_shows_the_response_and_details(hass) -> None:
 
     assert sensor.native_value == "Looks sensible."
     attrs = sensor.extra_state_attributes
-    assert attrs["preview_only"] is True
+    assert attrs["control_mode"] == "manual"
     assert attrs["response"] == "Looks sensible."
     assert attrs["error"] is None
     assert attrs["model"] == "x/y:free"
@@ -582,7 +582,7 @@ async def test_ai_sensor_waits_for_first_answer(hass) -> None:
     sensor = _ai_sensor(hass, advice=None)
 
     assert sensor.native_value == "Waiting for the first answer"
-    assert sensor.extra_state_attributes["preview_only"] is True
+    assert sensor.extra_state_attributes["control_mode"] == "manual"
     assert "response" not in sensor.extra_state_attributes
 
 
@@ -625,11 +625,11 @@ async def test_decision_log_exposes_the_plans_with_actions(hass, add_hass_miner)
     assert plan["action"] in {"set_limit", "hold", "stop", "start"}
 
 
-async def test_sensors_say_preview_only_follows_the_control_mode(hass, add_hass_miner) -> None:
+async def test_sensors_show_the_control_mode(hass, add_hass_miner) -> None:
     from custom_components.solar_smart_miner.const import CONF_CONTROL_MODE
 
     entry = _make_entry(hass)
-    hass.config_entries.async_update_entry(entry, options={**entry.options, CONF_CONTROL_MODE: "manual"})
+    hass.config_entries.async_update_entry(entry, options={**entry.options, CONF_CONTROL_MODE: "auto"})
     add_hass_miner("192.168.1.10", name="ASIC 1")
     hass.states.async_set(SOLAR_ENTITY, "2000")
     hass.states.async_set(GRID_ENTITY, "1500")
@@ -639,4 +639,5 @@ async def test_sensors_say_preview_only_follows_the_control_mode(hass, add_hass_
 
     for suffix in ("decision_log", "ai_advice"):
         state = next(s for s in hass.states.async_all("sensor") if s.entity_id.endswith(suffix))
-        assert state.attributes["preview_only"] is False, suffix
+        assert state.attributes["control_mode"] == "auto", suffix
+        assert "preview_only" not in state.attributes, suffix

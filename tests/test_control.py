@@ -10,8 +10,8 @@ from custom_components.solar_smart_miner import control
 from custom_components.solar_smart_miner.const import (
     APPLY_VERIFY_GRACE_RELAY_START_S,
     APPLY_VERIFY_GRACE_S,
+    CONTROL_MODE_AUTO,
     CONTROL_MODE_MANUAL,
-    CONTROL_MODE_PREVIEW,
     DEFAULT_POWER_STEPS,
 )
 from custom_components.solar_smart_miner.control import (
@@ -156,13 +156,13 @@ async def test_hold_is_refused_without_a_call(h) -> None:
 # --- guards ---------------------------------------------------------------
 
 
-async def test_preview_mode_refuses_every_trigger(h) -> None:
-    h.mode = CONTROL_MODE_PREVIEW
+async def test_automatic_mode_refuses_a_manual_trigger(h) -> None:
+    h.mode = CONTROL_MODE_AUTO
 
     result = await h.apply(_set_limit())
 
     assert result.status == RESULT_REFUSED
-    assert "preview" in result.reason
+    assert "auto" in result.reason
     assert not h.number_calls
 
 

@@ -136,7 +136,7 @@ async def test_complete_flow_creates_entry(hass: HomeAssistant) -> None:
     assert options[CONF_TEMP_TARGET] == DEFAULT_TEMP_TARGET
     assert options[CONF_TEMP_TOLERANCE] == DEFAULT_TEMP_TOLERANCE
     assert options[CONF_BATTERY_FLOOR] == DEFAULT_BATTERY_FLOOR
-    assert options[CONF_CONTROL_MODE] == "preview"
+    assert options[CONF_CONTROL_MODE] == "manual"
 
 
 async def test_battery_entity_blank_is_none(hass: HomeAssistant) -> None:
@@ -315,7 +315,7 @@ def _make_entry(hass: HomeAssistant) -> MockConfigEntry:
             CONF_BATTERY_ENTITY: None,
         },
         options={
-            CONF_CONTROL_MODE: "preview",
+            CONF_CONTROL_MODE: "manual",
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
             CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
@@ -346,7 +346,7 @@ async def test_options_flow_drops_the_old_dry_run_option(hass: HomeAssistant) ->
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert "dry_run" not in result["data"]
-    assert result["data"][CONF_CONTROL_MODE] == "preview"  # the field's default
+    assert result["data"][CONF_CONTROL_MODE] == "manual"  # the field's default
 
 
 async def test_options_flow_sets_control_mode(hass: HomeAssistant) -> None:
@@ -357,7 +357,7 @@ async def test_options_flow_sets_control_mode(hass: HomeAssistant) -> None:
         hass,
         entry,
         options_input={
-            CONF_CONTROL_MODE: "manual",
+            CONF_CONTROL_MODE: "auto",
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
             CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
@@ -366,7 +366,7 @@ async def test_options_flow_sets_control_mode(hass: HomeAssistant) -> None:
         },
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert result["data"][CONF_CONTROL_MODE] == "manual"
+    assert result["data"][CONF_CONTROL_MODE] == "auto"
 
 
 async def test_options_flow_changes_profile(hass: HomeAssistant) -> None:
@@ -377,7 +377,7 @@ async def test_options_flow_changes_profile(hass: HomeAssistant) -> None:
         hass,
         entry,
         options_input={
-            CONF_CONTROL_MODE: "preview",
+            CONF_CONTROL_MODE: "manual",
             CONF_PROFILE: "battery_focused",
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
             CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
@@ -460,7 +460,7 @@ async def test_options_flow_accepts_one_second_polling(hass: HomeAssistant) -> N
         hass,
         entry,
         options_input={
-            CONF_CONTROL_MODE: "preview",
+            CONF_CONTROL_MODE: "manual",
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: 1,
             CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
@@ -481,7 +481,7 @@ async def test_options_flow_telegram_credentials_stored(hass: HomeAssistant) -> 
         hass,
         entry,
         options_input={
-            CONF_CONTROL_MODE: "preview",
+            CONF_CONTROL_MODE: "manual",
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
             CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
@@ -504,7 +504,7 @@ async def test_options_flow_telegram_blank_stored_as_none(hass: HomeAssistant) -
         hass,
         entry,
         options_input={
-            CONF_CONTROL_MODE: "preview",
+            CONF_CONTROL_MODE: "manual",
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
             CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
@@ -526,7 +526,7 @@ async def test_options_flow_saves_again_after_telegram_was_left_blank(hass: Home
         domain=DOMAIN,
         data=dict(_make_entry(hass).data),
         options={
-            CONF_CONTROL_MODE: "preview",
+            CONF_CONTROL_MODE: "manual",
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
             "temp_ceiling": 80,  # the old setting, replaced by target + tolerance
@@ -576,7 +576,7 @@ async def test_options_flow_mock_solar_enabled_stores_entity(hass: HomeAssistant
         hass,
         entry,
         options_input={
-            CONF_CONTROL_MODE: "preview",
+            CONF_CONTROL_MODE: "manual",
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
             CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
@@ -599,7 +599,7 @@ async def test_options_flow_mock_solar_disabled_by_default(hass: HomeAssistant) 
         hass,
         entry,
         options_input={
-            CONF_CONTROL_MODE: "preview",
+            CONF_CONTROL_MODE: "manual",
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
             CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
@@ -622,7 +622,7 @@ async def test_options_flow_mock_solar_no_entity_selected_stored_as_none(hass: H
         hass,
         entry,
         options_input={
-            CONF_CONTROL_MODE: "preview",
+            CONF_CONTROL_MODE: "manual",
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
             CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
@@ -744,7 +744,7 @@ async def test_options_flow_edit_settings_keeps_ai_options(hass: HomeAssistant) 
         hass,
         entry,
         options_input={
-            CONF_CONTROL_MODE: "preview",
+            CONF_CONTROL_MODE: "manual",
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: 30,
             CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
@@ -805,7 +805,7 @@ async def test_settings_save_power_steps_and_tuning_time(hass: HomeAssistant) ->
         hass,
         entry,
         options_input={
-            CONF_CONTROL_MODE: "preview",
+            CONF_CONTROL_MODE: "manual",
             CONF_PROFILE: DEFAULT_PROFILE,
             CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
             CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,

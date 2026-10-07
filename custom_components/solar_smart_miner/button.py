@@ -15,11 +15,10 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
-    CONF_CONTROL_MODE,
+    CONTROL_MODE_AUTO,
     CONTROL_MODE_MANUAL,
-    CONTROL_MODE_PREVIEW,
-    DEFAULT_CONTROL_MODE,
     DOMAIN,
+    control_mode_of,
 )
 from .control import RESULT_FAILED, RESULT_REFUSED, CommandResult
 from .coordinator import SolarMinerCoordinator
@@ -27,8 +26,8 @@ from .coordinator import SolarMinerCoordinator
 _LOGGER = logging.getLogger(__name__)
 
 _MODE_TITLES = {
-    CONTROL_MODE_PREVIEW: "preview, not applied",
     CONTROL_MODE_MANUAL: "manual apply",
+    CONTROL_MODE_AUTO: "applied automatically",
 }
 
 
@@ -113,7 +112,7 @@ class AddToDashboardButton(ButtonEntity):
         if apply_all_id:
             cards.append(_apply_button_card(apply_all_id))
         if log_entity_id:
-            mode = self._entry.options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)
+            mode = control_mode_of(self._entry.options)
             cards.append(_decision_log_card(log_entity_id, ai_entity_id, mode))
         if len(cards) == 1:
             lines = [line[4:] for line in cards[0]]  # a lone card needs no stack around it
@@ -230,7 +229,7 @@ def _activity_card(activity_id: str) -> list[str]:
 
 
 def _decision_log_card(
-    entity_id: str, ai_entity_id: str | None = None, control_mode: str = CONTROL_MODE_PREVIEW
+    entity_id: str, ai_entity_id: str | None = None, control_mode: str = CONTROL_MODE_MANUAL
 ) -> list[str]:
     """Markdown card (as vertical-stack child lines) rendering the decision trace."""
     ai_lines = (
@@ -250,7 +249,7 @@ def _decision_log_card(
     )
     return [
         "  - type: markdown",
-        f"    title: Decision log ({_MODE_TITLES.get(control_mode, 'preview, not applied')})",
+        f"    title: Decision log ({_MODE_TITLES.get(control_mode, 'manual apply')})",
         "    content: |",
         f"      **{{{{ states('{entity_id}') }}}}**",
         "",

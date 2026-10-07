@@ -16,8 +16,8 @@ from custom_components.solar_smart_miner.config_flow import (
 )
 from custom_components.solar_smart_miner.const import (
     CONF_CONTROL_MODE,
+    CONTROL_MODE_AUTO,
     CONTROL_MODE_MANUAL,
-    CONTROL_MODE_PREVIEW,
     DOMAIN,
 )
 from custom_components.solar_smart_miner.control import CommandResult
@@ -80,8 +80,8 @@ async def test_apply_is_available_in_manual_mode_with_a_proposal(hass, add_hass_
     assert _state(hass, "button", "_apply_all").state != "unavailable"
 
 
-async def test_apply_is_unavailable_in_preview_mode(hass, add_hass_miner) -> None:
-    await _setup(hass, add_hass_miner, mode=CONTROL_MODE_PREVIEW)
+async def test_apply_is_unavailable_in_automatic_mode(hass, add_hass_miner) -> None:
+    await _setup(hass, add_hass_miner, mode=CONTROL_MODE_AUTO)
 
     assert _state(hass, "button", "_apply_all").state == "unavailable"
 

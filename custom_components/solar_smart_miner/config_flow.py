@@ -53,6 +53,7 @@ from .const import (
     SOLAR_ENTITY_TYPE_NET_EXPORT,
     SOLAR_ENTITY_TYPE_NET_IMPORT,
     SOLAR_ENTITY_TYPE_PRODUCTION,
+    control_mode_of,
 )
 
 CONF_SOLAR_ENTITY = "solar_production_entity"
@@ -326,7 +327,7 @@ def _step4_schema(
 def _options_schema(options: dict) -> vol.Schema:
     schema: dict = {
         vol.Required(
-            CONF_CONTROL_MODE, default=options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)
+            CONF_CONTROL_MODE, default=control_mode_of(options)
         ): _CONTROL_MODE_SELECTOR,
         vol.Required(
             CONF_PROFILE, default=options.get(CONF_PROFILE, DEFAULT_PROFILE)

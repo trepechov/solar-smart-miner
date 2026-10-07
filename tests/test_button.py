@@ -485,10 +485,16 @@ async def test_decision_log_title_follows_the_control_mode(hass, add_hass_miner)
     assert manual["cards"][-1]["title"] == "Decision log (manual apply)"
 
 
-async def test_decision_log_title_says_preview_by_default(hass, add_hass_miner) -> None:
-    preview = await _generated_card(hass, add_hass_miner, mode=None)
+async def test_decision_log_title_says_automatic_in_automatic_mode(hass, add_hass_miner) -> None:
+    auto = await _generated_card(hass, add_hass_miner, mode="auto")
 
-    assert preview["cards"][-1]["title"] == "Decision log (preview, not applied)"
+    assert auto["cards"][-1]["title"] == "Decision log (applied automatically)"
+
+
+async def test_decision_log_title_says_manual_by_default(hass, add_hass_miner) -> None:
+    default = await _generated_card(hass, add_hass_miner, mode=None)
+
+    assert default["cards"][-1]["title"] == "Decision log (manual apply)"
 
 
 async def test_card_without_apply_entities_has_no_proposed_section(hass) -> None:
@@ -511,4 +517,4 @@ async def test_card_without_apply_entities_has_no_proposed_section(hass) -> None
     card = yaml.safe_load(mock_pn.call_args.args[1].split("```yaml\n")[1].split("\n```")[0])
 
     assert [c["type"] for c in card["cards"]] == ["entities", "markdown"]
-    assert card["cards"][1]["title"] == "Decision log (preview, not applied)"
+    assert card["cards"][1]["title"] == "Decision log (manual apply)"

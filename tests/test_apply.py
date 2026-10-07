@@ -14,8 +14,8 @@ from custom_components.solar_smart_miner.config_flow import (
 )
 from custom_components.solar_smart_miner.const import (
     CONF_CONTROL_MODE,
+    CONTROL_MODE_AUTO,
     CONTROL_MODE_MANUAL,
-    CONTROL_MODE_PREVIEW,
     DOMAIN,
 )
 from custom_components.solar_smart_miner.coordinator import SolarMinerCoordinator
@@ -99,20 +99,21 @@ async def test_failed_refresh_refuses(hass, add_hass_miner) -> None:
     assert not calls
 
 
-async def test_preview_mode_refuses_before_refreshing(hass, add_hass_miner) -> None:
+async def test_a_press_in_automatic_mode_is_refused_before_refreshing(hass, add_hass_miner) -> None:
     add_hass_miner("192.168.1.10", name="Brod1", limit="1100", temperature="55", limit_attrs=LIMITS)
     _energy(hass)
     calls = async_mock_service(hass, "number", "set_value")
-    coordinator = _coordinator(hass, CONTROL_MODE_PREVIEW)
+    coordinator = _coordinator(hass, CONTROL_MODE_AUTO)
     miner_id, plan = await _plan_for(coordinator)
     coordinator.async_refresh = AsyncMock()
+    sent = len(calls)  # the refresh above may already have applied it automatically
 
     result = await coordinator.async_apply_shown(miner_id, plan.fingerprint)
 
     assert result.status == "refused"
-    assert "preview" in result.reason
+    assert "auto" in result.reason
     coordinator.async_refresh.assert_not_called()
-    assert not calls
+    assert len(calls) == sent
 
 
 async def test_unknown_miner_is_refused(hass, add_hass_miner) -> None:
@@ -257,16 +258,17 @@ async def test_apply_all_with_nothing_actionable_does_nothing(hass, add_hass_min
     assert not calls
 
 
-async def test_apply_all_in_preview_mode_refuses_each_plan(hass, add_hass_miner) -> None:
+async def test_a_press_of_apply_all_in_automatic_mode_refuses_each_plan(hass, add_hass_miner) -> None:
     _two_miners(hass, add_hass_miner)
     calls = async_mock_service(hass, "number", "set_value")
-    coordinator = _coordinator(hass, CONTROL_MODE_PREVIEW)
+    coordinator = _coordinator(hass, CONTROL_MODE_AUTO)
     await coordinator.async_refresh()
+    sent = len(calls)
 
     results = await coordinator.async_apply_all()
 
     assert {r.status for r in results.values()} == {"refused"}
-    assert not calls
+    assert len(calls) == sent
 
 
 async def test_apply_all_refuses_when_the_refresh_failed(hass, add_hass_miner) -> None:

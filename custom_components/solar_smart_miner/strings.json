@@ -61,7 +61,7 @@
         "title": "Solar Smart Miner — Edit Settings",
         "description": "Adjust runtime settings. Saving reloads the integration — no restart required.",
         "data": {
-          "control_mode": "Control mode (Preview: nothing is applied; Manual: apply with buttons)",
+          "control_mode": "Control mode (Manual: apply the proposal with the button; Automatic: applied every cycle)",
           "profile": "Active profile",
           "polling_interval": "Polling interval",
           "temp_target": "Target temperature",
@@ -100,7 +100,7 @@
       },
       "edit_ai": {
         "title": "Solar Smart Miner — AI (OpenRouter)",
-        "description": "The AI reviews each decision preview and comments on it; it never changes the miners. Free models are rate-limited, so it is only asked every few minutes. Saving reloads the integration.",
+        "description": "The AI reviews each decision and comments on it; it never changes the miners. Free models are rate-limited, so it is only asked every few minutes. Saving reloads the integration.",
         "data": {
           "ai_enabled": "Ask the AI for advice",
           "openrouter_api_key": "OpenRouter API key",
