@@ -11,7 +11,7 @@ Home Assistant custom integration that controls ASIC Bitcoin miners based on sol
 HACS installs from **GitHub releases**, so Home Assistant only shows an update (Settings → Updates) when a new release is published; a plain push to `main` reaches nobody. Every change that should reach the farm goes out as a release:
 
 - **Version** lives in `custom_components/solar_smart_miner/manifest.json` (`X.Y.Z`, semver). Never tag or release without bumping it; the tag must be `v` + that version (`release.yml` refuses a mismatch).
-- **Which number:** patch (`0.7.0 → 0.7.1`) for fixes and wording; minor (`0.7.x → 0.8.0`) for new behaviour, new or removed entities or options, or a changed decision rule; major only for a breaking config change that needs the user to redo setup.
+- **Which number:** always the patch number, the third one (`0.7.0 → 0.7.1 → 0.7.2`), whatever the release contains, fixes or new behaviour alike: we iterate in many small releases. Bump the minor or major number only when the owner asks for it.
 - **How:** commit the work first, then `scripts/release.sh X.Y.Z`. It bumps the manifest, commits `chore(release): vX.Y.Z`, tags and pushes; `.github/workflows/release.yml` then publishes the release with notes generated from the commits.
 - **When:** release once a batch is stable and tests pass, not after every commit. At the end of a session that changed integration code, say whether a release was cut, and if not, propose the version number.
 - **Removing an entity:** add its (domain, unique-id suffix) to `RETIRED_ENTITIES` in `__init__.py`, so the update deletes it from the user's registry instead of leaving it unavailable.
