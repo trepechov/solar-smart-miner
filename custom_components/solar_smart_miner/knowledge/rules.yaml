@@ -275,8 +275,24 @@ entries:
       In the code since 2026-10-06, for Solar-max: the budget is the grid balance plus the
       miners' draw plus the import target (setting, 400 W by default). With the 150 W
       tolerance and 100 W margin that steps up at about 100 W import or less and down above
-      about 550 W. With the meter near 0 W, forecast PV now minus actual PV is added as hidden
-      headroom; without those sensors the controller probes one step at a time.
+      about 550 W. With the meter near 0 W the inverters may be throttled; the target leaves room
+      for one step up, so the headroom is probed one step at a time (rule.forecast-reference-only).
+
+  - id: rule.forecast-reference-only
+    title: The solar forecast never decides
+    statement: >
+      The solar forecast can be far off. It is shown and logged for reference, and monitored,
+      but no decision is based on it: not the budget, not a step up, not a stop. While the
+      inverters may be throttled, spare power is found by stepping up one step and watching
+      the import.
+    priority: P1
+    status: decided
+    source: "owner, 2026-10-07"
+    date: "2026-10-07"
+    tags: [always, allocation, curtailed]
+    note: >
+      Until 2026-10-07 Solar-max added forecast PV now minus actual PV to the budget when the
+      meter sat near 0 W (energy.forecast-headroom-flips); removed in the code the same day.
 
   - id: rule.goal
     title: Use as much excess energy as possible

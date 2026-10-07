@@ -33,7 +33,7 @@ entries:
       the budget. It needs both readings, so in a cycle where the PV reading is missing the
       headroom disappears and the budget drops by that much.
     priority: P3
-    status: verified
+    status: retired
     source: "measured: decision log and grid history from the live HA, 2026-10-07; code: decision._solar_follow_extra"
     date: "2026-10-07"
     situations: [situation.curtailed]
@@ -43,7 +43,7 @@ entries:
       near 6,100 W, while the full budget swung between 6,100 and 7,600 to 8,700 W from one minute
       to the next. The plan went between "Brod1 2,100 W only" and "every miner to 2,500 W" with it.
       Smoothing (rule.smooth-inputs) or keeping the last headroom over a missing reading would
-      steady it.
+      steady it. Retired 2026-10-07: the forecast no longer sizes the budget (rule.forecast-reference-only).
 
   - id: energy.evening-curve
     title: What the sunset looked like
@@ -71,19 +71,19 @@ entries:
   - id: energy.unseen-load
     title: A load outside the miners can appear
     statement: >
-      On 2026-10-07 from 15:55 to about 16:02 (local) the grid import jumped from 1.75 to 3.6 kW in
-      one minute while PV (5.26 kW, three inverters) and the miners (6.97 kW) didn't change: about
-      1.9 kW of load the integration doesn't see, since house consumption is not configured. The
-      budget counts it as power the miners must give up.
+      Besides the miners there can be other load behind the meter, of any size and at any time,
+      and the integration doesn't see it while house consumption is not configured. The budget
+      then counts it as power the miners must give up. Its size and timing vary (and with the
+      season), so no fixed value or hour is assumed for it.
     priority: P3
     status: verified
     source: "measured: HA history, grid import, inverter active power and miner sum, 2026-10-07"
     date: "2026-10-07"
-    tags: [always, grid, sunset]
+    tags: [always, grid]
     note: >
-      Against site.load-is-miners (about 98% miners). What the load was is open.unseen-load. It
-      lasted about 8 minutes, longer than the 3-minute input smoothing, so smoothing alone would
-      not have ignored it.
+      Evidence, not a value to plan with: on 2026-10-07 the import rose by about 1.9 kW in one
+      minute for about 8 minutes, with PV and the miners unchanged. Against site.load-is-miners
+      (about 98% miners); what such loads are is open.unseen-load.
 
   - id: energy.pv-sum-unreliable
     title: The PV sum drops out

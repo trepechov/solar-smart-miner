@@ -73,9 +73,9 @@ def _describe_energy(energy: EnergySnapshot) -> list[str]:
     if energy.pv_power_w is not None:
         lines.append(f"Actual PV output: {_w(energy.pv_power_w)}")
     if energy.forecast_now_w is not None:
-        lines.append(f"Forecast PV now: {_w(energy.forecast_now_w)}")
+        lines.append(f"Forecast PV now: {_w(energy.forecast_now_w)} (reference only)")
     if energy.forecast_next_hour_w is not None:
-        lines.append(f"Forecast PV next hour: {_w(energy.forecast_next_hour_w)}")
+        lines.append(f"Forecast PV next hour: {_w(energy.forecast_next_hour_w)} (reference only)")
     if energy.forecast_remaining_kwh is not None:
         lines.append(f"Forecast PV left today: {energy.forecast_remaining_kwh:,.1f} kWh")
     return lines
@@ -204,29 +204,21 @@ def _one_change(
 
 
 def _solar_follow_extra(energy: EnergySnapshot, import_target_w: float, trace: list[str]) -> float:
-    """Watts Solar-follow adds to the measured budget.
+    """Watts Solar-follow adds to the measured budget: the import target.
 
     It aims for a small steady import (the target), since without a battery that is the
     only proof all the solar is used. When the meter sits near 0 W the inverters may be
-    throttled, so the measured budget hides the real headroom: the forecast for now above
-    actual PV, when both are configured, is added as well. A wrong forecast is corrected
-    by the normal step-down once the import climbs past the band.
+    throttled and the measured budget hides the real headroom; the target alone leaves room
+    for one step up, so the headroom is probed a step at a time and the import shows whether
+    it was there. The solar forecast can be far off, so it is shown but never decides.
     """
     trace.append(f"Grid import target: {_w(import_target_w)}")
-    if energy.grid_net_w is None or abs(energy.grid_net_w) > METER_NEAR_ZERO_W:
-        return import_target_w
-    if energy.forecast_now_w is None or energy.pv_power_w is None:
+    if energy.grid_net_w is not None and abs(energy.grid_net_w) <= METER_NEAR_ZERO_W:
         trace.append(
-            "Meter near 0 W: the inverters may be throttled; no forecast and actual PV "
-            "to size the hidden headroom, so it is probed one step at a time"
+            "Meter near 0 W: the inverters may be throttled, so the spare power is probed "
+            "one step at a time (the forecast is not used to size it)"
         )
-        return import_target_w
-    headroom = max(energy.forecast_now_w - energy.pv_power_w, 0.0)
-    trace.append(
-        f"Meter near 0 W: the inverters may be throttled; forecast {_w(energy.forecast_now_w)} "
-        f"vs actual PV {_w(energy.pv_power_w)} → {_w(headroom)} hidden headroom"
-    )
-    return import_target_w + headroom
+    return import_target_w
 
 
 def _tuning_left(m: MinerSnapshot, settle_minutes: float) -> float | None:

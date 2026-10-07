@@ -471,8 +471,8 @@ def test_trace_lists_pv_and_forecast_readings_only_when_present() -> None:
         )
     ).trace
     assert "Actual PV output: 3,926 W" in trace
-    assert "Forecast PV now: 9,888 W" in trace
-    assert "Forecast PV next hour: 9,039 W" in trace
+    assert "Forecast PV now: 9,888 W (reference only)" in trace
+    assert "Forecast PV next hour: 9,039 W (reference only)" in trace
     assert "Forecast PV left today: 28.0 kWh" in trace
 
 
@@ -513,7 +513,8 @@ def test_import_well_above_the_target_steps_down() -> None:
     assert list(decision.proposals.values()) == [900.0]
 
 
-def test_throttled_meter_uses_the_forecast_headroom_to_start_a_miner() -> None:
+def test_throttled_meter_probes_one_step_and_never_uses_the_forecast() -> None:
+    # Owner, 2026-10-07: the forecast can be far off, so it is shown but never decides.
     miners = [_miner("a", limit=1500.0), _miner("b", limit=1500.0), _miner("c", stopped=True)]
 
     blind = _decide(_metered(20.0, miners), import_target_w=400)
@@ -523,8 +524,15 @@ def test_throttled_meter_uses_the_forecast_headroom_to_start_a_miner() -> None:
     seen = _decide(
         _metered(20.0, miners, forecast_now_w=6000.0, pv_power_w=3000.0), import_target_w=400
     )
-    assert seen.plans["c"].action == ACTION_START
-    assert any("3,000 W hidden headroom" in line for line in seen.trace)
+    assert seen.plans == blind.plans
+    assert not any("hidden headroom" in line for line in seen.trace)
+    assert "Forecast PV now: 6,000 W (reference only)" in seen.trace
+
+
+def test_throttled_meter_leaves_room_for_one_step_up() -> None:
+    decision = _decide(_metered(20.0, _three(limit=1100.0)), import_target_w=400)
+
+    assert sorted(decision.proposals.values()) == [1300.0]
 
 
 def test_real_export_is_measured_so_the_forecast_is_not_added() -> None:
