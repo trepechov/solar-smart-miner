@@ -2,6 +2,7 @@
 title: "feat: Semi-automatic apply: confirm each proposed action with a button"
 type: feat
 usedate: 2026-10-06
+updated: 2026-10-07  # Phase 2 detailed: Automatic mode, Preview removed
 origin: docs/brainstorms/2026-10-05-decision-making-requirements.md
 parent_plan: docs/plans/2026-05-15-001-feat-solar-smart-miner-ha-integration-plan.md
 ---
@@ -20,6 +21,11 @@ The owner stays in the loop for every change, so nothing unexpected happens whil
 whether the plans can be trusted. The command path is built to be shared: **automatic mode
 later is a toggle that calls the same function at the end of each cycle**, plus a few guards
 that only automation needs (Phase 2, at the end). The buttons themselves don't change.
+
+**Update 2026-10-07:** testing on the farm showed the proposals can run on their own, so Phase 2 is now
+planned in detail below: an **Automatic** mode that applies the proposal every cycle, and **Preview is
+removed** (Manual already means "nothing is applied unless I press"). The modes become Manual (default) and
+Automatic. The owner decided that the A2 guards are not prerequisites; the 4-minute ramp lock is the cooldown.
 
 ---
 
@@ -47,10 +53,13 @@ Check off each unit after it is implemented, tested and committed.
 - [ ] **S13**: Plan-age guard: refuse a press when the plan changed just before it
 - [ ] **S14**: Evidence logging: unpressed proposals, a 60-minute outcome line, engine version
 
-**Phase 2: automatic (later, not part of this plan)**
+**Phase 2: automatic (planned 2026-10-07, below)**
 
-- [ ] **A1**: `Auto` control mode, same executor, called by the coordinator
-- [ ] **A2**: Automation-only guards (change rate, flapping, schedule conflict, failure freeze); hold time and ramp lock in the decision
+- [ ] **A3**: Modes: Preview removed, Automatic offered, Manual the default; stored `preview` reads as Manual
+- [ ] **A1**: Automatic: the executor accepts trigger `auto`, and the coordinator applies the proposal each cycle
+- [ ] **A4**: Entities, card and wording follow the two modes
+- [ ] **A5**: README and knowledge base
+- [ ] **A2**: Automation-only guards: **deferred** (owner, 2026-10-07). The ramp lock and one-miner-per-proposal part is done (commit 3ca794c).
 
 **Phase 3: AI authority (later, separate plan)**
 
@@ -83,7 +92,7 @@ Check off each unit after it is implemented, tested and committed.
 3. **One command path for all triggers.** `async_apply(miner_id, plan, trigger)` with `trigger` = `manual` now, `auto` later. Everything (guards, service calls, verification, logging) lives behind it. Phase 2 adds guards there, not in the buttons.
 4. **In Manual mode the schedule automation is a warning, not a block.** The owner is at the screen and is the one controller; refusing would make the button useless until the schedule is retired. Auto mode refuses (P0 `rule.one-controller`, now scoped to automatic control with this Manual exception recorded). The warning needs a setting that names the automation; S10 adds it. Until S10 lands there is no warning.
 5. **Apply all runs reductions first**: stops and step-downs, then step-ups and starts, so the house never briefly draws both.
-6. **Hold plans have no button.** The Apply button is unavailable (greyed out) when the plan is `hold`, when the mode is Preview, or while a command for that miner is still being verified.
+6. **Hold plans have no button.** The Apply button is unavailable (greyed out) when the plan is `hold`, when the mode is Preview, or while a command for that miner is still being verified. *(Phase 2: Preview is removed; the button is unavailable in Automatic instead.)*
 7. **Safety plans are not special-cased in Phase 1.** A battery-floor stop is a plan like any other and waits for the button. Running safety plans without a press belongs to Phase 2.
 
 ---
@@ -318,11 +327,199 @@ What Phase 2 and Phase 3 are decided on (`open.go-live-evidence`, `open.ai-autho
 
 ---
 
-## Phase 2: automatic mode (later)
+## Phase 2: automatic mode (planned 2026-10-07)
 
-What the toggle needs on top of Phase 1. Listed so Phase 1 doesn't paint it into a corner.
+### Where things stand
 
-- **A1. `Auto` mode.** The control-mode select gains `Auto`. At the end of `_async_update_data`, when the mode is Auto, the coordinator calls `controller.async_apply(…, trigger="auto")` for every actionable plan, in the Apply-all order. No fingerprint check is needed: the plan is fresh by construction. The buttons stay as a manual override in every mode.
+- Modes today: `Preview` (nothing can be applied) and `Manual` (one farm-level **Apply proposal** button,
+  commit 4190a29). `CONTROL_MODE_AUTO` is reserved in `const.py` but not offered, and
+  `control._MODES_FOR_TRIGGER` only knows `manual`.
+- Preview and Manual differ only in whether the button is greyed out. Pressing is already the owner's
+  choice, so Preview adds a mode without adding safety.
+- The pacing Auto needs is already in the decision, in every mode: one miner changes per proposal, and after
+  any change (a command sent, or a stop/start seen) every miner holds for the **4-minute ramp lock**
+  (`DEFAULT_RAMP_LOCK_MINUTES`, `rule.ramp-lock`, commit 3ca794c). The lock reads 0 min while a command is
+  still being verified (`coordinator._minutes_since_change`), so a slow command extends it.
+- **Owner, 2026-10-07:** polling stays at 15 s. A miner needs about 4–5 minutes to settle after a change, and
+  changing anything inside that window starts an endless change loop, so that window is the cooldown. No
+  other guard (persistence window, hourly cap, schedule refusal, failure freeze, S11) is a prerequisite.
+
+### Requirements
+
+- R1. A control mode **Automatic** that applies the current proposal every cycle without a press.
+- R2. Automatic applies through the existing executor (`MinerController.async_apply`): same guards, service
+  calls, verification, failure notification and action log. Log lines carry `trigger: "auto"`.
+- R3. Automatic never changes faster than the ramp lock allows. No extra persistence window, no second
+  pacing mechanism.
+- R4. **Preview is removed.** Modes are Manual and Automatic; Manual is the default for new installs.
+- R5. Installs stored on `preview` come up in Manual without the owner doing anything. The upgrade itself
+  applies nothing (Manual still needs a press).
+- R6. The mode is switchable from the dashboard select and from Configure, as today.
+- R7. Wording follows the modes: card title, Configure label, sensor attributes, README, knowledge base.
+
+### Decisions
+
+1. **Auto runs inside the update cycle, on the snapshot it just built.** At the end of
+   `_async_update_data`, after `build_decision` and `_record_proposals`, when the mode is Automatic, the
+   coordinator applies every non-hold plan of the fresh snapshot, reductions first (`_is_reduction`). It does
+   **not** go through `async_apply_all` / `async_apply_shown`: they refresh first (an update inside an update)
+   and compare fingerprints, which protect a human's view. A plan built this cycle is fresh by construction.
+   Normally that is one plan (one miner per proposal); safety can still produce several.
+2. **The ramp lock is the only pacing.** Sending a command fires the `pending` event, which sets
+   `_last_change` and the tuning clock, so the next cycle's decision holds every miner for 4 min.
+3. **One trigger per mode.** `_MODES_FOR_TRIGGER = {manual: {manual}, auto: {auto}}`. In Automatic the Apply
+   button is unavailable: proposals apply themselves. To act by hand, switch to Manual. (Replaces the earlier
+   idea of keeping the buttons as an override in every mode.)
+4. **Don't retry a refused plan every 15 s.** If a guard refuses an automatic plan (entity unavailable,
+   limit off the ladder, …), remember the fingerprint and reason per miner; the same plan with the same
+   reason is neither re-sent nor re-logged until one of them changes. Otherwise a refusal writes 240 log lines
+   an hour. Failures are already paced: the send sets the ramp lock.
+5. **Preview migration without a config-entry version bump.** One helper resolves the mode from the options;
+   any value that isn't a current mode, `preview` included, reads as Manual. `async_setup_entry` also rewrites
+   a stored `preview` to `manual` once and logs it, so Configure shows the right value. Same pattern as the
+   round-7 profile rename.
+6. **The `preview_only` sensor attribute becomes `control_mode`** (`manual` / `auto`) on the Decision log and
+   AI advice sensors. Only the tests read it; the generated card doesn't.
+7. **The schedule automation is the owner's job for now.** P0 `rule.one-controller` says it is off before
+   automatic applying. The owner turns it off before choosing Automatic; README says so. The S10 setting and
+   the refusal stay follow-ups.
+
+### Design
+
+*Directional guidance for review, not implementation specification.*
+
+```mermaid
+flowchart TD
+    A[poll every 15 s: _async_update_data] --> B[check pending commands]
+    B --> C[read energy + miners]
+    C --> D[build_decision: ramp lock, one miner per proposal]
+    D --> E{mode == auto?}
+    E -- no --> F[return snapshot; Apply button in Manual]
+    E -- yes --> G{non-hold plans?}
+    G -- no --> F
+    G -- yes --> P{miner pending, or guards refuse with the same plan + reason as last time?}
+    P -- yes --> F
+    P -- no --> H[reductions first: controller.async_apply trigger=auto]
+    H --> J[action log + activity feed; pending starts the ramp lock]
+    J --> F
+```
+
+| Mode | Apply button | Each cycle applies | Default |
+|---|---|---|---|
+| Manual | available when there is a proposal | nothing | yes (new installs, migrated `preview`) |
+| Automatic | unavailable | every non-hold plan, reductions first | never |
+
+### A3. Modes: drop Preview, offer Automatic, migrate stored values
+
+**Goal:** The mode setting offers Manual / Automatic, defaults to Manual, and reads an old `preview` as Manual. (R4, R5, R6)
+
+**Files:**
+- `custom_components/solar_smart_miner/const.py`: remove `CONTROL_MODE_PREVIEW`; `CONTROL_MODES = [manual, auto]`; `DEFAULT_CONTROL_MODE = manual`; labels "Manual" / "Automatic"
+- `custom_components/solar_smart_miner/coordinator.py`: `control_mode` goes through the helper (Decision 5)
+- `custom_components/solar_smart_miner/select.py`: reads through the helper; docstring
+- `custom_components/solar_smart_miner/__init__.py`: one-time rewrite of a stored `preview`, logged once
+- `custom_components/solar_smart_miner/config_flow.py`: default and the two modes in the settings step
+- `custom_components/solar_smart_miner/strings.json`, `translations/en.json`: control-mode label "Manual: apply with the button; Automatic: applied every cycle"
+- Tests: `tests/test_select.py`, `tests/test_config_flow.py`, `tests/test_coordinator.py`
+
+**Tests** (rewrite the existing Preview tests to the new behaviour, don't delete them):
+- The select lists exactly "Manual" and "Automatic"; choosing Automatic stores `auto`.
+- No stored mode reads as Manual; an unknown stored value reads as Manual.
+- A stored `preview` reads as Manual in the select and the coordinator, and after setup the stored option is `manual`.
+- The options flow offers the two modes and saves the choice.
+
+### A1. Automatic: the executor and the cycle
+
+**Goal:** In Automatic every cycle applies the fresh non-hold plans through `async_apply(trigger="auto")`, reductions first, without repeating a refusal. (R1, R2, R3)
+
+**Depends on:** A3
+
+**Files:**
+- `custom_components/solar_smart_miner/control.py`: `_MODES_FOR_TRIGGER` (Decision 3); module docstring
+- `custom_components/solar_smart_miner/coordinator.py`: an auto-apply step at the end of `_async_update_data`; the last refused fingerprint and reason per miner (Decision 4)
+- `custom_components/solar_smart_miner/action_log.py`: only if needed so an auto line records the snapshot that produced the plan (during an update `self.data` is still the previous cycle's snapshot)
+- Tests: `tests/test_control.py`, `tests/test_apply.py` (or a new `tests/test_auto_apply.py` if it gets crowded)
+
+**Approach:**
+- Runs after `_record_proposals`, so the activity feed shows the proposal, then its applied line.
+- Per plan: skip a miner with a command still pending; skip a plan refused last time with the same reason; otherwise `async_apply(..., trigger="auto")`.
+- An exception from one miner's apply is logged and doesn't fail the update: the snapshot is still returned.
+- The Manual path is unchanged.
+
+**Execution note:** start with a failing coordinator-level test: Automatic, a surplus proposal, one update → one `number.set_value` call.
+
+**Tests:**
+- Executor: auto trigger in Automatic sends the call and returns `pending`; auto in Manual and manual in Automatic are refused with the mode as reason and no call; manual in Manual unchanged.
+- Automatic + a step-up proposal: one cycle sends one `number.set_value` with the step; the action log line has `trigger: "auto"` and `pending`.
+- Ramp lock: the next cycle with the same surplus sends nothing and the trace says ramp lock; after 4 min (monkeypatched clock) the next proposal is applied. This is the owner's "no change inside the settle window".
+- A safety decision with a stop and a step-up applies the stop first.
+- Manual mode: the same proposal sends nothing on update. A hold-only decision sends and logs nothing.
+- Repeated refusal: target entity unavailable → one `refused` line, no more for the same plan in later cycles; a changed plan is tried again.
+- A command still pending from the last cycle: no second command for that miner.
+- A service error: `failed` line, apply-failed notification, and the update still returns a snapshot.
+
+### A4. Entities, card and wording
+
+**Goal:** The button, card and sensors describe Manual / Automatic; nothing says Preview. (R6, R7)
+
+**Depends on:** A3, A1
+
+**Files:**
+- `custom_components/solar_smart_miner/button.py`: `_MODE_TITLES` "manual apply" / "automatic"; the Apply button is unavailable in Automatic (through `can_apply`)
+- `custom_components/solar_smart_miner/sensor.py`: `preview_only` → `control_mode` (Decision 6)
+- Docstrings in `coordinator.py`, `decision.py`, `protocols.py` that still say "preview"
+- `strings.json`, `translations/en.json`: the AI step "reviews each decision preview" → "reviews each decision"
+- Tests: `tests/test_button.py`, `tests/test_sensor.py`, `tests/test_apply_entities.py`
+
+**Tests:**
+- The Apply button is available in Manual with a proposal and unavailable in Automatic with the same proposal.
+- The generated card title follows the mode.
+- The Decision log and AI advice sensors expose `control_mode` and no longer `preview_only` (update the four existing assertions).
+
+### A5. README and knowledge base
+
+**Goal:** Docs describe the two modes and when Automatic may be switched on. (R7)
+
+**Files:**
+- `README.md`: feature list, Control mode table, install note ("leave on Preview for 24 h" → "start in Manual"); first-run checklist drops the Preview step and gains an Automatic step: "turn the schedule automation off first"
+- `knowledge/rules.yaml`: `rule.apply-by-hand-first` gets a status change and a dated note that the manual phase ended on 2026-10-07 and Automatic is available; `rule.one-controller` note: the owner switches the schedule off before Automatic, no code guard yet (S10)
+- `knowledge/open-questions.yaml`: `open.go-live-evidence` → `decided`, source "owner, 2026-10-07, after two days of manual applying"; the evidence counting (S14) stays a follow-up
+- Tests: `tests/test_knowledge.py` (the existing format checks cover the edited entries)
+
+### Not in scope / not prerequisites (owner, 2026-10-07)
+
+A persistence window before applying, an hourly change cap, refusing while the schedule automation is on
+(S10), dropping to Manual after a failed command, verifying against power and hashrate (S11), applying AI
+answers (Phase 3).
+
+### Deferred
+
+- **A2 guards** (below) and S10–S14 stay open. S11 and the apply-failed freeze matter more once nobody is
+  watching, so they are the first candidates if Automatic misbehaves.
+- `rule.down-slowly-up-promptly` (cloud tolerance, input smoothing) is not in the decision yet. The 16:02
+  unseen load (`energy.yaml`, about 1.9 kW for 8 min) means Automatic will step a miner down for such a load
+  and step it back up after the ramp lock.
+- Making the ramp lock a Configure setting (the owner's figure is 4–5 min; the code uses 4).
+
+### Risks
+
+| Risk | Mitigation |
+|---|---|
+| The schedule automation and Automatic both act at 07:00/19:00 | README step: switch it off before Automatic; P0 note in the knowledge base. Code guard deferred (S10). |
+| A miner that stays unreachable fails every ~4 min | One replaced notification per miner, not stacked; the owner switches to Manual. Freeze deferred. |
+| hass-miner echoes a value the miner never applied, and the command logs `ok` | Known (`miner.hass-miner-optimistic`); the next cycles' readings drive the next proposal. S11 deferred. |
+| A refusal repeats every 15 s | Decision 4. |
+| A press races the cycle | The button is unavailable in Automatic; the executor's pending lock covers the rest. |
+| Upgrade surprises | `preview` → Manual, which still applies nothing without a press. Automatic is never the default. |
+
+**Release:** one patch release once A3, A1, A4 and A5 pass the tests: `0.7.1` → `0.7.2`, or the next
+patch number if one ships first.
+
+### Earlier Phase 2 notes (2026-10-06)
+
+Kept for the record. A1 is detailed above; A2 is deferred.
+
+- **A1. `Auto` mode.** The control-mode select gains `Auto`. At the end of `_async_update_data`, when the mode is Auto, the coordinator calls `controller.async_apply(…, trigger="auto")` for every actionable plan, in the Apply-all order. No fingerprint check is needed: the plan is fresh by construction. The buttons stay as a manual override in every mode. *(Superseded 2026-10-07 by Decision 3 above: the button is unavailable in Automatic.)*
 - **A2. Dynamics in the decision, operational guards in the executor.**
   - **In `decision.py` (a dynamics gate, requirements doc §11 step 2), in every mode:** minimum hold time per miner (requirements doc §5.2; the ramp lock is about 4 min since round 7, and the hold time waits on `open.temperature-settle-time`), `rule.ramp-lock` and `rule.down-slowly-up-promptly`. The gate turns a blocked change into `hold` with a reason, so the card, the AI and Auto all see the plan the rules allow, and Phase 1 evidence is gathered on the same plans Auto would run. This should land before the go-live evidence is counted.
   - **In `control.py`, keyed by `trigger == "auto"`:** a cap on changes per hour; a plan must be the same for N cycles before it runs (flapping guard; replaces the human's judgement); `control.schedule-conflict` using the S10 setting, refusing while the automation is on (P0 `rule.one-controller`); `control.apply-failed` freezes automatic applying until a human acknowledges it. A refusal that repeats with the same plan and reason is logged once, not every cycle.
