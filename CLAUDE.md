@@ -6,6 +6,17 @@ Home Assistant custom integration that controls ASIC Bitcoin miners based on sol
 
 **Work directly on `main`.** This is a solo project optimised for fast iteration — no feature branches, no PRs. Commit directly and push when the work is stable. Skip branch gymnastics.
 
+## Versioning and Releases
+
+HACS installs from **GitHub releases**, so Home Assistant only shows an update (Settings → Updates) when a new release is published; a plain push to `main` reaches nobody. Every change that should reach the farm goes out as a release:
+
+- **Version** lives in `custom_components/solar_smart_miner/manifest.json` (`X.Y.Z`, semver). Never tag or release without bumping it; the tag must be `v` + that version (`release.yml` refuses a mismatch).
+- **Which number:** patch (`0.7.0 → 0.7.1`) for fixes and wording; minor (`0.7.x → 0.8.0`) for new behaviour, new or removed entities or options, or a changed decision rule; major only for a breaking config change that needs the user to redo setup.
+- **How:** commit the work first, then `scripts/release.sh X.Y.Z`. It bumps the manifest, commits `chore(release): vX.Y.Z`, tags and pushes; `.github/workflows/release.yml` then publishes the release with notes generated from the commits.
+- **When:** release once a batch is stable and tests pass, not after every commit. At the end of a session that changed integration code, say whether a release was cut, and if not, propose the version number.
+- **Removing an entity:** add its (domain, unique-id suffix) to `RETIRED_ENTITIES` in `__init__.py`, so the update deletes it from the user's registry instead of leaving it unavailable.
+- `.github/workflows/validate.yml` runs the HACS and hassfest checks on every push to `main`; fix a failure before releasing.
+
 ## Project Structure
 
 ```
@@ -37,7 +48,8 @@ docs/
                        #   architectural patterns), organised by category with YAML
                        #   frontmatter (module, tags, problem_type). Useful when
                        #   implementing or debugging in documented areas.
-scripts/               # dev utilities (validate-frontmatter.py, etc.)
+scripts/               # dev utilities (release.sh, install-git-hooks.sh, etc.)
+.github/workflows/     # release.yml (tag → GitHub release), validate.yml (HACS + hassfest)
 ```
 
 ## Knowledge Base

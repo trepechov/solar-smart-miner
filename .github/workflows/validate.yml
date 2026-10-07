@@ -1,0 +1,24 @@
+name: Validate
+
+# The checks HACS and Home Assistant run on an integration, so a manifest mistake shows up here
+# rather than as an update HACS refuses to install.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: hacs/action@main
+        with:
+          category: integration
+          # Not in the home-assistant/brands repo, and the repo has no GitHub topics.
+          ignore: brands topics
+
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master

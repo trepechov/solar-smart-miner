@@ -1,0 +1,29 @@
+name: Release
+
+# A vX.Y.Z tag (pushed by scripts/release.sh) becomes a GitHub release. HACS tracks releases,
+# so Home Assistant shows it under Settings → Updates with these notes.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches manifest version
+        run: |
+          VERSION=$(jq -r .version custom_components/solar_smart_miner/manifest.json)
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME but manifest.json says $VERSION"
+            exit 1
+          fi
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
