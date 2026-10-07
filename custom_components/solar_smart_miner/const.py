@@ -23,7 +23,10 @@ KB_TRANSITION_ELEVATION = 15  # deg; below this the sun is rising or setting
 # Miners re-tune every time the power limit changes (14 min to an hour), so the limit
 # only ever moves between these steps. W; each miner uses the ones inside its own range.
 DEFAULT_POWER_STEPS = [900, 1100, 1300, 1500]
-DEFAULT_TUNING_SETTLE_MINUTES = 60  # after a limit change the miner is "tuning": no step up
+# Extra minutes a miner counts as tuning after a limit change (no step up, temperature ignored).
+# 0: every configured step has been tuned before, so a change is only a restart (ramp lock).
+DEFAULT_TUNING_SETTLE_MINUTES = 0
+DEFAULT_RAMP_LOCK_MINUTES = 4  # after any change every miner holds while it restarts
 HOLD_TOLERANCE_W = 150  # a shortfall this small keeps the current step (avoids re-tuning)
 UP_MARGIN_W = 100  # spare power needed beyond a step's cost before moving up to it
 

@@ -1,4 +1,4 @@
-"""Tests for the rule-based decision preview: power steps, stop / start, tuning."""
+"""Tests for the rule-based decisions: power steps, one change at a time, ramp lock, stop / start."""
 from __future__ import annotations
 
 from custom_components.solar_smart_miner.const import DEFAULT_POWER_STEPS
@@ -93,10 +93,37 @@ def test_a_small_shortfall_does_not_re_tune_a_miner() -> None:
     assert set(_actions(decision).values()) == {ACTION_HOLD}
 
 
-def test_a_real_shortfall_steps_miners_down_one_step_at_a_time() -> None:
-    decision = _decide(_snapshot(3000.0, _three()))
+def test_a_shortfall_one_miner_can_take_is_one_jump_on_the_hungriest_miner() -> None:
+    miners = [_miner("a", limit=1100.0), _miner("b", limit=1500.0), _miner("c", limit=1100.0)]
+    decision = _decide(_snapshot(3200.0, miners))  # 3,700 W against 3,200 W + 150 W tolerance
 
-    assert decision.proposals == {"a": 1100.0, "b": 1100.0, "c": 900.0}
+    assert decision.proposals == {"b": 1100.0}  # skips 1,300 W: one restart, not two
+    assert decision.plans["a"].action == decision.plans["c"].action == ACTION_HOLD
+
+
+def test_a_shortfall_no_running_miner_can_take_stops_the_lowest_power_one() -> None:
+    miners = [_miner("a", limit=1300.0), _miner("b", limit=1100.0), _miner("c", limit=1300.0)]
+    decision = _decide(_snapshot(2800.0, miners))  # 3,700 W: 900 W short, a step down gives 400
+
+    assert _actions(decision) == {"a": ACTION_HOLD, "b": ACTION_STOP, "c": ACTION_HOLD}
+
+
+def test_never_more_than_one_miner_changes_for_the_budget() -> None:
+    for budget in range(0, 6200, 130):
+        for miners in (_three(limit=1100.0), _three(stopped=True), _three(limit=1500.0)):
+            decision = _decide(_snapshot(float(budget), miners))
+            changes = [p for p in decision.plans.values() if p.action != ACTION_HOLD]
+            assert len(changes) <= 1, (budget, decision.summary)
+
+
+def test_the_rules_never_propose_three_step_ups_at_once() -> None:
+    """Seen 2026-10-07: Brod1 2,300 to 2,500 W, Brod2 and Brod3 2,100 to 2,500 W in one proposal."""
+    steps = [1900, 2100, 2300, 2500]
+    miners = [_miner("a", limit=2300.0), _miner("b", limit=2100.0), _miner("c", limit=2100.0)]
+    decision = _decide(_snapshot(7800.0, miners), power_steps=steps)
+
+    assert decision.proposals == {"b": 2500.0}  # the weakest, two steps at once
+    assert any("One miner changes at a time" in line for line in decision.trace)
 
 
 def test_every_proposal_is_one_of_the_steps() -> None:
@@ -139,22 +166,20 @@ def test_miner_range_without_any_step_falls_back_to_its_ends() -> None:
 # --- stop / start ----------------------------------------------------------------
 
 
-def test_stops_miners_when_not_even_the_lowest_step_fits() -> None:
+def test_stops_one_miner_at_a_time_when_not_even_the_lowest_step_fits() -> None:
     decision = _decide(_snapshot(100.0, _three(limit=900.0)))
 
-    assert set(_actions(decision).values()) == {ACTION_STOP}
+    assert _actions(decision) == {"a": ACTION_HOLD, "b": ACTION_HOLD, "c": ACTION_STOP}
     assert decision.proposals == {}
-    assert all(p.method == "pause" for p in decision.plans.values())
+    assert decision.plans["c"].method == "pause"
 
 
 def test_stop_uses_the_relay_when_one_is_configured() -> None:
-    miners = [_miner("a", limit=900.0, relay=True), _miner("b", limit=900.0)]
-    decision = _decide(_snapshot(0.0, miners))
+    relay = _decide(_snapshot(0.0, [_miner("a", limit=900.0, relay=True)])).plans["a"]
+    pause = _decide(_snapshot(0.0, [_miner("b", limit=900.0)])).plans["b"]
 
-    assert decision.plans["a"].method == "relay"
-    assert decision.plans["a"].target_entity_id == "switch.relay_a"
-    assert decision.plans["b"].method == "pause"
-    assert decision.plans["b"].target_entity_id == "switch.b"
+    assert (relay.method, relay.target_entity_id) == ("relay", "switch.relay_a")
+    assert (pause.method, pause.target_entity_id) == ("pause", "switch.b")
 
 
 def test_without_any_stop_method_the_miner_drops_to_its_lowest_step() -> None:
@@ -165,11 +190,18 @@ def test_without_any_stop_method_the_miner_drops_to_its_lowest_step() -> None:
     assert any("no stop method" in line for line in decision.trace)
 
 
-def test_budget_for_only_some_miners_stops_the_rest() -> None:
-    decision = _decide(_snapshot(1300.0, _three(limit=900.0)))
+def test_budget_for_only_some_miners_stops_them_one_per_decision() -> None:
+    state = {i: [900.0, False] for i in "abc"}
+    for _ in range(4):
+        miners = [_miner(i, limit=lim, stopped=stopped) for i, (lim, stopped) in state.items()]
+        for mid, plan in _decide(_snapshot(1300.0, miners)).plans.items():
+            if plan.action == ACTION_STOP:
+                state[mid][1] = True
+            elif plan.action in (ACTION_SET_LIMIT, ACTION_START):
+                state[mid] = [plan.limit_w, False]
 
-    assert _actions(decision) == {"a": ACTION_SET_LIMIT, "b": ACTION_STOP, "c": ACTION_STOP}
-    assert decision.proposals == {"a": 1100.0}
+    # c, then b stopped; then a, alone, took the spare power in one jump.
+    assert state == {"a": [1100.0, False], "b": [900.0, True], "c": [900.0, True]}
 
 
 def test_a_stopped_miner_is_not_unavailable_and_stays_stopped_without_budget() -> None:
@@ -184,8 +216,8 @@ def test_starts_a_stopped_miner_when_the_lowest_step_plus_margin_fits() -> None:
     miners = [_miner("a", limit=1100.0), _miner("b", stopped=True, limit=1100.0)]
 
     assert _decide(_snapshot(2050.0, miners)).plans["b"].action != ACTION_START
-    started = _decide(_snapshot(2100.0, miners)).plans["b"]
-    assert started.action == ACTION_START
+    started = _decide(_snapshot(5000.0, miners)).plans["b"]
+    assert started.action == ACTION_START  # at the lowest step, even with room for more
     assert started.limit_w == 900.0
     assert (started.method, started.target_entity_id) == ("pause", "switch.b")
 
@@ -235,6 +267,41 @@ def test_tuning_never_blocks_stepping_down_or_stopping() -> None:
     assert stop.plans["a"].action == ACTION_STOP
 
 
+# --- ramp lock: the whole farm waits while a miner restarts ----------------------------
+
+
+def test_every_miner_holds_while_a_miner_restarts() -> None:
+    decision = _decide(_snapshot(9000.0, _three(limit=900.0)), minutes_since_change=1.0)
+
+    assert set(_actions(decision).values()) == {ACTION_HOLD}
+    assert decision.summary.startswith("Waiting for a miner to restart")
+    assert any("ramp lock" in line and "~3 min" in line for line in decision.trace)
+
+
+def test_the_next_change_comes_once_the_ramp_lock_is_over() -> None:
+    for since in (None, 4.0, 30.0):
+        decision = _decide(_snapshot(9000.0, _three(limit=900.0)), minutes_since_change=since)
+        assert decision.proposals == {"a": 1500.0}, since
+
+
+def test_the_ramp_lock_length_is_a_parameter() -> None:
+    snapshot = _snapshot(9000.0, _three(limit=900.0))
+
+    assert _decide(snapshot, minutes_since_change=5.0, ramp_lock_minutes=10).proposals == {}
+
+
+def test_safety_does_not_wait_for_the_ramp_lock() -> None:
+    decision = _decide(_snapshot(5000.0, _three(), battery_soc_pct=10.0), minutes_since_change=0.0)
+
+    assert set(_actions(decision).values()) == {ACTION_STOP}  # safety may change every miner
+
+
+def test_tuning_is_off_by_default_so_a_change_is_only_a_restart() -> None:
+    decision = _decide(_snapshot(5000.0, [_miner("a", limit=1100.0, since=5.0)]))
+
+    assert decision.proposals == {"a": 1500.0}
+
+
 # --- profiles and safety -------------------------------------------------------------
 
 
@@ -244,10 +311,12 @@ def test_grid_independent_notes_import_when_below_the_lowest_step() -> None:
     assert any("would import" in line for line in decision.trace)
 
 
-def test_grid_agnostic_runs_everything_at_the_top_step() -> None:
+def test_grid_agnostic_takes_every_miner_to_the_top_step_one_at_a_time() -> None:
     decision = _decide(_snapshot(None, _three(limit=900.0)), profile="grid_agnostic")
+    assert decision.proposals == {"a": 1500.0}
 
-    assert decision.proposals == {"a": 1500.0, "b": 1500.0, "c": 1500.0}
+    done = [_miner("a", limit=1500.0), _miner("b", limit=900.0), _miner("c", limit=900.0)]
+    assert _decide(_snapshot(None, done), profile="grid_agnostic").proposals == {"b": 1500.0}
 
 
 def test_grid_agnostic_starts_stopped_miners() -> None:
@@ -291,6 +360,15 @@ def test_too_warm_miner_steps_down_one_step_and_the_others_share_the_budget() ->
     assert "M-a: 75 °C, at or above 75 °C → one step down" in decision.trace
 
 
+def test_two_too_warm_miners_step_down_one_at_a_time_hottest_first() -> None:
+    miners = [_miner("a", temp=76.0), _miner("b", temp=79.0)]
+    decision = _decide(_snapshot(9000.0, miners))
+
+    assert decision.proposals == {"b": 1100.0}
+    assert decision.plans["a"].action == ACTION_HOLD
+    assert decision.summary.startswith("Temperature: M-b too warm")
+
+
 def test_miner_inside_the_band_holds_even_with_spare_energy() -> None:
     warm = _decide(_snapshot(9000.0, [_miner("a", limit=1100.0, temp=74.0)]))
     cool = _decide(_snapshot(9000.0, [_miner("a", limit=1100.0, temp=64.0)]))
@@ -324,7 +402,8 @@ def test_too_warm_at_the_lowest_step_is_left_to_the_miner() -> None:
 
 
 def test_temperature_is_ignored_while_the_miner_is_tuning() -> None:
-    decision = _decide(_snapshot(1300.0, [_miner("a", limit=1300.0, temp=80.0, since=5.0)]))
+    miners = [_miner("a", limit=1300.0, temp=80.0, since=5.0)]
+    decision = _decide(_snapshot(1300.0, miners), tuning_settle_minutes=60)
 
     assert decision.plans["a"].action == ACTION_HOLD
     assert decision.plans["a"].limit_w == 1300.0
@@ -348,7 +427,7 @@ def test_no_miners() -> None:
 def test_summary_names_what_each_miner_will_do() -> None:
     miners = [_miner("a", limit=900.0), _miner("b", limit=900.0), _miner("c", limit=900.0)]
 
-    # 2,000 W: two miners at 900 W fit, the third is stopped; 200 W spare is under the step-up margin.
+    # 2,000 W: two miners at 900 W fit, the third is stopped.
     assert _decide(_snapshot(2000.0, miners)).summary == (
         "Solar-max: budget 2,000 W → M-a hold 900 W, M-b hold 900 W, M-c stop (pause)"
     )

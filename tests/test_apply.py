@@ -128,7 +128,10 @@ async def test_unknown_miner_is_refused(hass, add_hass_miner) -> None:
 
 
 def _two_miners(hass, add_hass_miner) -> dict:
-    """Brod1 (listed first) is cool and can step up; Brod2 is too warm and steps down."""
+    """Brod1 (listed first) is cool and could step up; Brod2 is too warm and steps down.
+
+    The rules change one miner per proposal, so they propose only Brod2's step down.
+    """
     up = add_hass_miner("192.168.1.10", name="Brod1", limit="900", power="900", temperature="55",
                         limit_attrs=LIMITS)
     down = add_hass_miner("192.168.1.11", name="Brod2", limit="1500", power="1500", temperature="80",
@@ -142,13 +145,29 @@ def _two_miners(hass, add_hass_miner) -> dict:
     }
 
 
+def _brod1_steps_up_too(coordinator) -> None:
+    """Make the shown proposal a two-miner bundle (as a safety step may be)."""
+    brod1 = next(m for m in coordinator.data.miners if m.name == "Brod1")
+    coordinator.data.decision.plans[brod1.miner_id] = MinerPlan("set_limit", limit_w=1100.0, reason="budget")
+
+
+async def test_the_rules_propose_one_miner_at_a_time(hass, add_hass_miner) -> None:
+    _two_miners(hass, add_hass_miner)
+    coordinator = _coordinator(hass)
+    await coordinator.async_refresh()
+    plans = {m.name: coordinator.data.decision.plans[m.miner_id] for m in coordinator.data.miners}
+
+    assert plans["Brod2"].limit_w == 1300  # too warm: one step down
+    assert plans["Brod1"].action == "hold"  # could step up, waits for the next decision
+
+
 async def test_apply_all_does_reductions_before_increases(hass, add_hass_miner) -> None:
     entities = _two_miners(hass, add_hass_miner)
     calls = async_mock_service(hass, "number", "set_value")
     coordinator = _coordinator(hass)
     await coordinator.async_refresh()
-    plans = {m.name: coordinator.data.decision.plans[m.miner_id] for m in coordinator.data.miners}
-    assert plans["Brod1"].limit_w > 900 and plans["Brod2"].limit_w < 1500  # the setup holds
+    _brod1_steps_up_too(coordinator)
+    coordinator._async_update_data = AsyncMock(return_value=coordinator.data)
 
     results = await coordinator.async_apply_all()
 
@@ -193,8 +212,9 @@ async def test_apply_all_applies_nothing_when_any_part_of_the_bundle_changed(has
     calls = async_mock_service(hass, "number", "set_value")
     coordinator = _coordinator(hass)
     await coordinator.async_refresh()
+    _brod1_steps_up_too(coordinator)  # shown: Brod1 up and Brod2 down
 
-    hass.states.async_set(entities["up_temperature"], "80")  # Brod1 warmed up: no step up now
+    # On press the rules no longer step Brod1 up (they never did here: one miner per proposal).
     results = await coordinator.async_apply_all()
     await hass.async_block_till_done()
 
@@ -210,9 +230,10 @@ async def test_apply_all_refuses_when_a_new_step_appears_after_the_refresh(hass,
     calls = async_mock_service(hass, "number", "set_value")
     coordinator = _coordinator(hass)
     await coordinator.async_refresh()
-    # Pretend the owner looked while Brod1 was holding, so only Brod2's step was on screen.
-    brod1 = next(m for m in coordinator.data.miners if m.name == "Brod1")
-    coordinator.data.decision.plans[brod1.miner_id] = MinerPlan("hold", reason="tuning")
+    # Pretend the owner looked while Brod2 was holding and Brod1 was the one change on screen.
+    brod2 = next(m for m in coordinator.data.miners if m.name == "Brod2")
+    coordinator.data.decision.plans[brod2.miner_id] = MinerPlan("hold", limit_w=1500.0, reason="budget")
+    _brod1_steps_up_too(coordinator)
 
     results = await coordinator.async_apply_all()
 

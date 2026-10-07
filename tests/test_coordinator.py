@@ -1132,3 +1132,61 @@ async def test_power_steps_and_tuning_options_drive_the_decision(hass, add_hass_
     assert list(decision.proposals.values()) == [1000.0]  # only the configured steps
     assert any("Power steps: 700, 1,000 W" in line for line in decision.trace)
     assert "Grid import target: 250 W" in decision.trace
+
+
+async def test_a_sent_command_holds_the_whole_farm_for_the_ramp_lock(hass, add_hass_miner, monkeypatch) -> None:
+    import time as time_module
+
+    from pytest_homeassistant_custom_component.common import async_mock_service
+
+    from custom_components.solar_smart_miner.const import CONF_CONTROL_MODE
+
+    now = [1000.0]
+    monkeypatch.setattr(time_module, "monotonic", lambda: now[0])
+    reg = add_hass_miner(MINER_IP, limit="900", power="900", temperature="55",
+                         limit_attrs={"min": 500.0, "max": 3500.0})
+    add_hass_miner(MINER_IP_2, limit="900", power="900", temperature="55",
+                   limit_attrs={"min": 500.0, "max": 3500.0})
+    hass.states.async_set(SOLAR_ENTITY, "9000")
+    hass.states.async_set(GRID_ENTITY, "1800")
+    async_mock_service(hass, "number", "set_value")
+    coordinator = SolarMinerCoordinator(hass, _make_entry(hass, options={CONF_CONTROL_MODE: "manual"}))
+    snapshot = await coordinator._async_update_data()
+    assert len(snapshot.decision.proposals) == 1  # one miner per proposal
+
+    miner = next(m for m in snapshot.miners if m.miner_id in snapshot.decision.proposals)
+    await coordinator.controller.async_apply(
+        miner, snapshot.decision.plans[miner.miner_id], trigger="manual", steps=coordinator._power_steps()
+    )
+    # Still being checked: everything holds, the other miner too.
+    snapshot = await coordinator._async_update_data()
+    assert snapshot.decision.summary.startswith("Waiting for a miner to restart")
+
+    # The miner shows its new limit: checked, but the ramp lock runs from the change.
+    hass.states.async_set(reg["power_limit"].entity_id, "1500", {"min": 500.0, "max": 3500.0})
+    now[0] += 60
+    snapshot = await coordinator._async_update_data()
+    assert snapshot.decision.proposals == {}
+    assert snapshot.decision.summary.startswith("Waiting for a miner to restart")
+
+    now[0] += 4 * 60
+    snapshot = await coordinator._async_update_data()
+    assert not snapshot.decision.summary.startswith("Waiting")
+
+
+async def test_a_miner_stopped_or_started_by_hand_starts_the_ramp_lock(hass, add_hass_miner, monkeypatch) -> None:
+    import time as time_module
+
+    now = [1000.0]
+    monkeypatch.setattr(time_module, "monotonic", lambda: now[0])
+    reg = add_hass_miner(MINER_IP, limit="900", power="900", temperature="55", active="on",
+                         limit_attrs={"min": 500.0, "max": 3500.0})
+    hass.states.async_set(SOLAR_ENTITY, "9000")
+    hass.states.async_set(GRID_ENTITY, "900")
+    coordinator = SolarMinerCoordinator(hass, _make_entry(hass))
+    assert not (await coordinator._async_update_data()).decision.summary.startswith("Waiting")
+
+    hass.states.async_set(reg["active"].entity_id, "off")
+    now[0] += 30
+    snapshot = await coordinator._async_update_data()
+    assert snapshot.decision.summary.startswith("Waiting for a miner to restart")

@@ -20,6 +20,7 @@ from custom_components.solar_smart_miner.const import (
     DOMAIN,
 )
 from custom_components.solar_smart_miner.control import CommandResult
+from custom_components.solar_smart_miner.protocols import MinerPlan
 
 SOLAR = "sensor.solar_power"
 GRID = "sensor.grid_consumption"
@@ -168,7 +169,7 @@ async def test_activity_shows_the_farm_proposal(hass, add_hass_miner) -> None:
     assert state.attributes["feed"][0]["current"] is True
 
 
-async def test_the_proposal_bundles_every_miner_that_would_change(hass, add_hass_miner) -> None:
+async def test_the_proposal_changes_one_miner_and_lists_reductions_first(hass, add_hass_miner) -> None:
     add_hass_miner("192.168.1.10", name="Brod1", limit="900", power="900", temperature="55",
                         limit_attrs=LIMITS)
     add_hass_miner("192.168.1.11", name="Brod2", limit="1500", power="1500", temperature="80",
@@ -186,11 +187,15 @@ async def test_the_proposal_bundles_every_miner_that_would_change(hass, add_hass
 
     state = _state(hass, "sensor", "_activity")
 
-    # Listed in the order Apply sends them: the reduction first, although Brod1 is the first miner.
-    assert state.attributes["proposal"] == (
-        "Brod2 1,300 W (from 1,500 W) · Brod1 1,500 W (from 900 W)"
-    )
-    assert len(state.attributes["feed"]) == 1  # one bundled entry, not one per miner
+    # Brod1 could step up too, but one miner changes per proposal.
+    assert state.attributes["proposal"] == "Brod2 1,300 W (from 1,500 W)"
+    assert len(state.attributes["feed"]) == 1
+
+    # A bundle of several (a safety step) is listed in the order Apply sends it: reduction first.
+    coordinator = entry.runtime_data
+    brod1 = next(m for m in coordinator.data.miners if m.name == "Brod1")
+    coordinator.data.decision.plans[brod1.miner_id] = MinerPlan("set_limit", limit_w=1500.0, reason="budget")
+    assert coordinator.proposal_text() == "Brod2 1,300 W (from 1,500 W) · Brod1 1,500 W (from 900 W)"
 
 
 async def test_activity_feed_follows_proposals_then_the_applied_action(hass, add_hass_miner) -> None:

@@ -75,6 +75,7 @@ from .const import (
     SOLAR_ENTITY_TYPE_PRODUCTION,
 )
 from .control import (
+    RESULT_PENDING,
     RESULT_REFUSED,
     TRIGGER_MANUAL,
     CommandEvent,
@@ -201,6 +202,8 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         self._ai_last_request: float | None = None  # time.monotonic()
         # miner id -> (power limit last seen, time.monotonic() when it changed or None)
         self._limit_seen: dict[str, tuple[float | None, float | None]] = {}
+        self._stopped_seen: dict[str, bool] = {}  # miner id -> stopped at the last read
+        self._last_change: float | None = None  # time.monotonic() of the last command or stop/start seen
         self.controller = MinerController(
             hass,
             get_mode=lambda: self.control_mode,
@@ -339,6 +342,9 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 relay_state is not None and relay_state.state == "off"
             )
             power_limit_w = _parse_state_float(limit_state)
+            if self._stopped_seen.get(miner_id, is_stopped) != is_stopped:
+                self._last_change = time.monotonic()  # stopped or started, by us or by hand
+            self._stopped_seen[miner_id] = is_stopped
             if not is_available and not is_stopped:
                 _LOGGER.warning("Miner %s (%s): power entity unavailable", name, miner_id)
 
@@ -391,6 +397,15 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         last_limit, _ = self._limit_seen.get(miner_id, (None, None))
         self._limit_seen[miner_id] = (last_limit, time.monotonic())
 
+    def _minutes_since_change(self, miners: list[MinerSnapshot]) -> float | None:
+        """Minutes since the last change on any miner, for the ramp lock (0 while one is checked)."""
+        if any(self.controller.is_pending(m.miner_id) for m in miners):
+            return 0.0
+        ages = [m.minutes_since_limit_change for m in miners if m.minutes_since_limit_change is not None]
+        if self._last_change is not None:
+            ages.append((time.monotonic() - self._last_change) / 60)
+        return min(ages, default=None)
+
     def seed_activity(self) -> None:
         """After a restart, start the feed from the applied actions in the action log."""
         for entry in reversed(self.action_log.history):
@@ -436,6 +451,8 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         return self._farm_proposal(self.data)[1] if self.data is not None else NO_ACTION_TEXT
 
     async def _async_record_action(self, event: CommandEvent) -> None:
+        if event.status == RESULT_PENDING:
+            self._last_change = time.monotonic()  # sent: the miner restarts now
         await self.action_log.async_record(event, self.data)
         self.activity.appendleft({"kind": "applied", **self.action_log.history[0]})
         self.async_update_listeners()  # the "Last action" sensor and the buttons' availability
@@ -730,6 +747,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 options.get(CONF_TUNING_SETTLE, DEFAULT_TUNING_SETTLE_MINUTES)
             ),
             import_target_w=float(options.get(CONF_IMPORT_TARGET, DEFAULT_IMPORT_TARGET_W)),
+            minutes_since_change=self._minutes_since_change(miners),
         )
         # Only record changes, so the history reads as a log of what shifted.
         if not self._history or self._history[0]["summary"] != decision.summary:

@@ -183,7 +183,25 @@ entries:
     note: >
       Matches the owner's 14 minutes to an hour. The 17 to 20 minute figure is when the efficiency is near
       its final value; the dips and the last few percent take until about +46. Always from a lower step
-      to a higher one so far; stepping down is not measured.
+      to a higher one so far; stepping down is not measured. Per the owner (2026-10-07) this is the cost
+      of a step a miner has never run; a step tuned before is only a restart (miner.revisit-is-a-restart).
+
+  - id: miner.revisit-is-a-restart
+    title: Going back to a tuned step is only a restart
+    statement: >
+      A miner keeps the settings from its first tuning at a wattage. Changing to a step it has run
+      before costs only the restart, 2 to 3 minutes until it loads and settles at that power (measured
+      about 4 minutes to the new power); the long tuning (miner.tuning-duration) is for a step it has
+      never run. All the configured steps have been run on every miner.
+    priority: P3
+    status: decided
+    source: "owner, 2026-10-07; restart time measured 2026-10-06 (miner.limit-change-cost)"
+    date: "2026-10-07"
+    situations: [situation.tuning]
+    tags: [always, allocation, tuning]
+    note: >
+      Not measured yet: check on the first applied change to a step tuned before that efficiency is
+      near miner.settled-values within about 5 minutes. Then raise to verified.
 
   - id: miner.settled-values
     title: What a tuned miner gives at each step

@@ -117,7 +117,7 @@ alerts:
     notify: [log, dashboard, push]
     cooldown_min: 60
     resolves_when: The sensor reports a number for 2 minutes.
-    related: [rule.hold-on-sensor-drop, energy.meter-dropouts]
+    related: [rule.required-inputs, energy.meter-dropouts]
     note: >
       Becomes critical at critical_minutes with step_down: the controller cannot see the grid
       and shouldn't keep miners at full power forever.

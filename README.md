@@ -130,12 +130,14 @@ The last 20 entries are also on the **AI advice** sensor (`history` and `actions
 
 ## Power steps, stopping and tuning
 
-A miner re-tunes itself for 14 minutes to an hour after every power-limit change, and only reaches its best efficiency once that is done. So the controller never asks for an arbitrary wattage: limits move only between **power steps**, **900, 1100, 1300 and 1500 W** by default (Configure → Settings; each miner uses the steps inside its own range).
+Every power-limit change restarts a miner: it draws almost nothing for 2 to 4 minutes while it loads. A miner tunes itself the first time it runs a wattage (14 minutes to an hour) and keeps those settings, so going back to a step it has run before is only the restart. So the controller never asks for an arbitrary wattage: limits move only between **power steps**, **900, 1100, 1300 and 1500 W** by default (Configure → Settings; each miner uses the steps inside its own range).
 
+- **One miner per proposal.** Apart from safety, a proposal changes one miner. If several restarted together the farm's load would drop to almost 0 W, the zero-export inverters would throttle down, and the grid would cover the gap when the miners came back. A shortfall goes to the hungriest miner that can take all of it and keep running; if none can, the lowest-power miner is stopped. Spare power starts a stopped miner at its lowest step first, otherwise it raises the weakest running miner.
+- **A change may skip steps.** That one change goes straight to the step that fits (1,500 → 1,100 W is one restart, not two).
+- **Ramp lock.** After any change (a command sent, or a limit, stop or start seen on a miner, also by hand) every miner holds for 4 minutes, and while a command is still being checked. The readings are misleading while a miner restarts. Safety doesn't wait.
 - **Starting from where the miner is.** The plan begins at each miner's current step. A shortfall of up to 150 W keeps the current step, and stepping up needs 100 W of spare power on top of the step's cost, so small wobbles in the budget change nothing.
 - **Stopping.** When the budget is below the lowest step the miner is **stopped**, not just turned down to a minimum. How is configured per miner under Configure → Miner stop method: a **relay** switch (for miners cut off with a relay) or, when none is set, the miner's own **pause** switch (`switch.<miner>_active` from hass-miner). A stopped miner is started again when its lowest step plus the margin fits. A miner with neither is dropped to its lowest step instead.
-- **Tuning.** hass-miner doesn't report the tuning state, so it is estimated: a miner is assumed to be tuning for the configured number of minutes (default 60) after its limit last changed. While tuning it is never stepped up; stepping down and stopping are still allowed. A limit that was already set when Home Assistant started counts as settled.
-- **Filling order.** A running miner is stepped up to its top step before another miner is started.
+- **Tuning.** Off by default (0 minutes): every configured step has been tuned before. If you add a step a miner has never run, set the tuning time (Configure → Settings) to about 50 minutes: for that long after its limit changed a miner is not stepped up and its temperature is ignored. hass-miner doesn't report the tuning state, so it is estimated from the time since the limit last changed.
 
 The rules work out one plan per miner every cycle. In **Preview** mode the decision log and the AI advice only show what would be done; in **Manual** mode the plans are bundled into one proposal that you apply with a button (see [Control mode](#control-mode)).
 
@@ -160,7 +162,7 @@ An automatic mode will come later as another value of this select; it will use t
 
 How Apply works:
 
-- **One proposal for the whole farm.** The plans come from one shared power budget, so they are applied as a bundle: if any part changed since you looked, nothing is sent.
+- **One proposal for the whole farm.** The plans come from one shared power budget, so they are applied as a bundle: if any part changed since you looked, nothing is sent. Normally the bundle changes one miner (see [Power steps](#power-steps-stopping-and-tuning)); only safety changes several.
 - **What you saw is what runs.** On press the integration reads everything again. If the proposal changed in the meantime, nothing is sent and a notification says "the proposal changed, check again". A failed update refuses too: stale readings are worse than no action.
 - **Only the rule plan is applied**, never the AI answer. The AI's view of each miner is recorded in the action log.
 - **Guards.** A limit that is not one of the miner's power steps is refused, never clamped. A second press for a miner is refused while its previous command is still being checked.

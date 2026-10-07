@@ -4,10 +4,12 @@ Works out one plan per miner each cycle and explains it in a trace. Nothing here
 the miners: a plan is carried out only through control.py, when the control mode allows
 it and the owner presses Apply.
 
-A miner re-tunes for 14 min to an hour after every power-limit change, so limits
-only move between a few fixed steps (const.DEFAULT_POWER_STEPS), one step at a time
-from where the miner is now. Below the lowest step a miner is stopped, through its
-relay or its own pause switch (see MinerSnapshot).
+Every change restarts a miner (2 to 4 minutes at no power), so limits only move between
+a few fixed steps (const.DEFAULT_POWER_STEPS), and a proposal changes one miner at a time:
+the farm's load would drop to almost 0 W if several restarted together. That one change may
+skip steps. After any change the whole farm waits for the ramp lock before the next.
+Below the lowest step a miner is stopped, through its relay or its own pause switch
+(see MinerSnapshot).
 """
 from __future__ import annotations
 
@@ -16,6 +18,7 @@ import math
 from .const import (
     DEFAULT_IMPORT_TARGET_W,
     DEFAULT_POWER_STEPS,
+    DEFAULT_RAMP_LOCK_MINUTES,
     DEFAULT_TUNING_SETTLE_MINUTES,
     HOLD_TOLERANCE_W,
     METER_NEAR_ZERO_W,
@@ -124,20 +127,22 @@ def _nearest_level(ladder: list[float], limit_w: float | None) -> int:
     return min(range(len(ladder)), key=lambda i: abs(ladder[i] - limit_w))
 
 
-def _allocate(
+def _one_change(
     candidates: list[MinerSnapshot],
     budget: float,
     ladders: dict[str, list[float]],
-    caps: dict[str, int] | None = None,
-) -> dict[str, int | None]:
-    """Power step (index into its ladder) per miner for a budget; None = stopped.
+    caps: dict[str, int],
+    tuning: dict[str, float],
+    trace: list[str],
+) -> tuple[MinerSnapshot, int | None] | None:
+    """The one miner to change for a budget, and its new step (index; None = stop).
 
-    Starts from where each miner is now and moves along its steps, so a small
-    budget wobble doesn't re-tune anything: a shortfall up to HOLD_TOLERANCE_W keeps
-    the current steps, and stepping up needs UP_MARGIN_W of spare power on top.
-    `caps` is the highest step a miner may step up to (a warm miner: its current one).
+    Starts from where each miner is now, so a small budget wobble changes nothing: a
+    shortfall up to HOLD_TOLERANCE_W keeps the current steps, and stepping up needs
+    UP_MARGIN_W of spare power on top. The change may skip steps; it is one restart either way.
+    `caps` is the highest step a miner may step up to (a warm miner: its current one), and
+    `tuning` the minutes a miner is still tuning (no step up until then).
     """
-    caps = caps or {}
     level: dict[str, int | None] = {
         m.miner_id: None if m.is_stopped else _nearest_level(ladders[m.miner_id], m.power_limit_w)
         for m in candidates
@@ -147,29 +152,55 @@ def _allocate(
         lv = level[m.miner_id]
         return 0.0 if lv is None else ladders[m.miner_id][lv]
 
-    def total() -> float:
-        return sum(watts(m) for m in candidates)
+    total = sum(watts(m) for m in candidates)
+    running = [m for m in candidates if level[m.miner_id] is not None]
 
-    # Too much: step the hungriest miner down; below its lowest step it stops.
-    while total() > budget + HOLD_TOLERANCE_W:
-        running = [m for m in candidates if level[m.miner_id] is not None]
-        m = max(reversed(running), key=watts)
-        lv = level[m.miner_id]
-        level[m.miner_id] = lv - 1 if lv else None
-
-    # Room to spare: step the weakest miner up first (a stopped one counts as 0 W).
-    while True:
-        for m in sorted(candidates, key=watts):
+    if total > budget + HOLD_TOLERANCE_W:
+        # Too much: the hungriest miner that can take the whole cut and keep running,
+        # on the highest step that fits; if none can, stop the lowest-power one.
+        fits: list[tuple[MinerSnapshot, int]] = []
+        for m in running:
             lv = level[m.miner_id]
             ladder = ladders[m.miner_id]
-            nxt = 0 if lv is None else lv + 1
-            if nxt >= len(ladder) or nxt > caps.get(m.miner_id, nxt):
-                continue
-            if budget - total() >= ladder[nxt] - watts(m) + UP_MARGIN_W:
-                level[m.miner_id] = nxt
-                break
-        else:
-            return level
+            for new in range(lv - 1, -1, -1):
+                if total - (ladder[lv] - ladder[new]) <= budget + HOLD_TOLERANCE_W:
+                    fits.append((m, new))
+                    break
+        # Of equals, the last miner in the list: the first ones start first and stop last.
+        if fits:
+            return max(reversed(fits), key=lambda pair: watts(pair[0]))
+        if running:
+            return min(reversed(running), key=watts), None
+        return None
+
+    spare = budget - total
+    # Room to spare: start a stopped miner at its lowest step first ...
+    for m in candidates:
+        if level[m.miner_id] is None and ladders[m.miner_id][0] + UP_MARGIN_W <= spare:
+            return m, 0
+    # ... else raise the weakest running miner as far as the spare power allows.
+    for m in sorted(running, key=watts):
+        lv = level[m.miner_id]
+        ladder = ladders[m.miner_id]
+        top = min(caps.get(m.miner_id, len(ladder) - 1), len(ladder) - 1)
+        new = max(
+            (i for i in range(lv + 1, top + 1) if ladder[i] - ladder[lv] + UP_MARGIN_W <= spare),
+            default=None,
+        )
+        if new is None:
+            continue
+        if m.miner_id in tuning:
+            trace.append(
+                f"{m.name}: could step up to {_w(ladder[new])} but is still tuning "
+                f"(~{tuning[m.miner_id]:.0f} min left) → holding {_w(m.power_limit_w)}"
+            )
+            continue
+        return m, new
+    # Nothing to change for the budget: move a limit that is off the steps onto the nearest one.
+    for m in running:
+        if m.power_limit_w is not None and m.power_limit_w != ladders[m.miner_id][level[m.miner_id]]:
+            return m, level[m.miner_id]
+    return None
 
 
 def _solar_follow_extra(energy: EnergySnapshot, import_target_w: float, trace: list[str]) -> float:
@@ -215,7 +246,15 @@ def build_decision(
     power_steps: list[float] | None = None,
     tuning_settle_minutes: float = DEFAULT_TUNING_SETTLE_MINUTES,
     import_target_w: float = DEFAULT_IMPORT_TARGET_W,
+    minutes_since_change: float | None = None,
+    ramp_lock_minutes: float = DEFAULT_RAMP_LOCK_MINUTES,
 ) -> Decision:
+    """One plan per miner. Apart from safety, at most one miner changes per decision.
+
+    `minutes_since_change` is the time since the last change on any miner (a command sent,
+    or a limit or stop seen to change), None if none is known; 0 while a command is still
+    being checked. Until `ramp_lock_minutes` have passed every miner holds.
+    """
     energy = snapshot.energy
     steps = list(power_steps) if power_steps else list(DEFAULT_POWER_STEPS)
     profile_def = PROFILES_BY_NAME.get(profile)
@@ -260,6 +299,10 @@ def build_decision(
         return MinerPlan(ACTION_SET_LIMIT, limit_w=limit_w, reason=reason)
 
     def done(summary: str) -> Decision:
+        # In the order the miners are listed, whichever was decided first.
+        ordered = {m.miner_id: plans[m.miner_id] for m in snapshot.miners if m.miner_id in plans}
+        plans.clear()
+        plans.update(ordered)
         if plans:
             trace.append("PROPOSE")
             parts = []
@@ -296,10 +339,25 @@ def build_decision(
         plans.update({m.miner_id: stop(m, "battery low") for m in candidates})
         return done("Safety: battery below floor")
 
+    def others_wait(changed: MinerSnapshot | None, reason: str) -> None:
+        for m in candidates:
+            if m is not changed:
+                plans[m.miner_id] = stop(m, reason) if m.is_stopped else hold(m, reason)
+
+    # Ramp lock: a miner that just changed is restarting and the readings are misleading.
+    if minutes_since_change is not None and minutes_since_change < ramp_lock_minutes:
+        left = ramp_lock_minutes - minutes_since_change
+        trace.append(
+            f"A miner changed {minutes_since_change:.0f} min ago and is restarting "
+            f"→ every miner holds for ~{left:.0f} min more (ramp lock)"
+        )
+        others_wait(None, "ramp lock")
+        return done("Waiting for a miner to restart")
+
     # Temperature band: not a safety step, it only shapes the allocation below.
-    reserved_w = 0.0  # what miners stepped down for temperature still draw from the budget
     caps: dict[str, int] = {}  # highest step a warm miner may have: its current one
-    for m in list(candidates):
+    too_warm: list[MinerSnapshot] = []
+    for m in candidates:
         if m.is_stopped or m.temperature_c is None:
             continue
         if _tuning_left(m, tuning_settle_minutes) is not None:
@@ -319,20 +377,31 @@ def build_decision(
             caps[m.miner_id] = lv
             continue
         trace.append(f"{m.name}: {temp}, at or above {too_warm_c:.0f} °C → one step down")
-        plans[m.miner_id] = to_step(m, ladder[lv - 1], "too warm")
-        reserved_w += ladder[lv - 1]
-        candidates.remove(m)
-    if not candidates:
-        return done("Temperature: all miners too warm")
+        too_warm.append(m)
+    if too_warm:
+        # One change per proposal: the hottest miner now, the others in the next decisions.
+        m = max(too_warm, key=lambda x: x.temperature_c)
+        ladder = _ladder(m, steps)
+        plans[m.miner_id] = to_step(m, ladder[_nearest_level(ladder, m.power_limit_w) - 1], "too warm")
+        others_wait(m, "waits its turn")
+        if len(too_warm) > 1:
+            trace.append(f"One miner changes at a time → {m.name} first")
+        return done(f"Temperature: {m.name} too warm")
 
     ladders = {m.miner_id: _ladder(m, steps) for m in candidates}
 
     if profile == "grid_agnostic":
-        trace.append("Grid draw allowed without penalty → every miner to its top step")
+        trace.append("Grid draw allowed without penalty → every miner to its top step, one at a time")
         for m in candidates:
             ladder = ladders[m.miner_id]
             top = min(caps.get(m.miner_id, len(ladder) - 1), len(ladder) - 1)
-            plans[m.miner_id] = to_step(m, ladder[top], "grid agnostic")
+            plan = to_step(m, ladder[top], "grid agnostic")
+            if plan.action != ACTION_HOLD:
+                plans[m.miner_id] = plan
+                others_wait(m, "waits its turn")
+                break
+        else:
+            others_wait(None, "grid agnostic")
         return done(profile_label)
 
     if energy.available_for_miners_w is None:
@@ -344,7 +413,7 @@ def build_decision(
     available = energy.available_for_miners_w
     if profile == "solar_max":
         available += _solar_follow_extra(energy, import_target_w, trace)
-    budget = max(available - reserved_w, 0.0)
+    budget = max(available, 0.0)
     if profile == "battery_focused" and energy.battery_soc_pct is not None and profile_def:
         stop_at = profile_def["parameters"]["stop_at_soc_pct"]
         if energy.battery_soc_pct <= stop_at:
@@ -352,33 +421,30 @@ def build_decision(
             budget = 0.0
     trace.append(f"Power budget: {_w(budget)} for {len(candidates)} miner(s)")
 
-    levels = _allocate(candidates, budget, ladders, caps)
-    for m in candidates:
-        lv = levels[m.miner_id]
-        ladder = ladders[m.miner_id]
-        if lv is None:
-            reason = "not enough power for the lowest step"
-            if profile == "grid_independent":
-                reason += f" (would import ~{_w(ladder[0])})"
-            plans[m.miner_id] = stop(m, reason)
-            if plans[m.miner_id].action == ACTION_STOP:
-                trace.append(f"{m.name}: {reason}")
-            continue
-        target = ladder[lv]
-        left = _tuning_left(m, tuning_settle_minutes)
-        if (
-            left is not None
-            and not m.is_stopped
-            and m.power_limit_w is not None
-            and target > m.power_limit_w
-        ):
-            trace.append(
-                f"{m.name}: could step up to {_w(target)} but is still tuning "
-                f"(~{left:.0f} min left) → holding {_w(m.power_limit_w)}"
-            )
-            plans[m.miner_id] = hold(m, "tuning")
-            continue
-        plans[m.miner_id] = to_step(m, target, "budget")
+    tuning = {
+        m.miner_id: left
+        for m in candidates
+        if not m.is_stopped and (left := _tuning_left(m, tuning_settle_minutes)) is not None
+    }
+    change = _one_change(candidates, budget, ladders, caps, tuning, trace)
+    if change is None:
+        others_wait(None, "budget")
+        for mid in tuning:
+            plans[mid] = MinerPlan(ACTION_HOLD, limit_w=plans[mid].limit_w, reason="tuning")
+        return done(f"{profile_label}: budget {_w(budget)}")
+    m, lv = change
+    ladder = ladders[m.miner_id]
+    if lv is None:
+        reason = "not enough power for the lowest step"
+        if profile == "grid_independent":
+            reason += f" (would import ~{_w(ladder[0])})"
+        plans[m.miner_id] = stop(m, reason)
+        if plans[m.miner_id].action == ACTION_STOP:
+            trace.append(f"{m.name}: {reason}")
+    else:
+        plans[m.miner_id] = to_step(m, ladder[lv], "budget")
+    trace.append(f"One miner changes at a time → {m.name}; the others wait for the next decision")
+    others_wait(m, "budget")
     return done(f"{profile_label}: budget {_w(budget)}")
 
 

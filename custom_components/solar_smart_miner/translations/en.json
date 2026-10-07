@@ -74,14 +74,14 @@
           "mock_solar_entity": "Forecast.Solar power sensor (mock source)",
           "mock_consumption_enabled": "Use total miner power as mock grid consumption (development only)",
           "power_steps": "Power steps, W (comma separated)",
-          "tuning_settle_minutes": "Minutes a miner is assumed to be tuning after a limit change"
+          "tuning_settle_minutes": "Minutes a miner is assumed to be tuning after a limit change (0 = off)"
         },
         "data_description": {
           "temp_target": "Below this a miner may step up if there is energy. From here up to target + tolerance it holds, even with spare energy.",
           "temp_tolerance": "At or above target + tolerance a miner steps down one step. The Braiins OS cutoff on the miner stays the last line of defense.",
           "import_target": "Without a battery, a small steady grid import is the only proof that all the solar is used: at 0 W a throttled inverter hides what the panels could give. Solar-max steps up when the import is about 300 W below this, and down when it is more than 150 W above.",
-          "power_steps": "A miner re-tunes for up to an hour after each power-limit change, so limits only ever move between these steps. Each miner uses the steps inside its own range. Default: 900, 1100, 1300, 1500.",
-          "tuning_settle_minutes": "The miners don't report their tuning state, so it is estimated as the time since the limit last changed. While a miner is tuning it is not stepped up (stepping down and stopping are still allowed)."
+          "power_steps": "Every power-limit change restarts the miner, and a wattage it has never run takes up to an hour to tune, so limits only ever move between these steps. Each miner uses the steps inside its own range. Default: 900, 1100, 1300, 1500.",
+          "tuning_settle_minutes": "Only needed for a step a miner has never run (about 50 minutes); 0 when every step has been tuned before. The miners don't report their tuning state, so it is estimated as the time since the limit last changed. While a miner is tuning it is not stepped up and its temperature is ignored (stepping down and stopping are still allowed). Every change also holds the whole farm for 4 minutes while the miner restarts."
         }
       },
       "edit_sensors": {

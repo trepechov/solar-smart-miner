@@ -102,10 +102,13 @@ entries:
       minutes). Stepping down and stopping are always allowed.
     priority: P1
     status: decided
-    source: "owner, 2026-10-05"
-    date: "2026-10-05"
+    source: "owner, 2026-10-05; scope from round 7, 2026-10-07"
+    date: "2026-10-07"
     situations: [situation.tuning]
     tags: [always, allocation, tuning]
+    note: >
+      Tuning is an exception, not the normal cost of a change: it happens on a step a miner has
+      never run (miner.revisit-is-a-restart). A change to a tuned step costs only the ramp lock.
 
   - id: rule.stop-below-lowest-step
     title: Stop, don't idle
@@ -113,11 +116,13 @@ entries:
       When the budget doesn't cover the lowest step, the miner is stopped through its stop
       procedure (a relay switch if configured, otherwise its own pause switch), not left
       running at a hardware minimum. It is started again when its lowest step fits with a
-      margin of 100 W.
+      margin of 100 W. The lowest step (900 W) is the pause threshold; there is no separate
+      1000 W threshold. A shortfall must outlast the cloud tolerance before a miner is paused
+      (rule.down-slowly-up-promptly).
     priority: P1
     status: decided
-    source: "requirements doc §0 point 7, §5.3; owner, 2026-10-05"
-    date: "2026-10-05"
+    source: "requirements doc §0 point 7, §5.3, §0.6 round 7; owner, 2026-10-05 and 2026-10-07"
+    date: "2026-10-07"
     situations: [situation.sunset, situation.night]
     tags: [always, sunset, sunrise, allocation, night]
 
@@ -127,11 +132,61 @@ entries:
       When the solar or meter sensor drops out, every miner is held as it is. A short gap
       must never make the miners change.
     priority: P1
-    status: decided
+    status: retired
     source: "decided 2026-10-05 after the 17:39 and 18:43 dropouts"
-    date: "2026-10-05"
+    date: "2026-10-07"
     situations: [situation.dropout]
     tags: [always, alerts, dropout]
+    note: >
+      Replaced by rule.required-inputs (round 7, 2026-10-07): only the inputs the profile needs
+      count, and Solar-follow doesn't need the solar sensor.
+
+  - id: rule.required-inputs
+    title: Only the inputs the profile needs count
+    statement: >
+      Solar-follow needs the grid import, not the solar sensor. While the grid import is
+      unknown, nothing steps up and a short gap changes nothing. If it stays unknown, step down
+      or pause (alert sensor.meter-lost: warning at 10 minutes, step down at 30). A solar
+      sensor dropout changes nothing.
+    priority: P1
+    status: decided
+    source: "requirements doc §0.6 round 7; owner, 2026-10-07"
+    date: "2026-10-07"
+    situations: [situation.dropout]
+    tags: [always, alerts, dropout]
+    note: Replaces the code's "solar sensor unavailable → minimum", which watches the wrong sensor.
+
+  - id: rule.jump-several-steps
+    title: A change may skip steps
+    statement: >
+      A limit may move several steps in one change. It costs one restart, the same as one step,
+      so on a big change go straight to the target step rather than one step per cycle.
+    priority: P1
+    status: decided
+    source: "owner, 2026-10-07"
+    date: "2026-10-07"
+    tags: [always, allocation, cloud]
+    note: Still subject to rule.down-slowly-up-promptly; skipping steps is about how far, not how soon.
+
+  - id: rule.one-miner-per-change
+    title: One miner restarts at a time
+    statement: >
+      A normal change touches one miner. The next miner changes only after the previous one is
+      back at its new power (the ramp lock, about 4 minutes) and the readings still call for it.
+      Only safety may change several miners at once. A change that restarts several miners
+      together drops the farm's load to almost 0 W for minutes; the zero-export inverters throttle
+      down to the house and the grid covers the gap when the miners come back.
+    priority: P1
+    status: decided
+    source: "owner, 2026-10-07; requirements doc §5 (minimise restarts per decision, safety skips the queue)"
+    date: "2026-10-07"
+    tags: [always, allocation]
+    note: >
+      Seen 2026-10-07: the rules proposed Brod1 2,300 to 2,500 W, Brod2 and Brod3 2,100 to 2,500 W
+      in one proposal, three restarts for +1,000 W. In the code since 2026-10-07: a shortfall goes to
+      the hungriest miner that can take all of it (rule.step-down-allocation), else the lowest-power
+      one stops; spare power starts a stopped miner at its lowest step first, else raises the weakest
+      running miner as far as it fits (rule.jump-several-steps). The AI prompt asks for one miner too.
 
   - id: rule.minimise-restarts
     title: Few restarts
@@ -148,13 +203,18 @@ entries:
     title: No decision while ramping
     statement: >
       While any miner is ramping after a change, the decision is hold. Its readings are
-      misleading then.
+      misleading then. On a step it has run before a miner reaches full hashrate in 3 to 4
+      minutes, so the ramp lock is about 4 minutes; the log gives the reason as ramping.
     priority: P1
     status: decided
-    source: "requirements doc §5.2"
-    date: "2026-10-05"
+    source: "requirements doc §5.2, §0.6 round 7; owner, 2026-10-07"
+    date: "2026-10-07"
     situations: [situation.tuning]
     tags: [always, allocation]
+    note: >
+      In the code since 2026-10-07: every miner holds for 4 minutes after any change (a command
+      sent, or a limit, stop or start seen on a miner) and while a command is still being checked.
+      Safety doesn't wait. The trace and summary say "Waiting for a miner to restart".
 
   - id: rule.consolidate-needs-sustained-deficit
     title: Don't consolidate on a cloud
@@ -239,13 +299,15 @@ entries:
   - id: rule.temperature-band
     title: Follow a target temperature with a tolerance
     statement: >
-      Below the target temperature a miner may step up if there is energy. Between the target
-      and target plus tolerance it holds, even with spare energy. At or above target plus
-      tolerance it steps down. Temperature steps follow the normal pace and never skip the queue.
+      Temperature only limits; a low temperature is never a reason to step up. Below the target
+      it doesn't block a step-up the energy calls for. Between the target and target plus
+      tolerance the miner holds, even with spare energy. At or above target plus tolerance it
+      steps down. There is no extra margin below the target. Temperature steps follow the
+      normal pace and never skip the queue.
     priority: P1
     status: decided
-    source: "requirements doc §0 point 6, §3.2"
-    date: "2026-10-05"
+    source: "requirements doc §0 point 6, §3.2, §0.6 round 7"
+    date: "2026-10-07"
     tags: [always, temperature, allocation]
     note: >
       In the settings since 2026-10-06 (target 65 deg C, tolerance 10 deg C by default), replacing
@@ -264,8 +326,9 @@ entries:
     date: "2026-10-06"
     tags: [always, temperature, allocation]
     note: >
-      How long "ramped back up" is depends on conflict.ramp-vs-tuning. Until that is settled the
-      code ignores a miner's temperature for the tuning time setting (60 minutes by default).
+      How long "ramped back up" is: about 4 minutes for a step the miner has run before
+      (miner.revisit-is-a-restart). The ramp lock covers that; the tuning time setting (0 by
+      default since 2026-10-07) adds more for a step a miner has never run.
 
   - id: rule.transition-by-agreement
     title: Sunrise and sunset need several signals
@@ -334,11 +397,11 @@ entries:
       Step a running miner up to its top step before starting a stopped one: at 2,100 W one
       miner goes to 1,500 W rather than a second one starting.
     priority: P2
-    status: assumed
+    status: retired
     source: "code: decision._allocate, a choice made 2026-10-05, not yet confirmed by the owner"
-    date: "2026-10-05"
+    date: "2026-10-07"
     tags: [sunrise, allocation]
-    note: The requirements doc suggests the opposite at sunrise; see conflict.morning-order.
+    note: Rejected by the owner in round 7 (2026-10-07); replaced by rule.resume-next-at-sunrise.
 
   - id: rule.asymmetric-reaction
     title: Down quickly, up slowly
@@ -369,11 +432,13 @@ entries:
     title: Start the next miner rather than raise the last
     statement: >
       At sunrise, start the next stopped miner at its lowest step rather than raising the one
-      that just started. Raising it restarts it and throws away the ramp it just finished.
-    priority: P2
-    status: assumed
-    source: "requirements doc §5.3, §5.4 (a suggestion)"
-    date: "2026-10-05"
+      that just started. Production keeps rising, so raising one miner again and again costs a
+      restart each time. Start each miner at the lowest step, and the next one when there is
+      budget for its lowest step.
+    priority: P1
+    status: decided
+    source: "requirements doc §5.3, §5.4, §0.6 round 7; owner, 2026-10-07"
+    date: "2026-10-07"
     tags: [sunrise, allocation]
 
   - id: rule.no-import-cap
@@ -389,11 +454,13 @@ entries:
 
   - id: rule.smooth-inputs
     title: Decide on averages
-    statement: Decide on values averaged over a few minutes rather than the latest sample.
+    statement: >
+      Decide on the energy inputs (grid import, solar) averaged over 3 minutes rather than the
+      latest sample. Temperature is not smoothed.
     priority: P2
-    status: assumed
-    source: "requirements doc §5.2 (a suggestion)"
-    date: "2026-10-05"
+    status: decided
+    source: "requirements doc §0.6 round 7; owner, 2026-10-07"
+    date: "2026-10-07"
     tags: [always, allocation]
 
   - id: rule.stop-trigger-below-start
@@ -415,12 +482,13 @@ entries:
       The requirements doc says a miner below about 1000 W is not worth running and should
       be paused. The power steps start at 900 W, so a miner may run at 900 W today.
     priority: P1
-    status: conflict
-    source: "requirements doc §0 point 7 against owner's steps, 2026-10-05"
-    date: "2026-10-05"
+    status: retired
+    source: "requirements doc §0 point 7 against owner's steps, 2026-10-05; settled by owner 2026-10-07"
+    date: "2026-10-07"
     tags: [sunset, allocation]
-    conflicts_with: [rule.stop-below-lowest-step, rule.power-steps]
-    note: Pick one number, or make the lowest step the pause threshold.
+    note: >
+      Settled 2026-10-07 (round 7): running at 900 W is fine, the 1000 W figure is dropped, and
+      the lowest step is the pause threshold. Now part of rule.stop-below-lowest-step.
 
   - id: conflict.control-model
     title: Budget model or import band?
@@ -446,16 +514,17 @@ entries:
       minimum hold time of 10 to 15 minutes. The owner says a miner tunes for 14 minutes to an
       hour. The two give very different hold times.
     priority: P1
-    status: conflict
-    source: "requirements doc §5.1, §5.2 against owner, 2026-10-05"
-    date: "2026-10-05"
+    status: retired
+    source: "requirements doc §5.1, §5.2 against owner, 2026-10-05; settled by owner 2026-10-07"
+    date: "2026-10-07"
     tags: [always, allocation]
-    conflicts_with: [miner.limit-change-cost, miner.retune]
     note: >
       Measured 2026-10-06 (Brod1, Brod2, 1300 to 1500 W): both statements are true at different time scales.
       The restart and the power ramp take about 4 minutes; the tuning to within 10% of final efficiency takes
-      17 to 20 minutes and the probing dips end at about 46. So a ramp lock of about 4 minutes and a tuning
-      window of about 50 minutes fit five measured tunings. Waiting for the owner to retire the 2 to 3 minute and 10 to 15 minute figures.
+      17 to 20 minutes and the probing dips end at about 46. Settled 2026-10-07 by the owner: the miners keep
+      the settings from their first tuning at a wattage, so a change to a step tuned before costs only the
+      restart (2 to 3 minutes, measured about 4); the long tuning is for a step a miner has never run.
+      Replaced by miner.revisit-is-a-restart.
 
   - id: conflict.morning-order
     title: Fill the running miner or start the next?
@@ -464,8 +533,8 @@ entries:
       requirements doc suggests starting the next stopped miner at sunrise instead, so the
       first one isn't restarted right after its ramp.
     priority: P2
-    status: conflict
-    source: "code: decision._allocate against requirements doc §5.4, 2026-10-06"
-    date: "2026-10-06"
+    status: retired
+    source: "code: decision._allocate against requirements doc §5.4, 2026-10-06; settled by owner 2026-10-07"
+    date: "2026-10-07"
     tags: [sunrise, allocation]
-    conflicts_with: [rule.fill-running-first, rule.resume-next-at-sunrise]
+    note: Settled 2026-10-07 (round 7) for rule.resume-next-at-sunrise; rule.fill-running-first is retired.

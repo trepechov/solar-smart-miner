@@ -13,7 +13,8 @@ entries:
     tags: [allocation]
     note: >
       Measure on the first applied step: power and hashrate every few seconds for an hour.
-      Settles conflict.ramp-vs-tuning and the hold times.
+      Sets the hold times. conflict.ramp-vs-tuning was settled by the owner on 2026-10-07
+      (miner.revisit-is-a-restart); the measurement should confirm it.
 
   - id: open.tuning-state-source
     title: Can the tuning state be read?
@@ -30,14 +31,20 @@ entries:
       miner settled when its efficiency stops improving over about 10 minutes and is near the value
       it had when last stable at that step. Needs the settled values per step to compare against.
 
-  - id: open.pause-threshold
-    title: The pause threshold
-    statement: Is the lowest step 900 W or the pause threshold 1000 W, and how long must a deficit last before pausing?
+  - id: open.temperature-settle-time
+    title: How long until the temperature means something again?
+    statement: >
+      After a change the miner restarts and its temperature falls, then climbs back. The
+      hashrate is back in 3 to 4 minutes, the temperature takes longer. How long, so the
+      minimum hold time (the settling window) can be set?
     priority: P3
     status: open
-    source: "requirements doc §9; conflict.pause-threshold"
-    date: "2026-10-05"
-    tags: [allocation]
+    source: "owner, 2026-10-07 (round 7)"
+    date: "2026-10-07"
+    tags: [temperature, allocation]
+    note: >
+      Measure from the 2026-10-06 changes in the recorder history: time from the change until the
+      temperature is back within about 1 deg C of where it levels off.
 
   - id: open.efficiency-above-2000
     title: Efficiency above 2000 W
@@ -83,15 +90,6 @@ entries:
     source: "requirements doc §9 point 5"
     date: "2026-10-05"
     tags: [voltage]
-
-  - id: open.temperature-margin
-    title: A margin below the target temperature?
-    statement: Should a miner step up only when it is some degrees below the target, so one at the boundary doesn't step up after every hold?
-    priority: P3
-    status: open
-    source: "requirements doc §9 point 6"
-    date: "2026-10-05"
-    tags: [temperature]
 
   - id: open.ai-learning
     title: How the AI learns from the history

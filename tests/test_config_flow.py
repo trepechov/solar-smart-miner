@@ -828,7 +828,7 @@ async def test_settings_default_to_the_agreed_steps(hass: HomeAssistant) -> None
     await _get_options_flow_result(hass, entry, options_input={})
 
     assert entry.options[CONF_POWER_STEPS] == [900, 1100, 1300, 1500]
-    assert entry.options[CONF_TUNING_SETTLE] == 60
+    assert entry.options[CONF_TUNING_SETTLE] == 0  # every step is tuned: a change is only a restart
 
 
 async def test_settings_reject_unusable_power_steps_and_keep_the_form(hass: HomeAssistant) -> None:

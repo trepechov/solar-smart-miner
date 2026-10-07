@@ -341,10 +341,15 @@ def test_parse_advice_understands_stop_and_start_and_their_aliases() -> None:
     assert [a["action"] for a in actions] == ["stop", "stop", "start"]
 
 
-def test_system_prompt_explains_steps_tuning_and_stopping() -> None:
+def test_system_prompt_explains_steps_restarts_and_stopping() -> None:
     assert "stop" in SYSTEM_PROMPT and "start" in SYSTEM_PROMPT
-    assert "re-tunes" in SYSTEM_PROMPT
+    assert "restarts the miner" in SYSTEM_PROMPT
     assert "900, 1100, 1300, 1500" in SYSTEM_PROMPT
+
+
+def test_system_prompt_asks_for_one_miner_per_answer() -> None:
+    assert "change ONE miner per answer" in SYSTEM_PROMPT
+    assert "while a miner is restarting, hold every miner" in SYSTEM_PROMPT
 
 
 def test_parse_advice_ignores_a_stray_brace_or_prose_after_the_object() -> None:
