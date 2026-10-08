@@ -30,6 +30,7 @@ custom_components/solar_smart_miner/   # HA integration source
   ai.py                # OpenRouter client: prompt, chat completion, JSON answer parsing, free-model list
   kb.py                # loads the knowledge base and picks the facts each AI request gets
   ai_log.py            # JSONL log of every AI request (inputs, rule proposal, AI actions) + widget history
+  decision_log.py      # decisions.jsonl: every input of the decision when the plans change (replays)
   sensor.py            # sensor entity platform (hub + per-miner sensors, decision log, AI advice)
   select.py            # profile select entity
   button.py            # button entity platform (Add to Dashboard, Ask AI now)
@@ -40,7 +41,8 @@ custom_components/solar_smart_miner/   # HA integration source
                        #   sent to the AI by kb.py (P0/P1 always, the rest by situation)
   manifest.json        # HACS/HA integration manifest
 
-tests/                 # pytest test suite
+tests/                 # pytest test suite; tests/replay/ holds real farm moments (test_replay.py)
+                       #   and test_farm_sim.py runs the coordinator against a farm model
 docs/
   brainstorms/         # requirements exploration docs
   plans/               # implementation plans with status tracking
@@ -48,7 +50,7 @@ docs/
                        #   architectural patterns), organised by category with YAML
                        #   frontmatter (module, tags, problem_type). Useful when
                        #   implementing or debugging in documented areas.
-scripts/               # dev utilities (install-git-hooks.sh, etc.)
+scripts/               # dev utilities (install-git-hooks.sh, replay.py: replays and collision report)
 .github/workflows/     # release.yml (version bump on main → tag + GitHub release), validate.yml (HACS + hassfest)
 ```
 

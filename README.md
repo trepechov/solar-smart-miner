@@ -196,6 +196,10 @@ How Apply works:
 
 Every command is written to `<config>/solar_smart_miner/actions.jsonl` (rotated at 5 MB, two backups): one line when it is sent or refused and one when its outcome is known, joined by `command_id`. A line holds the plan, the miner before and after, the energy picture, the rule summary and the AI's view of that miner. The **Last action** sensor shows the latest command; its `history` attribute holds the last 20.
 
+A command is `ok` only once the miner did it: after a limit change it restarts (no power for a minute or two) and mines again at its new limit; after a stop it no longer mines. A value hass-miner only echoes ends in `failed` and a notification.
+
+Every time the proposal changes, `<config>/solar_smart_miner/decisions.jsonl` gets one line with everything the rules were given (all readings and settings) and what they decided. `scripts/replay.py` runs such a file through newer code and lists the moments that would now be decided differently, and reports collisions (a change undone within 15 minutes, a start on a restarting miner) from the action log or from Home Assistant's recorder history.
+
 ### First-run checklist
 
 1. Control mode **Manual** (the default)

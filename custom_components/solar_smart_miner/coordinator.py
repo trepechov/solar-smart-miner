@@ -91,6 +91,7 @@ from .control import (
     MinerController,
 )
 from .decision import _describe_plan, build_decision, describe_proposal
+from .decision_log import DecisionLog
 from .kb import Fact, format_facts, load_facts, select_facts, situation
 from .protocols import (
     ACTION_HOLD,
@@ -202,6 +203,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         self._history: deque[dict[str, str]] = deque(maxlen=DECISION_HISTORY_SIZE)
         self.ai_log = AiLog(hass)
         self.action_log = ActionLog(hass)
+        self.decision_log = DecisionLog(hass)
         # Proposals and applied actions, newest first: what the card's activity log shows.
         self.activity: deque[dict] = deque(maxlen=ACTIVITY_SIZE)
         self._proposed: str | None = None  # fingerprint of the last recorded farm proposal
@@ -844,30 +846,33 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         import_max = float(options.get(CONF_IMPORT_MAX, DEFAULT_IMPORT_MAX_W))
         since_change = self._minutes_since_change(miners)
         sun = self.hass.states.get("sun.sun")
-        decision = build_decision(
-            snapshot,
-            profile=options.get(CONF_PROFILE, DEFAULT_PROFILE),
-            temp_target=float(options.get(CONF_TEMP_TARGET, DEFAULT_TEMP_TARGET)),
-            temp_tolerance=float(options.get(CONF_TEMP_TOLERANCE, DEFAULT_TEMP_TOLERANCE)),
-            battery_floor=float(options.get(CONF_BATTERY_FLOOR, DEFAULT_BATTERY_FLOOR)),
-            power_steps=self._power_steps(),
-            tuning_settle_minutes=float(
+        # Everything the decision is given besides the readings; logged with them for replays.
+        inputs = {
+            "profile": options.get(CONF_PROFILE, DEFAULT_PROFILE),
+            "temp_target": float(options.get(CONF_TEMP_TARGET, DEFAULT_TEMP_TARGET)),
+            "temp_tolerance": float(options.get(CONF_TEMP_TOLERANCE, DEFAULT_TEMP_TOLERANCE)),
+            "battery_floor": float(options.get(CONF_BATTERY_FLOOR, DEFAULT_BATTERY_FLOOR)),
+            "power_steps": self._power_steps(),
+            "tuning_settle_minutes": float(
                 options.get(CONF_TUNING_SETTLE, DEFAULT_TUNING_SETTLE_MINUTES)
             ),
-            import_min_w=import_min,
-            import_max_w=import_max,
-            minutes_since_change=since_change,
-            ramp_done=list(self._ramp_done),
-            minutes_import_high=self._minutes_import_high(energy, import_max, since_change),
-            step_down_delay_minutes=float(
+            "import_min_w": import_min,
+            "import_max_w": import_max,
+            "minutes_since_change": since_change,
+            "ramp_lock_minutes": float(DEFAULT_RAMP_LOCK_MINUTES),
+            "ramp_done": list(self._ramp_done),
+            "minutes_import_high": self._minutes_import_high(energy, import_max, since_change),
+            "step_down_delay_minutes": float(
                 options.get(CONF_STEP_DOWN_DELAY, DEFAULT_STEP_DOWN_DELAY_MINUTES)
             ),
-            morning_step_down_delay_minutes=float(
+            "morning_step_down_delay_minutes": float(
                 options.get(CONF_MORNING_STEP_DOWN_DELAY, DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES)
             ),
-            sun_up=None if sun is None else sun.state == "above_horizon",
-            sun_rising=None if sun is None else bool(sun.attributes.get("rising")),
-        )
+            "sun_up": None if sun is None else sun.state == "above_horizon",
+            "sun_rising": None if sun is None else bool(sun.attributes.get("rising")),
+        }
+        decision = build_decision(snapshot, **inputs)
+        await self.decision_log.async_record(snapshot, inputs, decision)
         # Only record changes, so the history reads as a log of what shifted.
         if not self._history or self._history[0]["summary"] != decision.summary:
             self._history.appendleft(
