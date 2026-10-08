@@ -234,6 +234,7 @@ def build_decision(
     import_max_w: float = DEFAULT_IMPORT_MAX_W,
     minutes_since_change: float | None = None,
     ramp_lock_minutes: float = DEFAULT_RAMP_LOCK_MINUTES,
+    ramp_done: list[str] | tuple[str, ...] = (),
     minutes_import_high: float | None = None,
     step_down_delay_minutes: float = 0.0,
     morning_step_down_delay_minutes: float = 0.0,
@@ -244,7 +245,8 @@ def build_decision(
 
     `minutes_since_change` is the time since the last change on any miner (a command sent,
     or a limit or stop seen to change), None if none is known; 0 while a command is still
-    being checked. Until `ramp_lock_minutes` have passed every miner holds.
+    being checked. Until `ramp_lock_minutes` have passed every miner holds. `ramp_done` names
+    the changed miners that already draw their new power, so they no longer hold the farm.
 
     Solar-max with a known meter steers on the grid import (rule.small-import-target):
     below `import_target_w` (the minimum) it takes one increment, up to `import_max_w` it
@@ -349,6 +351,11 @@ def build_decision(
         )
         others_wait(None, "ramp lock")
         return done("Waiting for a miner to restart")
+    if ramp_done:
+        trace.append(
+            f"{', '.join(ramp_done)} already at the new power (hashrate may still be settling) "
+            "→ no need to wait out the ramp lock"
+        )
 
     # Temperature band: not a safety step, it only shapes the allocation below.
     caps: dict[str, int] = {}  # highest step a warm miner may have: its current one

@@ -28,6 +28,11 @@ DEFAULT_POWER_STEPS = [900, 1100, 1300, 1500, 1700, 1900, 2100, 2300, 2500]
 # 0: every configured step has been tuned before, so a change is only a restart (ramp lock).
 DEFAULT_TUNING_SETTLE_MINUTES = 0
 DEFAULT_RAMP_LOCK_MINUTES = 4  # after any change every miner holds while it restarts
+# A changed miner is done ramping early once it draws within this fraction of its new limit
+# (its hashrate may still be settling), but not before RAMP_MIN_MINUTES: right after a step
+# down the old, higher draw would otherwise read as already there.
+RAMP_DONE_FRACTION = 0.05
+RAMP_MIN_MINUTES = 1
 HOLD_TOLERANCE_W = 150  # a shortfall this small keeps the current step (avoids re-tuning)
 UP_MARGIN_W = 100  # spare power needed beyond a step's cost before moving up to it
 

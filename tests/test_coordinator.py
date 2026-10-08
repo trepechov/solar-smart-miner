@@ -1239,3 +1239,34 @@ async def test_step_down_waits_for_the_import_to_stay_above_the_band(
     hass.states.async_set(SOLAR_ENTITY, "600")
     plan = next(iter((await coordinator._async_update_data()).decision.plans.values()))
     assert plan.action == "hold"
+
+
+async def test_ramp_lock_ends_early_once_the_changed_miner_draws_its_new_power(
+    hass, add_hass_miner, monkeypatch
+) -> None:
+    # Owner, 2026-10-08: once the changed miner's draw is close to its limit, the next miner
+    # may change, even while its hashrate is still settling.
+    import time as time_module
+
+    now = [1000.0]
+    monkeypatch.setattr(time_module, "monotonic", lambda: now[0])
+    miner = add_hass_miner(MINER_IP, limit="1300", power="1290", temperature="55",
+                           limit_attrs={"min": 500.0, "max": 3500.0})
+    hass.states.async_set(SOLAR_ENTITY, "5000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    coordinator = SolarMinerCoordinator(hass, _make_entry(hass))
+    miner_id = (await coordinator._async_update_data()).miners[0].miner_id
+
+    coordinator._changed_at[miner_id] = now[0] - 30  # changed 30 s ago
+    assert (await coordinator._async_update_data()).decision.summary.startswith("Waiting for a miner")
+
+    now[0] += 60  # 90 s after the change, drawing 1,290 of 1,300 W
+    decision = (await coordinator._async_update_data()).decision
+    assert not decision.summary.startswith("Waiting for a miner")
+    assert any("already at the new power" in line for line in decision.trace)
+
+    # Still far below its limit: it is ramping, the farm waits the full 4 minutes.
+    hass.states.async_set(miner["miner_consumption"].entity_id, "300")
+    assert (await coordinator._async_update_data()).decision.summary.startswith("Waiting for a miner")
+    now[0] += 3 * 60
+    assert not (await coordinator._async_update_data()).decision.summary.startswith("Waiting for a miner")

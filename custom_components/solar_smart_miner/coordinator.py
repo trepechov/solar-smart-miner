@@ -73,8 +73,11 @@ from .const import (
     DEFAULT_TEMP_TARGET,
     DEFAULT_TEMP_TOLERANCE,
     DEFAULT_TUNING_SETTLE_MINUTES,
+    DEFAULT_RAMP_LOCK_MINUTES,
     DOMAIN,
     HASS_MINER_PLATFORM,
+    RAMP_DONE_FRACTION,
+    RAMP_MIN_MINUTES,
     MIN_AI_INTERVAL,
     SOLAR_ENTITY_TYPE_NET_IMPORT,
     SOLAR_ENTITY_TYPE_PRODUCTION,
@@ -211,7 +214,10 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         # miner id -> (power limit last seen, time.monotonic() when it changed or None)
         self._limit_seen: dict[str, tuple[float | None, float | None]] = {}
         self._stopped_seen: dict[str, bool] = {}  # miner id -> stopped at the last read
-        self._last_change: float | None = None  # time.monotonic() of the last command or stop/start seen
+        # time.monotonic() of a change no miner can be named for (a failed send, a restart of HA)
+        self._last_change: float | None = None
+        self._changed_at: dict[str, float] = {}  # miner id -> last command sent or stop/start seen
+        self._ramp_done: list[str] = []  # names of changed miners already at their new power
         self._import_high_since: float | None = None  # time.monotonic() the import went above the band
         self._building: CoordinatorSnapshot | None = None  # the snapshot of the cycle being worked out
         # miner id -> (plan fingerprint, reason) of the last automatic refusal, so it isn't repeated
@@ -355,7 +361,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             )
             power_limit_w = _parse_state_float(limit_state)
             if self._stopped_seen.get(miner_id, is_stopped) != is_stopped:
-                self._last_change = time.monotonic()  # stopped or started, by us or by hand
+                self._changed_at[miner_id] = time.monotonic()  # stopped or started, by us or by hand
             self._stopped_seen[miner_id] = is_stopped
             if not is_available and not is_stopped:
                 _LOGGER.warning("Miner %s (%s): power entity unavailable", name, miner_id)
@@ -410,12 +416,29 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         self._limit_seen[miner_id] = (last_limit, time.monotonic())
 
     def _minutes_since_change(self, miners: list[MinerSnapshot]) -> float | None:
-        """Minutes since the last change on any miner, for the ramp lock (0 while one is checked)."""
+        """Minutes since the last change still ramping, for the ramp lock (0 while one is checked).
+
+        A miner that already draws close to its new limit is done ramping, even if its
+        hashrate is still settling: the readings are true again, so the next miner may change.
+        """
+        self._ramp_done = []
         if any(self.controller.is_pending(m.miner_id) for m in miners):
             return 0.0
-        ages = [m.minutes_since_limit_change for m in miners if m.minutes_since_limit_change is not None]
+        now = time.monotonic()
+        ages: list[float] = []
+        for m in miners:
+            own = [m.minutes_since_limit_change]
+            if m.miner_id in self._changed_at:
+                own.append((now - self._changed_at[m.miner_id]) / 60)
+            age = min((a for a in own if a is not None), default=None)
+            if age is None or age >= DEFAULT_RAMP_LOCK_MINUTES:
+                continue
+            if age >= RAMP_MIN_MINUTES and _at_its_power(m):
+                self._ramp_done.append(m.name)
+                continue
+            ages.append(age)
         if self._last_change is not None:
-            ages.append((time.monotonic() - self._last_change) / 60)
+            ages.append((now - self._last_change) / 60)
         return min(ages, default=None)
 
     def _minutes_import_high(
@@ -487,9 +510,11 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         return self._farm_proposal(self.data)[1] if self.data is not None else NO_ACTION_TEXT
 
     async def _async_record_action(self, event: CommandEvent) -> None:
-        if event.status == RESULT_PENDING or (event.status == RESULT_FAILED and event.calls):
-            # Sent, or tried to: the miner may restart now. A failed send waits out the ramp lock
-            # too, so Automatic doesn't retry it every cycle.
+        if event.status == RESULT_PENDING:
+            self._changed_at[event.miner_id] = time.monotonic()  # sent: the miner restarts now
+        elif event.status == RESULT_FAILED and event.calls:
+            # Tried to: the miner may restart. A failed send waits out the whole ramp lock, so
+            # Automatic doesn't retry it every cycle.
             self._last_change = time.monotonic()
         # During a cycle, the plan came from the snapshot being built, not the previous one.
         await self.action_log.async_record(event, self._building or self.data)
@@ -826,6 +851,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             import_target_w=import_min,
             import_max_w=import_max,
             minutes_since_change=since_change,
+            ramp_done=list(self._ramp_done),
             minutes_import_high=self._minutes_import_high(energy, import_max, since_change),
             step_down_delay_minutes=float(
                 options.get(CONF_STEP_DOWN_DELAY, DEFAULT_STEP_DOWN_DELAY_MINUTES)
@@ -855,3 +881,12 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
 
         _LOGGER.debug("Decision cycle:\n  %s", "\n  ".join(decision.trace))
         return snapshot
+
+
+def _at_its_power(miner: MinerSnapshot) -> bool:
+    """A changed miner done ramping: stopped, or drawing within RAMP_DONE_FRACTION of its limit."""
+    if miner.is_stopped:
+        return True
+    if miner.power_w is None or not miner.power_limit_w:
+        return False
+    return abs(miner.power_w - miner.power_limit_w) <= RAMP_DONE_FRACTION * miner.power_limit_w

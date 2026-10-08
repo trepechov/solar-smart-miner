@@ -267,6 +267,11 @@ entries:
       In the code since 2026-10-07: every miner holds for 4 minutes after any change (a command
       sent, or a limit, stop or start seen on a miner) and while a command is still being checked.
       Safety doesn't wait. The trace and summary say "Waiting for a miner to restart".
+      Owner, 2026-10-08: a changed miner whose draw is already close to its new limit is done
+      ramping even if its hashrate is still settling, so with spare power still there the next
+      miner may change (for example a rising morning). In the code since 2026-10-08: within 5% of
+      its limit, and not before 1 minute (right after a step down the old draw is still high);
+      stopped miners count as done. The 4 minutes stay the upper bound.
       Without it (v0.7.0, 2026-10-07) a restarting miner reports nothing and is read as stopped:
       right after Brod1 went to 2,100 W the rules proposed Brod2 up as if Brod1 drew 0 W, and after
       the 16:02 bundle they proposed starting all three at 1,900 W. Still open: a miner that is
