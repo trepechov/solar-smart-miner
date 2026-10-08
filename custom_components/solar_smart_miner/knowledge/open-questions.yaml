@@ -69,7 +69,13 @@ entries:
     source: "requirements doc §5.4, §9 point 1"
     date: "2026-10-05"
     tags: [sunrise, sunset, cloud]
-    note: Use only periods with import, the forecast, or unthrottled actual PV. Throttled history shows the load.
+    note: >
+      Use only periods with import, the forecast, or unthrottled actual PV. Throttled history shows
+      the load. Partly measured from the recorder (2026-10-06 to 10-08, miners' draw plus grid
+      balance outside changes): about +200 to +750 W per 15 minutes from 08:00 to 10:00 on 10-07,
+      within about 100 W at midday without clouds, clouds 350 to 900 W either way, and a steady
+      fall from about 16:30. transition.py uses 150 W per 15 minutes. Still open: cloud length,
+      and the time from first light to enough for one and two miners.
 
   - id: open.voltage-sensor
     title: Which voltage sensor, and the hard-stop level

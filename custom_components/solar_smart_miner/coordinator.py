@@ -93,6 +93,7 @@ from .control import (
 from .decision import _describe_plan, build_decision, describe_proposal
 from .decision_log import DecisionLog
 from .kb import Fact, format_facts, load_facts, select_facts, situation
+from .transition import Transition
 from .protocols import (
     ACTION_HOLD,
     ACTION_SET_LIMIT,
@@ -217,6 +218,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         self._last_change: float | None = None
         self._ramp_done: list[str] = []  # names of changed miners already at their new power
         self._import_high_since: float | None = None  # time.monotonic() the import went above the band
+        self.transition = Transition()  # sunrise and sunset, from how production changes
         self._building: CoordinatorSnapshot | None = None  # the snapshot of the cycle being worked out
         # miner id -> (plan fingerprint, reason) of the last automatic refusal, so it isn't repeated
         self._auto_refused: dict[str, tuple[str, str]] = {}
@@ -466,6 +468,30 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             self._import_high_since = time.monotonic()
         lasted = (time.monotonic() - self._import_high_since) / 60
         return lasted if since_change is None else min(lasted, since_change)
+
+    def _update_transition(self, energy: EnergySnapshot, since_change: float | None, sun) -> None:
+        """Feed the sunrise / sunset helper. Production is read only outside a ramp lock and
+        while there is some import (a throttled inverter shows the load, not the sun)."""
+        production = None
+        if since_change is None and energy.grid_net_w is not None and energy.grid_net_w < 0:
+            production = energy.grid_net_w + (energy.miner_consumption_sum_w or 0.0)
+        setting = dt_util.parse_datetime(str(sun.attributes.get("next_setting") or "")) if sun else None
+        self.transition.update(
+            time.monotonic(),
+            production,
+            sun_up=None if sun is None else sun.state == "above_horizon",
+            sun_rising=None if sun is None else bool(sun.attributes.get("rising")),
+            minutes_to_setting=None if setting is None else (setting - dt_util.now()).total_seconds() / 60,
+        )
+
+    async def async_seed_transition(self) -> None:
+        """After a reload during sunset, it stays sunset: the last decision line says so."""
+        last = await self.decision_log.async_read_tail(1)
+        if not last:
+            return
+        sun = self.hass.states.get("sun.sun")
+        if (last[-1].get("inputs") or {}).get("sunset") and not (sun and sun.attributes.get("rising")):
+            self.transition.sunset = True
 
     def seed_activity(self) -> None:
         """After a restart or reload, start from the action log: the feed of applied actions, and
@@ -770,7 +796,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             "temp_tolerance": float(options.get(CONF_TEMP_TOLERANCE, DEFAULT_TEMP_TOLERANCE)),
             "battery_floor": float(options.get(CONF_BATTERY_FLOOR, DEFAULT_BATTERY_FLOOR)),
         }
-        now = situation(self.hass.states.get("sun.sun"))
+        now = situation(self.hass.states.get("sun.sun"), self.transition.name)
         facts = select_facts(self.knowledge, now)
         messages = build_messages(snapshot, **settings, knowledge=format_facts(facts, now))
         record = build_record(
@@ -846,6 +872,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         import_max = float(options.get(CONF_IMPORT_MAX, DEFAULT_IMPORT_MAX_W))
         since_change = self._minutes_since_change(miners)
         sun = self.hass.states.get("sun.sun")
+        self._update_transition(energy, since_change, sun)
         # Everything the decision is given besides the readings; logged with them for replays.
         inputs = {
             "profile": options.get(CONF_PROFILE, DEFAULT_PROFILE),
@@ -869,7 +896,8 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 options.get(CONF_MORNING_STEP_DOWN_DELAY, DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES)
             ),
             "sun_up": None if sun is None else sun.state == "above_horizon",
-            "sun_rising": None if sun is None else bool(sun.attributes.get("rising")),
+            "sunrise": self.transition.sunrise,
+            "sunset": self.transition.sunset,
         }
         decision = build_decision(snapshot, **inputs)
         await self.decision_log.async_record(snapshot, inputs, decision)

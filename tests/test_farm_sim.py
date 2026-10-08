@@ -12,19 +12,21 @@ each other show up as they did on the reference farm (2026-10-08: a stop/start l
   it draws ~85% of the new limit for a minute and its limit after that; a start boots the
   same way without the switch going off; a stop is immediate.
 
-Checks (the collision checks of scripts/replay.py): no change reversed within 15 minutes, no
-start after the first stop of the sunset, no two changes within a minute, and no start of a
-miner that is only restarting.
+Checks (the collision checks of scripts/replay.py): no change reversed within 15 minutes and
+nothing started or stepped up during the sunset, no two changes within a minute, and no start
+of a miner that is only restarting.
 """
 from __future__ import annotations
 
 import json
 import time as time_module
 from dataclasses import dataclass, field
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
 from homeassistant.core import ServiceCall
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.solar_smart_miner.config_flow import (
@@ -96,6 +98,7 @@ class Farm:
     hass: object
     miners: list[SimMiner]
     pv_potential: object  # callable: seconds since the start -> W
+    sets_after_s: float | None = None  # when the sun sets, in seconds from the start
     now: float = 0.0
     commands: list[tuple[float, str, str, float | None]] = field(default_factory=list)
 
@@ -106,6 +109,13 @@ class Farm:
         )
 
     def publish(self) -> None:
+        if self.sets_after_s is not None:
+            up = self.now < self.sets_after_s
+            setting = dt_util.now() + timedelta(seconds=self.sets_after_s - self.now)
+            self.hass.states.async_set(
+                "sun.sun", "above_horizon" if up else "below_horizon",
+                {"rising": False, "next_setting": setting.isoformat()},
+            )
         load = HOUSE_W + sum(m.draw(self.now) for m in self.miners)
         pv = min(self.pv_potential(self.now), load)
         self.hass.states.async_set(METER, f"{pv - load:.0f}", {"unit_of_measurement": "W"})
@@ -128,7 +138,10 @@ def _kind(farm: Farm, miner: SimMiner, service: str, value: float | None) -> str
     return "up" if value > miner.limit else "down"
 
 
-async def _run(hass, add_hass_miner, monkeypatch, limits, stopped, pv_potential, minutes: int) -> Farm:
+async def _run(
+    hass, add_hass_miner, monkeypatch, limits, stopped, pv_potential, minutes: int,
+    sets_after_min: float | None = None,
+) -> Farm:
     clock = [0.0]
     monkeypatch.setattr(time_module, "monotonic", lambda: clock[0] + 10_000.0)
     sims = []
@@ -137,7 +150,7 @@ async def _run(hass, add_hass_miner, monkeypatch, limits, stopped, pv_potential,
                              temperature="50", hashrate="0", active="off" if off else "on",
                              limit_attrs=LIMITS)
         sims.append(SimMiner(reg, limit, stopped=off))
-    farm = Farm(hass, sims, pv_potential)
+    farm = Farm(hass, sims, pv_potential, None if sets_after_min is None else sets_after_min * 60)
 
     def _handler(service: str):
         def handle(call: ServiceCall) -> None:
@@ -191,35 +204,30 @@ def _close_pairs(farm: Farm) -> list[tuple]:
     return [(a, b) for a, b in zip(farm.commands, farm.commands[1:]) if b[0] - a[0] < 60]
 
 
+SUNSET_AT_MIN = 137  # 2026-10-08: the sun set at about 18:47, 137 minutes after 16:30
+
+
 def _sunset_potential(seconds: float) -> float:
-    """The reference farm's PV from 16:45 on 2026-10-08, one reading a minute."""
-    minute = 15 + int(seconds // 60)
+    """The reference farm's PV from 16:30 on 2026-10-08, one reading a minute."""
+    minute = int(seconds // 60)
     curve = SUNSET_PV["pv_w"]
     return float(curve[min(minute, len(curve) - 1)][1] or 0.0)
 
 
-@pytest.mark.xfail(strict=True, reason="overlap 8: no sunset rule yet; nothing starts during sunset in U9")
 async def test_the_sunset_of_2026_10_08_runs_down_without_a_stop_start_loop(
     hass, add_hass_miner, monkeypatch
 ) -> None:
+    # Overlap 8: during sunset nothing starts or steps up (owner, 2026-10-09). Sunset can only
+    # begin in the last two hours before the sun sets (16:47 here); before that, midday rules.
     farm = await _run(hass, add_hass_miner, monkeypatch, [900, 900, 900], [False] * 3,
-                      _sunset_potential, minutes=90)
+                      _sunset_potential, minutes=105, sets_after_min=SUNSET_AT_MIN)
+    window_opens = (SUNSET_AT_MIN - 120) * 60
+    evening = [c for c in farm.commands if c[0] >= window_opens]
 
-    first_stop = next((t for t, _, kind, _ in farm.commands if kind == "stop"), None)
-    assert first_stop is not None, "the sun went down and nothing stopped"
-    assert [c for c in farm.commands if c[2] == "start" and c[0] > first_stop] == []
-    assert _reversals(farm) == []
-
-
-async def test_the_sunset_loop_of_2026_10_08_is_reproduced(hass, add_hass_miner, monkeypatch) -> None:
-    # The loop the sunset test above expects to be gone, as today's rules produce it: the
-    # model is close enough to the farm to show the collision (U0 acceptance).
-    farm = await _run(hass, add_hass_miner, monkeypatch, [900, 900, 900], [False] * 3,
-                      _sunset_potential, minutes=90)
-
-    kinds = [kind for _, _, kind, _ in farm.commands]
-    assert kinds.count("stop") >= 2 and kinds.count("start") >= 2
-    assert _reversals(farm)
+    stops = [t for t, _, kind, _ in evening if kind == "stop"]
+    assert len(stops) == 3, evening  # every miner stopped, one at a time
+    assert [c for c in evening if c[2] in ("start", "up")] == []
+    assert _reversals(Farm(hass, [], None, commands=evening)) == []
 
 
 async def test_a_sunny_farm_ramps_up_one_restart_at_a_time(hass, add_hass_miner, monkeypatch) -> None:

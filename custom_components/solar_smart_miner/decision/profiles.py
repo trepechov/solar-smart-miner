@@ -6,8 +6,9 @@ used. The measured import alone decides, there is no power budget:
 
 - below the minimum: one increment up (Allocation picks the miner);
 - inside the range: hold (Allocation may still even out the load or tidy a limit);
-- above the maximum, once it has lasted the step-down delay (the sunrise delay while the sun
-  rises): down, by the smallest cut that brings the import back under the maximum.
+- above the maximum, once it has lasted the step-down delay (the longer sunrise delay during
+  sunrise, transition.py): down, by the smallest cut that brings the import back under the
+  maximum.
 """
 from __future__ import annotations
 
@@ -40,11 +41,10 @@ def target(ctx: Context) -> Decision | None:
             f"{_w(import_max_w)}; fix it in Configure → Settings"
         )
     trace.append(f"Grid import range: {_w(import_min_w)} to {_w(import_max_w)}")
-    ctx.may_step_up = ctx.sun_up is not False
 
     if import_w < import_min_w:
         if not ctx.may_step_up:
-            trace.append("Import below the minimum but the sun is down → nothing starts or steps up")
+            trace.append(f"Import below the minimum but {ctx.no_up_reason} → nothing starts or steps up")
         else:
             ctx.direction = UP
             trace.append(
@@ -53,7 +53,7 @@ def target(ctx: Context) -> Decision | None:
                 "miner first, else one step up)"
             )
     elif import_w > import_max_w:
-        rising = ctx.sun_rising
+        rising = ctx.sunrise
         wait = ctx.morning_step_down_delay_minutes if rising else ctx.step_down_delay_minutes
         lasted = ctx.minutes_import_high or 0.0
         if lasted < wait:

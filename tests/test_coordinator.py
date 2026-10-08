@@ -800,8 +800,9 @@ async def test_ask_ai_now_explains_when_ai_is_off(hass) -> None:
 async def test_ai_gets_the_knowledge_for_the_moment_and_the_log_names_it(hass, mock_openrouter) -> None:
     import json
 
-    hass.states.async_set("sun.sun", "below_horizon", {"elevation": 5.0, "rising": False})
+    hass.states.async_set("sun.sun", "above_horizon", {"elevation": 5.0, "rising": False})
     coordinator = SolarMinerCoordinator(hass, _ai_entry(hass))
+    coordinator.transition.sunset = True  # production has been falling (transition.py)
     await coordinator.async_load_knowledge()
 
     await _refresh(hass, coordinator)
@@ -1325,3 +1326,35 @@ async def test_a_stopped_miner_given_a_limit_stays_stopped(hass, add_hass_miner,
     hass.states.async_set(reg["power_limit"].entity_id, "900", {"min": 500.0, "max": 3500.0})
     now[0] += 30
     assert (await coordinator._async_update_data()).miners[0].is_stopped is True
+
+
+async def test_production_is_read_for_sunset_only_outside_a_ramp_lock_and_while_importing(hass) -> None:
+    from custom_components.solar_smart_miner.protocols import EnergySnapshot
+
+    coordinator = SolarMinerCoordinator(hass, _make_entry(hass))
+    seen: list = []
+    coordinator.transition.update = lambda now, production, **sun: seen.append(production)
+    sun = type("Sun", (), {"state": "above_horizon", "attributes": {"rising": False}})()
+
+    importing = EnergySnapshot(solar_production_w=None, grid_net_w=-300.0, miner_consumption_sum_w=2000.0)
+    exporting = EnergySnapshot(solar_production_w=None, grid_net_w=50.0, miner_consumption_sum_w=2000.0)
+    coordinator._update_transition(importing, None, sun)
+    coordinator._update_transition(importing, 2.0, sun)  # a miner is restarting
+    coordinator._update_transition(exporting, None, sun)  # throttled or exporting: no reading
+
+    assert seen == [1700.0, None, None]
+
+
+async def test_a_reload_during_sunset_stays_sunset(hass) -> None:
+    hass.states.async_set("sun.sun", "above_horizon", {"rising": False})
+    first = SolarMinerCoordinator(hass, _make_entry(hass))
+    await first.decision_log.async_write({"inputs": {"sunset": True}})
+
+    again = SolarMinerCoordinator(hass, _make_entry(hass))
+    await again.async_seed_transition()
+    assert again.transition.sunset
+
+    hass.states.async_set("sun.sun", "below_horizon", {"rising": True})  # the next morning
+    fresh = SolarMinerCoordinator(hass, _make_entry(hass))
+    await fresh.async_seed_transition()
+    assert not fresh.transition.sunset

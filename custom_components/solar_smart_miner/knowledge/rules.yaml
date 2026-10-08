@@ -404,7 +404,9 @@ entries:
     note: >
       In the code since 2026-10-08 (Solar-max): the import must stay above the band for the
       step-down delay (setting, 5 min) before a step down, counted again after each change; while
-      the sun is rising (until solar noon) the morning delay (setting, 30 min) applies. Owner,
+      the sun is rising (until solar noon) the morning delay (setting, 30 min) applies. Since 0.8.0
+      the longer delay applies only during sunrise, while production still rises
+      (rule.transition-by-agreement), not all morning: a cloud at 11:00 waits 5 minutes. Owner,
       2026-10-08: some import in the morning is acceptable, the sun will come, so no back-off
       after a start that imports. The smoothing window is still not in the code.
       Before (v0.7.1) it stepped down on one reading once the shortfall passed 150 W.
@@ -448,16 +450,24 @@ entries:
       default since 2026-10-08) adds a short settle, raised only for a step a miner has never run.
 
   - id: rule.transition-by-agreement
-    title: Sunrise and sunset need several signals
+    title: Sunrise and sunset are periods of changing production
     statement: >
-      The controller is in sunrise or sunset mode only when most of these agree: measured
-      solar (or actual PV) rising or falling, the time of day against the sun, and the
-      forecast for now against the next hour.
+      Sunrise is while the sun is rising and production keeps rising; sunset is when, in the
+      last hours before the sun sets, production keeps falling, and it lasts until the next
+      sunrise. Production is what the miners draw plus the grid balance, read outside ramp locks
+      and only while there is some import. The sun's position only opens the window; the
+      forecast never decides.
     priority: P1
     status: decided
-    source: "requirements doc §0.1 point 5, §5.4"
-    date: "2026-10-05"
+    source: "owner, 2026-10-09 (sunrise is a period, not 15 degrees); requirements doc §0.1 point 5, §5.4"
+    date: "2026-10-09"
     tags: [sunrise, sunset]
+    note: >
+      Until 2026-10-09 the statement asked for several signals to agree (production, the time of
+      day, the forecast). Owner, 2026-10-09: production decides, the forecast is reference only
+      (rule.forecast-reference-only), and "morning" is not an elevation. In the code since 0.8.0
+      (transition.py): a 15-minute window, a change of more than 150 W, sunset only within 2 hours
+      of sun.sun's next setting. Used by the decision and by the knowledge-base selection alike.
 
   - id: rule.sunrise-fast
     title: Sunrise may add miners quickly
@@ -471,15 +481,23 @@ entries:
     tags: [sunrise]
 
   - id: rule.sunset-one-by-one
-    title: Sunset stops miners one at a time
+    title: During sunset nothing starts or steps up
     statement: >
-      In sunset mode, step miners down and stop them one at a time, in order, without chasing
-      every dip.
+      From sunset (rule.transition-by-agreement) until the next sunrise, and whenever the sun is
+      down, nothing starts or steps up: miners only step down and stop, one at a time, without
+      chasing every dip. An evening cloud that clears starts nothing until the morning.
     priority: P1
     status: decided
-    source: "requirements doc §0.1 point 5, §5.4"
-    date: "2026-10-05"
+    source: "owner, 2026-10-09; requirements doc §0.1 point 5, §5.4"
+    date: "2026-10-09"
     tags: [sunset]
+    note: >
+      2026-10-08 16:48 to 18:13: nine stop, start, stop rounds about ten minutes apart. Starting
+      or stopping a miner moves the import by its lowest step (900 W), wider than the import range
+      (200 to 400 W), so every stop landed below the minimum and "start a stopped miner" undid it.
+      Owner, 2026-10-09: during sunset nothing starts (accepting that a clearing evening cloud
+      restarts nothing). In the code since 0.8.0 (decision/limits.py, group Limits); it absorbs
+      rule.stop-trigger-below-start and the older "the sun is down: nothing starts" check.
 
   - id: rule.full-power
     title: Full power ignores the sun
@@ -623,11 +641,14 @@ entries:
       Whatever the triggers turn out to be, the level that stops the last miner sits below the
       level that starts it, so it doesn't start and stop while production hovers near one value.
     priority: P2
-    status: assumed
+    status: retired
     source: "requirements doc §5.4 (a suggestion)"
-    date: "2026-10-05"
+    date: "2026-10-09"
     situations: [situation.sunrise]
     tags: [sunrise, sunset]
+    note: >
+      Retired 2026-10-09: merged into rule.sunset-one-by-one. The stop level sits below the start
+      level by construction: during sunset nothing starts.
 
   # --- conflicts: needs a decision --------------------------------------------
   - id: conflict.pause-threshold

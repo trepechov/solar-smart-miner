@@ -17,8 +17,6 @@ OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # Knowledge base in the AI prompt (kb.py). P0 and P1 are always sent; this caps the rest.
 KB_PROMPT_BUDGET_CHARS = 6000
-KB_NIGHT_ELEVATION = -3  # deg; sun at or below this is night
-KB_TRANSITION_ELEVATION = 15  # deg; below this the sun is rising or setting
 
 # Every limit change restarts a miner, and a wattage it has never run takes much longer to
 # tune, so the limit only ever moves between these steps (900 to 2,500 W, every one tuned on
@@ -42,10 +40,19 @@ RAMP_MIN_MINUTES = 1
 # step from just outside lands inside.
 DEFAULT_IMPORT_MIN_W = 200  # the minimum import (setting "import_min")
 DEFAULT_IMPORT_MAX_W = 400
-# A shortfall must last this long before a step down (rule.down-slowly-up-promptly); while the
-# sun is rising it waits longer, since production is catching up. Minutes.
+# A shortfall must last this long before a step down (rule.down-slowly-up-promptly); during
+# sunrise it waits longer, since production is catching up. Minutes.
 DEFAULT_STEP_DOWN_DELAY_MINUTES = 5
 DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES = 30
+
+# Sunrise and sunset are periods of changing production (transition.py). Fixed values, from the
+# reference farm's history (2026-10-06 to 10-08: about +200 to +750 W per 15 minutes while the
+# sun rose, under 100 W either way at midday without clouds, falling steadily in the evening);
+# settings only if another farm proves them wrong.
+TRANSITION_WINDOW_MIN = 15
+TRANSITION_MIN_SPAN_MIN = 10  # the window must cover this much before it says anything
+TRANSITION_CHANGE_W = 150  # production rising (sunrise) or falling (sunset) by more than this
+SUNSET_GATE_MIN = 120  # sunset can only start this close to sun.sun's next setting
 
 # One profile until Setup B (a battery). The battery profiles (requirements doc §6.3) add
 # entries here and bring back the profile select (ProfileSelect, retired in 0.8.0) and the

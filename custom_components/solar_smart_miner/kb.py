@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-from .const import KB_PROMPT_BUDGET_CHARS, KB_TRANSITION_ELEVATION, KB_NIGHT_ELEVATION
+from .const import KB_PROMPT_BUDGET_CHARS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -64,22 +64,20 @@ def load_facts(directory: Path = KB_DIR) -> list[Fact]:
     return facts
 
 
-def situation(sun_state) -> str | None:
-    """Night, sunrise, midday or sunset from Home Assistant's sun.sun (None if missing).
+def situation(sun_state, transition: str | None = None) -> str | None:
+    """Night, sunrise, midday or sunset (None without Home Assistant's sun.sun).
 
-    This only picks which facts to send. The controller's own sunrise and sunset modes
-    need several signals to agree (rule.transition-by-agreement).
+    Night when the sun is below the horizon; otherwise sunrise and sunset come from the
+    production-based helper (transition.py, the same one the decision uses), else midday.
     """
-    if sun_state is None:
+    if sun_state is None or sun_state.state not in ("above_horizon", "below_horizon"):
         return None
-    try:
-        elevation = float(sun_state.attributes["elevation"])
-    except (KeyError, TypeError, ValueError):
-        return None
-    if elevation <= KB_NIGHT_ELEVATION:
+    if sun_state.state == "below_horizon":
         return NIGHT
-    if elevation < KB_TRANSITION_ELEVATION:
-        return SUNRISE if sun_state.attributes.get("rising") else SUNSET
+    if transition == SUNRISE:
+        return SUNRISE
+    if transition == SUNSET:
+        return SUNSET
     return MIDDAY
 
 

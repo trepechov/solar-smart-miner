@@ -8,7 +8,7 @@ undoes it (CLAUDE.md, "Fewer Rules"):
 
 1. Safety (safety.py): may end the decision and change several miners at once.
 2. Pacing (pacing.py): after a change every miner holds while it restarts (the ramp lock).
-3. Limits (limits.py): the temperature band.
+3. Limits (limits.py): the sun down or setting (nothing starts or steps up), the temperature band.
 4. Target (profiles.py): up, down or hold, from the measured grid import.
 5. Allocation and 6. Tidy (allocation.py): which one miner moves, and to which step.
 
@@ -62,7 +62,8 @@ def build_decision(
     step_down_delay_minutes: float = 0.0,
     morning_step_down_delay_minutes: float = 0.0,
     sun_up: bool | None = None,
-    sun_rising: bool | None = None,
+    sunrise: bool = False,
+    sunset: bool = False,
 ) -> Decision:
     """One plan per miner. Apart from safety, at most one miner changes per decision.
 
@@ -74,8 +75,9 @@ def build_decision(
     Solar-follow steers on the measured grid import alone (rule.small-import-target): below
     `import_min_w` (the minimum) it takes one increment, up to `import_max_w` it holds, and
     above that it steps down once the import has been that high for `minutes_import_high` >=
-    the step-down delay (the morning delay while `sun_rising`). `sun_up` False blocks starts
-    and step-ups; None means unknown.
+    the step-down delay (the longer sunrise delay during `sunrise`). The sun down (`sun_up`
+    False; None means unknown) or `sunset` blocks starts and step-ups. Sunrise and sunset come
+    from transition.py.
     """
     # One profile: an older stored name (before the migration ran) reads as Solar-follow.
     profile_def = PROFILES_BY_NAME.get(profile, PROFILES[0])
@@ -97,7 +99,8 @@ def build_decision(
         step_down_delay_minutes=step_down_delay_minutes,
         morning_step_down_delay_minutes=morning_step_down_delay_minutes,
         sun_up=sun_up,
-        sun_rising=sun_rising,
+        sunrise=sunrise,
+        sunset=sunset,
     )
     try:
         return _run(ctx)

@@ -1,4 +1,10 @@
-"""Group 3, Limits: block a direction for a miner, or require one to come down.
+"""Group 3, Limits: block a direction, or require one miner to come down.
+
+The sun down or setting: nothing starts or steps up (rule.sunset-one-by-one). Starting or
+stopping a miner moves the import by its lowest step, more than the import range is wide, so at
+sunset every stop would otherwise be followed by a start (2026-10-08: nine rounds in 85 minutes).
+Even load may still step down. Sunset lasts until the next sunrise (transition.py), so an evening
+cloud that clears starts nothing until the morning (owner, 2026-10-09).
 
 The temperature band: below the target a miner may step up; up to target + tolerance it holds
 (its step becomes its cap); at or above that it steps down one step. A miner still tuning is
@@ -13,6 +19,11 @@ from .pacing import tuning_left
 
 
 def check(ctx: Context) -> Decision | None:
+    if ctx.sun_up is False:
+        ctx.may_step_up, ctx.no_up_reason = False, "the sun is down"
+    elif ctx.sunset:
+        ctx.may_step_up, ctx.no_up_reason = False, "the sun is setting"
+        ctx.trace.append("Sunset: production is falling → nothing starts or steps up until sunrise")
     too_warm: list[MinerSnapshot] = []
     for m in ctx.candidates:
         if m.is_stopped or m.temperature_c is None:

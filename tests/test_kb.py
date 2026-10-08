@@ -27,7 +27,8 @@ def _fact(fid: str, priority: str = "P3", status: str = "verified", tags=("alway
 
 
 def _sun(elevation, rising=True):
-    return SimpleNamespace(attributes={"elevation": elevation, "rising": rising})
+    state = "above_horizon" if elevation > 0 else "below_horizon"
+    return SimpleNamespace(state=state, attributes={"elevation": elevation, "rising": rising})
 
 
 # --- loading ------------------------------------------------------------------
@@ -47,24 +48,25 @@ def test_open_questions_are_not_loaded_as_facts() -> None:
 
 
 @pytest.mark.parametrize(
-    ("sun", "expected"),
+    ("sun", "transition", "expected"),
     [
-        (_sun(-20), NIGHT),
-        (_sun(-3), NIGHT),
-        (_sun(2, rising=True), SUNRISE),
-        (_sun(14, rising=False), SUNSET),
-        (_sun(15), MIDDAY),
-        (_sun(40, rising=False), MIDDAY),
+        (_sun(-20), None, NIGHT),
+        (_sun(-1), "sunset", NIGHT),  # below the horizon is night, whatever production did
+        (_sun(2, rising=True), "sunrise", SUNRISE),
+        (_sun(14, rising=False), "sunset", SUNSET),
+        (_sun(2, rising=True), None, MIDDAY),  # risen, but production isn't rising: not sunrise
+        (_sun(40, rising=False), None, MIDDAY),
     ],
 )
-def test_situation_follows_the_sun(sun, expected) -> None:
-    assert situation(sun) == expected
+def test_situation_is_night_or_the_production_based_transition(sun, transition, expected) -> None:
+    # Owner, 2026-10-09: sunrise is the period while production is still rising, not an angle;
+    # the same helper (transition.py) decides it for the rules and for the AI's facts.
+    assert situation(sun, transition) == expected
 
 
 def test_situation_is_unknown_without_the_sun_entity() -> None:
     assert situation(None) is None
-    assert situation(SimpleNamespace(attributes={})) is None
-    assert situation(SimpleNamespace(attributes={"elevation": "unknown"})) is None
+    assert situation(SimpleNamespace(state="unavailable", attributes={})) is None
 
 
 # --- selection --------------------------------------------------------------------

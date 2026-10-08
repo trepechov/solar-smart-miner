@@ -17,12 +17,13 @@ Run with the project's virtualenv from the repo root (it imports the integration
       JSON file per day) instead of the integration's own logs.
 
   .venv/bin/python scripts/replay.py export --recorder <day.json> --at 16:50 17:10 ... \\
-        [--solar-noon 09:56] [--tz Europe/Sofia]
+        [--solar-noon 09:56] [--sunset 18:47] [--tz Europe/Sofia]
       Rebuild the decision inputs at those local times from a recorder download, run them
       through the current code and print them as decisions.jsonl lines (the replay fixtures in
       tests/replay/ were made this way). Readings the recorder lacks are approximated: the
       ramp lock from the limit and switch history, the import-high time from the meter, the
-      sun's direction from --solar-noon (UTC).
+      sun's direction from --solar-noon (UTC), sunrise and sunset by running transition.py over
+      the day's readings (--sunset, local, is when the sun sets).
 
 This is a development tool; nothing in the integration imports it.
 """
@@ -30,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from bisect import bisect_right
 import re
 import sys
 from collections import defaultdict
@@ -162,17 +164,15 @@ class Recorder:
                         self.attributes[eid] = s["attributes"]
         for eid in self.series:
             self.series[eid].sort(key=lambda p: p[0])
+        self._times = {eid: [t for t, _ in pts] for eid, pts in self.series.items()}
+        self._changes: dict[tuple[str, bool], list[datetime]] = {}
 
     def find(self, pattern: str) -> list[str]:
         return sorted(e for e in self.series if re.fullmatch(pattern, e))
 
     def state(self, eid: str, t: datetime) -> str | None:
-        value = None
-        for when, state in self.series.get(eid, ()):
-            if when > t:
-                break
-            value = state
-        return value
+        i = bisect_right(self._times.get(eid, ()), t)
+        return self.series[eid][i - 1][1] if i else None
 
     def number(self, eid: str, t: datetime) -> float | None:
         try:
@@ -182,17 +182,19 @@ class Recorder:
 
     def last_change(self, eid: str, t: datetime, *, numeric: bool = False) -> datetime | None:
         """When the state last became what it is at t (repeats of the same value don't count)."""
-        changed, prev = None, None
-        for when, state in self.series.get(eid, ()):
-            if when > t:
-                break
-            if state in ("unknown", "unavailable"):
-                continue
-            key = _as_float(state) if numeric else state
-            if prev is not None and key != prev:
-                changed = when
-            prev = key
-        return changed
+        key = (eid, numeric)
+        if key not in self._changes:
+            changes, prev = [], None
+            for when, state in self.series.get(eid, ()):
+                if state in ("unknown", "unavailable"):
+                    continue
+                value = _as_float(state) if numeric else state
+                if prev is not None and value != prev:
+                    changes.append(when)
+                prev = value
+            self._changes[key] = changes
+        i = bisect_right(self._changes[key], t)
+        return self._changes[key][i - 1] if i else None
 
     def value_before_change(self, eid: str, t: datetime) -> float | None:
         """The number before its last change up to t (the limit a command started from)."""
@@ -329,7 +331,44 @@ def _flips(summaries, tz) -> list[str]:
 # --- recorder -> decision inputs (for fixtures) -------------------------------------------
 
 
-def inputs_at(rec: Recorder, t: datetime, solar_noon: str | None) -> dict:
+def _settled_production(rec: Recorder, t: datetime) -> float | None:
+    """Miners' draw + grid balance at t, if no miner changed in the last ramp lock and there is
+    some import (what the coordinator feeds transition.py)."""
+    grid = rec.number("sensor.power_meter_active_power", t)
+    if grid is None or grid >= 0:
+        return None
+    ramp = timedelta(minutes=DEFAULT_RAMP_LOCK_MINUTES)
+    draw = 0.0
+    for eid in rec.find(r"sensor\.(\w+)_miner_consumption"):
+        name = eid.split(".")[1].removesuffix("_miner_consumption")
+        for changed in (
+            rec.last_change(f"number.{name}_power_limit", t, numeric=True),
+            rec.last_change(f"switch.{name}_active", t),
+        ):
+            if changed is not None and t - changed < ramp:
+                return None
+        draw += rec.number(eid, t) or 0.0
+    return grid + draw
+
+
+def _transition_at(rec: Recorder, t: datetime, rising_until: datetime | None, sets_at: datetime | None):
+    from custom_components.solar_smart_miner.transition import Transition
+
+    transition = Transition()
+    when = t.replace(hour=5, minute=0, second=0)
+    while when <= t:
+        sun = rec.state("sun.sun", when)
+        transition.update(
+            when.timestamp(), _settled_production(rec, when),
+            sun_up=None if sun is None else sun == "above_horizon",
+            sun_rising=None if rising_until is None else when < rising_until,
+            minutes_to_setting=None if sets_at is None else (sets_at - when).total_seconds() / 60,
+        )
+        when += timedelta(minutes=1)
+    return transition
+
+
+def inputs_at(rec: Recorder, t: datetime, solar_noon: str | None, sunset: str | None = None) -> dict:
     """A decisions.jsonl record rebuilt from the recorder at time t, decided by the current code."""
     from custom_components.solar_smart_miner.decision_log import build_record
     from custom_components.solar_smart_miner.protocols import (
@@ -389,10 +428,14 @@ def inputs_at(rec: Recorder, t: datetime, solar_noon: str | None) -> dict:
     )
     since_change = min(ages, default=None)
     sun = rec.state("sun.sun", t)
-    rising = None
+    rising_until = sets_at = None
     if solar_noon:
         hh, mm = (int(x) for x in solar_noon.split(":"))
-        rising = t < t.astimezone(timezone.utc).replace(hour=hh, minute=mm, second=0, microsecond=0)
+        rising_until = t.astimezone(timezone.utc).replace(hour=hh, minute=mm, second=0, microsecond=0)
+    if sunset:
+        hh, mm = (int(x) for x in sunset.split(":"))
+        sets_at = t.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    transition = _transition_at(rec, t, rising_until, sets_at)
     inputs = {
         "profile": "solar_max", "temp_target": 60.0, "temp_tolerance": 10.0, "battery_floor": 20.0,
         "power_steps": [900, 1100, 1300, 1500, 1700, 1900, 2100, 2300, 2500],
@@ -401,7 +444,8 @@ def inputs_at(rec: Recorder, t: datetime, solar_noon: str | None) -> dict:
         "ramp_done": done,
         "minutes_import_high": _import_high(rec, t, since_change),
         "step_down_delay_minutes": 5.0, "morning_step_down_delay_minutes": 30.0,
-        "sun_up": None if sun is None else sun == "above_horizon", "sun_rising": rising,
+        "sun_up": None if sun is None else sun == "above_horizon",
+        "sunrise": transition.sunrise, "sunset": transition.sunset,
     }
     snapshot = CoordinatorSnapshot(energy=energy, miners=miners)
     decision = build_decision(snapshot, **inputs)
@@ -446,6 +490,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--recorder", type=Path, required=True)
     p.add_argument("--at", nargs="+", required=True, help="local times, HH:MM or HH:MM:SS")
     p.add_argument("--solar-noon", help="UTC, HH:MM")
+    p.add_argument("--sunset", help="local, HH:MM")
     p.add_argument("--tz", default="Europe/Sofia")
     args = parser.parse_args(argv)
 
@@ -470,7 +515,7 @@ def main(argv: list[str] | None = None) -> int:
     for at in args.at:
         parts = [int(x) for x in at.split(":")] + [0]
         local = datetime(day.year, day.month, day.day, parts[0], parts[1], parts[2], tzinfo=tz)
-        print(json.dumps(inputs_at(rec, local, args.solar_noon), ensure_ascii=False, separators=(",", ":")))
+        print(json.dumps(inputs_at(rec, local, args.solar_noon, args.sunset), ensure_ascii=False, separators=(",", ":")))
     return 0
 
 

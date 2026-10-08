@@ -559,9 +559,31 @@ def test_nothing_starts_while_the_sun_is_down() -> None:
     assert any("the sun is down" in line for line in decision.trace)
 
 
+def test_during_sunset_nothing_starts_or_steps_up() -> None:
+    # 2026-10-08 16:48 to 18:13: a stop dropped the import below the minimum, "start a stopped
+    # miner" undid it, nine times. Owner, 2026-10-09: during sunset nothing starts.
+    miners = [_miner("a", limit=900.0), _miner("b", stopped=True)]
+    decision = _decide(_metered(0.0, miners), sunset=True)
+
+    assert decision.proposals == {}
+    assert set(_actions(decision).values()) == {ACTION_HOLD}
+    assert "Sunset: production is falling → nothing starts or steps up until sunrise" in decision.trace
+    assert any("but the sun is setting → nothing starts" in line for line in decision.trace)
+
+
+def test_during_sunset_a_shortfall_still_steps_down_and_the_load_evens_only_downwards() -> None:
+    down = _decide(_metered(_over(150.0), [_miner("a", limit=1500.0)]), sunset=True)
+    assert down.proposals == {"a": 1300.0}
+
+    uneven = [_miner("a", limit=1900.0), _miner("b", limit=900.0)]
+    assert _decide(_metered(INSIDE, uneven), power_steps=DEFAULT_POWER_STEPS, sunset=True).proposals == {
+        "a": 1700.0
+    }
+
+
 def test_step_down_waits_until_the_shortfall_has_lasted() -> None:
     snapshot = _metered(600.0, _three(limit=1500.0))
-    kw = {"import_min_w": 200, "step_down_delay_minutes": 5, "sun_rising": False}
+    kw = {"import_min_w": 200, "step_down_delay_minutes": 5, "sunrise": False}
 
     early = _decide(snapshot, minutes_import_high=2, **kw)
     assert early.proposals == {}
@@ -569,14 +591,15 @@ def test_step_down_waits_until_the_shortfall_has_lasted() -> None:
     assert list(_decide(snapshot, minutes_import_high=6, **kw).proposals.values()) == [1300.0]
 
 
-def test_while_the_sun_rises_a_shortfall_waits_for_the_morning_delay() -> None:
-    # Owner, 2026-10-08: some import in the morning is fine, the sun will come.
+def test_during_sunrise_a_shortfall_waits_for_the_sunrise_delay() -> None:
+    # Owner, 2026-10-08: some import in the morning is fine, the sun will come. 2026-10-09: only
+    # during sunrise, while production still rises (transition.py), not all morning.
     snapshot = _metered(600.0, _three(limit=1500.0))
     kw = {
         "import_min_w": 200,
         "step_down_delay_minutes": 5,
         "morning_step_down_delay_minutes": 30,
-        "sun_rising": True,
+        "sunrise": True,
     }
 
     waiting = _decide(snapshot, minutes_import_high=10, **kw)
@@ -610,10 +633,13 @@ def test_a_sunset_steps_down_stops_every_miner_and_stays_on_the_ladder() -> None
     for potential in SUNSET_POTENTIAL:
         for _ in range(3):  # a few decisions per reading, one change each
             miners = [_miner(i, limit=lim, stopped=stopped) for i, (lim, stopped) in state.items()]
-            decision = _decide(_metered(_farm_import(state, potential), miners), sun_up=potential > 0)
+            decision = _decide(
+                _metered(_farm_import(state, potential), miners), sun_up=potential > 0, sunset=True
+            )
             for plan in decision.plans.values():
                 if plan.action in (ACTION_SET_LIMIT, ACTION_START):
                     assert plan.limit_w in DEFAULT_POWER_STEPS
+                    assert plan.action != ACTION_START  # nothing starts during sunset
             _apply(state, decision)
 
     assert all(stopped for _, stopped in state.values())  # dark: everything is stopped

@@ -68,8 +68,12 @@ situations:
       - {id: pv-flat-or-falling, says: "Actual PV is flat or falling while the forecast says it should rise.", kind: measured, weight: strong, uses: [sensor.active_power_total], available: true}
       - {id: outside-window, says: "It is hours away from the usual sunrise window.", kind: time, weight: medium, uses: [site.location], available: true}
     exceptions: Cloud or fog can hold production down for hours; the forecast then says "rising" and the measurement says "no".
-    in_code: none
-    status: proposed
+    in_code: >
+      partial (transition.py since 0.8.0): one signal by the owner's choice (2026-10-09): production (the
+      miners' draw plus the grid balance, outside ramp locks, while importing) rose by more than
+      150 W over 15 minutes while sun.sun is rising. Gives the longer step-down delay and the AI's
+      sunrise facts.
+    status: in_use
 
   - id: situation.sunset
     name: Sunset
@@ -87,8 +91,11 @@ situations:
       - {id: pv-steady, says: "Actual PV is steady at a high level.", kind: measured, weight: strong, uses: [sensor.active_power_total], available: true}
       - {id: outside-window, says: "It is hours away from the usual sunset window.", kind: time, weight: medium, uses: [site.location], available: true}
     exceptions: A heavy cloud late in the afternoon looks like an early sunset until production recovers or not.
-    in_code: none (the decision only sees the budget falling)
-    status: proposed
+    in_code: >
+      partial (transition.py since 0.8.0): production fell by more than 150 W over 15 minutes within 2 hours
+      of sun.sun's next setting; latched until the sun rises again. Nothing starts or steps up
+      (rule.sunset-one-by-one); a late cloud counts as sunset (owner, 2026-10-09).
+    status: in_use
 
   - id: situation.midday
     name: Midday

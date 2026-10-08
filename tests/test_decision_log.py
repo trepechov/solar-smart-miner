@@ -81,6 +81,13 @@ def test_a_line_from_an_older_version_still_loads() -> None:
     assert loaded.miners[0].name == "Miner 1" and inputs == INPUTS
 
 
+def test_an_argument_the_decision_no_longer_takes_is_left_out() -> None:
+    snapshot = _snapshot()
+    record = build_record(snapshot, {**INPUTS, "sun_rising": True}, build_decision(snapshot, **INPUTS))
+
+    assert load_record(record)[1] == INPUTS
+
+
 async def test_a_line_is_written_only_when_the_plans_change(hass) -> None:
     log = DecisionLog(hass)
     snapshot = _snapshot()

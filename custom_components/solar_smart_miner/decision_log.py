@@ -9,6 +9,7 @@ of it.
 """
 from __future__ import annotations
 
+import inspect
 from dataclasses import asdict, fields
 from typing import Any
 
@@ -46,12 +47,16 @@ def _known(cls, data: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_record(record: dict[str, Any]) -> tuple[CoordinatorSnapshot, dict[str, Any]]:
-    """(snapshot, keyword arguments) to call build_decision with again."""
+    """(snapshot, keyword arguments) to call build_decision with again. Arguments the decision
+    no longer takes are left out (a line from an older version replays, by today's rules)."""
+    from .decision import build_decision
+
     snapshot = CoordinatorSnapshot(
         energy=EnergySnapshot(**_known(EnergySnapshot, record["energy"])),
         miners=[MinerSnapshot(**_known(MinerSnapshot, m)) for m in record["miners"]],
     )
-    return snapshot, dict(record["inputs"])
+    takes = set(inspect.signature(build_decision).parameters)
+    return snapshot, {k: v for k, v in record["inputs"].items() if k in takes}
 
 
 class DecisionLog(JsonlLog):

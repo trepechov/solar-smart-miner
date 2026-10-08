@@ -37,7 +37,8 @@ class Context:
     step_down_delay_minutes: float
     morning_step_down_delay_minutes: float
     sun_up: bool | None
-    sun_rising: bool | None
+    sunrise: bool
+    sunset: bool
     trace: list[str] = field(default_factory=list)
     plans: dict[str, MinerPlan] = field(default_factory=dict)
     candidates: list[MinerSnapshot] = field(default_factory=list)
@@ -48,6 +49,7 @@ class Context:
     direction: str | None = None
     excess_w: float = 0.0
     may_step_up: bool = True
+    no_up_reason: str = ""  # why nothing starts or steps up (Limits)
 
     @property
     def energy(self):
