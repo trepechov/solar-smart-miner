@@ -215,8 +215,6 @@ def allocate(ctx: Context) -> Decision:
     ladder = ladders[m.miner_id]
     if lv is None:
         reason = "not enough power for the lowest step"
-        if ctx.profile == "grid_independent":
-            reason += f" (would import ~{_w(ladder[0])})"
         ctx.plans[m.miner_id] = ctx.stop(m, reason)
         if ctx.plans[m.miner_id].action == ACTION_STOP:
             ctx.trace.append(f"{m.name}: {reason}")

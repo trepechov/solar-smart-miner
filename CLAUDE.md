@@ -33,7 +33,7 @@ custom_components/solar_smart_miner/   # HA integration source
   ai_log.py            # JSONL log of every AI request (inputs, rule proposal, AI actions) + widget history
   decision_log.py      # decisions.jsonl: every input of the decision when the plans change (replays)
   sensor.py            # sensor entity platform (hub + per-miner sensors, decision log, AI advice)
-  select.py            # profile select entity
+  select.py            # control mode select (the profile select returns with the battery profiles)
   button.py            # button entity platform (Add to Dashboard, Ask AI now)
   protocols.py         # typed protocols for hass-miner entity reads
   const.py             # constants and configuration keys

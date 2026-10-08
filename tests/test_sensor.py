@@ -473,10 +473,10 @@ async def test_two_miners_creates_ten_per_miner_entities(hass, add_hass_miner) -
 
     er = er_module.async_get(hass)
     our_entities = [e for e in er.entities.values() if e.platform == DOMAIN]
-    # 3 buttons (dashboard, ask AI, apply all) + 2 selects (profile, control mode) + 10 hub sensors
+    # 3 buttons (dashboard, ask AI, apply all) + 1 select (control mode) + 10 hub sensors
     # (solar, house, battery, total miners, grid export, available for miners, decision log,
     # AI advice, last action, activity) + 5 metrics per miner
-    assert len(our_entities) == 3 + 2 + 10 + 2 * 5
+    assert len(our_entities) == 3 + 1 + 10 + 2 * 5
 
 
 async def test_miner_added_after_setup_gets_sensors(hass, add_hass_miner) -> None:

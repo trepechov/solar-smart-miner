@@ -48,11 +48,11 @@ def _model(model_id: str, *, price: str = "0", output=("text",), inputs=("text",
 
 
 def test_build_messages_includes_trace_profile_and_limits() -> None:
-    messages = build_messages(_snapshot(), profile="solar_max", temp_target=65, temp_tolerance=10, battery_floor=20)
+    messages = build_messages(_snapshot(), profile="solar_follow", temp_target=65, temp_tolerance=10, battery_floor=20)
 
     assert messages[0] == {"role": "system", "content": SYSTEM_PROMPT}
     user = messages[1]["content"]
-    assert "Profile: Solar-max" in user
+    assert "Profile: Solar-follow" in user
     assert "Temperature target: 65 °C, tolerance 10 °C" in user
     assert "Battery floor: 20 %" in user
     assert "Brod1 → 500 W" in user
@@ -60,7 +60,7 @@ def test_build_messages_includes_trace_profile_and_limits() -> None:
 
 def test_build_messages_adds_the_knowledge_base_to_the_system_prompt() -> None:
     messages = build_messages(
-        _snapshot(), profile="solar_max", temp_target=65, temp_tolerance=10, battery_floor=20,
+        _snapshot(), profile="solar_follow", temp_target=65, temp_tolerance=10, battery_floor=20,
         knowledge="KNOWLEDGE BASE (situation: midday)\n- [P0] Rule: text",
     )
 
@@ -76,7 +76,7 @@ def test_build_messages_tells_the_model_it_cannot_change_anything() -> None:
 def test_build_messages_without_decision() -> None:
     snapshot = CoordinatorSnapshot(energy=EnergySnapshot(solar_production_w=None))
 
-    messages = build_messages(snapshot, profile="solar_max", temp_target=65, temp_tolerance=10, battery_floor=20)
+    messages = build_messages(snapshot, profile="solar_follow", temp_target=65, temp_tolerance=10, battery_floor=20)
 
     assert "No decision available." in messages[1]["content"]
 

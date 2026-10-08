@@ -253,7 +253,7 @@ async def test_press_excludes_non_sensor_entities(hass) -> None:
     assert "sensor.solar_production" in message
 
 
-async def test_press_includes_profile_select_and_decision_log_card(hass) -> None:
+async def test_press_includes_the_selects_and_decision_log_card(hass) -> None:
     from homeassistant.helpers import device_registry as dr, entity_registry as er
     import yaml
 
@@ -266,7 +266,7 @@ async def test_press_includes_profile_select_and_decision_log_card(hass) -> None
     entity_reg = er.async_get(hass)
     for domain, uid in (
         ("sensor", "x_solar_production"),
-        ("select", "x_profile"),
+        ("select", "x_control_mode"),
         ("sensor", "x_decision_log"),
     ):
         entity_reg.async_get_or_create(
@@ -283,7 +283,7 @@ async def test_press_includes_profile_select_and_decision_log_card(hass) -> None
     card = yaml.safe_load(message.split("```yaml\n")[1].split("\n```")[0])
     assert card["type"] == "vertical-stack"
     entities_card, log_card = card["cards"]
-    assert entities_card["entities"] == ["select.x_profile", "sensor.x_solar_production"]
+    assert entities_card["entities"] == ["select.x_control_mode", "sensor.x_solar_production"]
     assert log_card["type"] == "markdown"
     assert "sensor.x_decision_log" in log_card["content"]
 

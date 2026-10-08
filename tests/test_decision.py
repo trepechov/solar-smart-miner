@@ -1,6 +1,8 @@
 """Tests for the rule-based decisions: power steps, one change at a time, ramp lock, stop / start."""
 from __future__ import annotations
 
+import pytest
+
 from custom_components.solar_smart_miner.const import DEFAULT_POWER_STEPS, DEFAULT_TUNING_SETTLE_MINUTES
 from custom_components.solar_smart_miner.decision import build_decision, min_import_range_w
 from custom_components.solar_smart_miner.protocols import (
@@ -60,7 +62,7 @@ STEPS = [900, 1100, 1300, 1500]
 
 
 def _decide(
-    snapshot, profile="solar_max", temp_target=65, temp_tolerance=10, battery_floor=20, **kw
+    snapshot, profile="solar_follow", temp_target=65, temp_tolerance=10, battery_floor=20, **kw
 ):
     # Import target 0: these tests check the allocation against a given budget. The
     # Solar-follow import target has its own tests below.
@@ -87,7 +89,7 @@ def test_default_steps_are_the_agreed_ladder() -> None:
 
 def test_without_configured_steps_the_default_ladder_is_used() -> None:
     decision = build_decision(
-        _snapshot(9000.0, [_miner("a", limit=900.0)]), "solar_max", 65, 10, 20,
+        _snapshot(9000.0, [_miner("a", limit=900.0)]), "solar_follow", 65, 10, 20,
         import_min_w=0,
     )
     assert decision.proposals == {"a": 2500.0}
@@ -278,12 +280,12 @@ def test_by_default_a_changed_miner_settles_in_five_minutes() -> None:
     # a stored hour let each miner step up only once an hour while the import sat near 0 W.
     assert DEFAULT_TUNING_SETTLE_MINUTES == 5
     still = build_decision(
-        _snapshot(5000.0, [_miner("a", limit=1100.0, since=3.0)]), "solar_max", 65, 10, 20,
+        _snapshot(5000.0, [_miner("a", limit=1100.0, since=3.0)]), "solar_follow", 65, 10, 20,
         import_min_w=0, power_steps=STEPS,
     )
     assert still.plans["a"].reason == "tuning"
     settled = build_decision(
-        _snapshot(5000.0, [_miner("a", limit=1100.0, since=6.0)]), "solar_max", 65, 10, 20,
+        _snapshot(5000.0, [_miner("a", limit=1100.0, since=6.0)]), "solar_follow", 65, 10, 20,
         import_min_w=0, power_steps=STEPS,
     )
     assert settled.proposals == {"a": 1500.0}
@@ -335,25 +337,16 @@ def test_tuning_is_off_by_default_so_a_change_is_only_a_restart() -> None:
 # --- profiles and safety -------------------------------------------------------------
 
 
-def test_grid_independent_notes_import_when_below_the_lowest_step() -> None:
-    decision = _decide(_snapshot(600.0, [_miner("a", limit=900.0)]), profile="grid_independent")
-
-    assert any("would import" in line for line in decision.trace)
-
-
-def test_grid_agnostic_takes_every_miner_to_the_top_step_one_at_a_time() -> None:
-    decision = _decide(_snapshot(None, _three(limit=900.0)), profile="grid_agnostic")
-    assert decision.proposals == {"a": 1500.0}
-
-    done = [_miner("a", limit=1500.0), _miner("b", limit=900.0), _miner("c", limit=900.0)]
-    assert _decide(_snapshot(None, done), profile="grid_agnostic").proposals == {"b": 1500.0}
-
-
-def test_grid_agnostic_starts_stopped_miners() -> None:
-    decision = _decide(_snapshot(None, [_miner("a", stopped=True)]), profile="grid_agnostic")
-
-    assert decision.plans["a"].action == ACTION_START
-    assert decision.plans["a"].limit_w == 1500.0
+@pytest.mark.parametrize("old", ["solar_max", "grid_agnostic", "grid_independent", "battery_focused"])
+def test_an_old_profile_name_decides_as_solar_follow(old) -> None:
+    # One profile since 0.8.0 (owner, 2026-10-09); the stored name is rewritten at setup, and
+    # until then (or in an old decisions.jsonl line) it reads as Solar-follow.
+    for snapshot in (_metered(30.0, _three(limit=1100.0)), _metered(700.0, _three(limit=1500.0))):
+        follow = _decide(snapshot, import_min_w=200, import_max_w=400)
+        legacy = _decide(snapshot, profile=old, import_min_w=200, import_max_w=400)
+        assert legacy.plans == follow.plans
+        assert legacy.summary == follow.summary
+        assert "Profile: Solar-follow" in legacy.trace
 
 
 def test_unknown_budget_holds_current_limits() -> None:
@@ -364,7 +357,7 @@ def test_unknown_budget_holds_current_limits() -> None:
 
 
 def test_solar_sensor_fault_holds_every_miner_instead_of_re_tuning_them() -> None:
-    decision = _decide(_snapshot(5000.0, _three(), solar_fault=True), profile="grid_agnostic")
+    decision = _decide(_snapshot(5000.0, _three(), solar_fault=True))
 
     assert set(_actions(decision).values()) == {ACTION_HOLD}
     assert decision.summary.startswith("Safety: solar sensor unavailable")
@@ -439,14 +432,6 @@ def test_temperature_is_ignored_while_the_miner_is_tuning() -> None:
     assert decision.plans["a"].limit_w == 1300.0
 
 
-def test_grid_agnostic_keeps_a_warm_miner_at_its_step() -> None:
-    miners = [_miner("a", limit=1100.0, temp=70.0), _miner("b", limit=1100.0)]
-    decision = _decide(_snapshot(None, miners), profile="grid_agnostic")
-
-    assert decision.plans["a"].action == ACTION_HOLD
-    assert decision.proposals == {"b": 1500.0}
-
-
 def test_no_miners() -> None:
     decision = _decide(_snapshot(1000.0, miners=[]))
 
@@ -459,17 +444,17 @@ def test_summary_names_what_each_miner_will_do() -> None:
 
     # 2,000 W: two miners at 900 W fit, the third is stopped.
     assert _decide(_snapshot(2000.0, miners)).summary == (
-        "Solar-max: budget 2,000 W → M-a hold 900 W, M-b hold 900 W, M-c stop (pause)"
+        "Solar-follow: budget 2,000 W → M-a hold 900 W, M-b hold 900 W, M-c stop (pause)"
     )
     # 3,000 W leaves 300 W over three miners at 900 W: exactly one step up (200 W + 100 W margin).
     assert _decide(_snapshot(3000.0, miners)).summary == (
-        "Solar-max: budget 3,000 W → M-a 1,100 W, M-b hold 900 W, M-c hold 900 W"
+        "Solar-follow: budget 3,000 W → M-a 1,100 W, M-b hold 900 W, M-c hold 900 W"
     )
     assert _decide(_snapshot(1000.0, [_miner("a", limit=900.0)])).summary == (
-        "Solar-max: budget 1,000 W → M-a hold 900 W"
+        "Solar-follow: budget 1,000 W → M-a hold 900 W"
     )
     assert _decide(_snapshot(0.0, [_miner("a", limit=900.0)])).summary == (
-        "Solar-max: budget 0 W → M-a stop (pause)"
+        "Solar-follow: budget 0 W → M-a stop (pause)"
     )
 
 
@@ -600,14 +585,6 @@ def test_the_forecast_never_changes_the_proposal() -> None:
     assert seen.plans == blind.plans
     assert not any("hidden headroom" in line for line in seen.trace)
     assert "Forecast PV now: 6,000 W (reference only)" in seen.trace
-
-
-def test_import_floor_applies_only_to_solar_max() -> None:
-    snapshot = _metered(30.0, _three(limit=1100.0))
-    decision = _decide(snapshot, profile="grid_independent", import_min_w=250)
-
-    assert decision.proposals == {}
-    assert not any("import floor" in line.lower() for line in decision.trace)
 
 
 # --- replay of a real evening --------------------------------------------------------

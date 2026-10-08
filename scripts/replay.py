@@ -3,9 +3,10 @@
 
 Run with the project's virtualenv from the repo root (it imports the integration):
 
-  .venv/bin/python scripts/replay.py decisions <decisions.jsonl>
+  .venv/bin/python scripts/replay.py decisions <decisions.jsonl> [--rewrite]
       Every logged decision run again; prints the cycles whose plans or summary differ.
-      Use before every release that may change behaviour.
+      Use before every release that may change behaviour. --rewrite stores the new outcome
+      in the file (for tests/replay/ after an intended change: name the moments in the commit).
 
   .venv/bin/python scripts/replay.py collisions <actions.jsonl> [<actions.jsonl> ...]
   .venv/bin/python scripts/replay.py collisions --recorder <dir or day.json> [...]
@@ -57,10 +58,13 @@ FLIP_COUNT = 6  # hold reasons changing more often than this within the window
 # --- replaying decisions.jsonl ---------------------------------------------------------
 
 
-def replay(path: Path) -> int:
+def replay(path: Path, rewrite: bool = False) -> int:
     """Run every logged decision again; the number of cycles that came out differently."""
+    from dataclasses import asdict
+
     differ = 0
     total = 0
+    lines = []
     for line in path.read_text(encoding="utf-8").splitlines():
         try:
             record = json.loads(line)
@@ -74,8 +78,15 @@ def replay(path: Path) -> int:
         )
         if plans_fingerprint(now) != was or now.summary != record["summary"]:
             differ += 1
-            print(f"{record['ts']}\n  was: {record['summary']}\n  now: {now.summary}")
-    print(f"{total} decisions replayed, {differ} differ")
+            mark = "PLANS" if plans_fingerprint(now) != was else "text"
+            print(f"{record['ts']} [{mark}]\n  was: {record['summary']}\n  now: {now.summary}")
+        record.update(
+            summary=now.summary, plans={k: asdict(p) for k, p in now.plans.items()}, trace=now.trace
+        )
+        lines.append(json.dumps(record, ensure_ascii=False, separators=(",", ":")))
+    if rewrite:
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"{total} decisions replayed, {differ} differ" + (" (rewritten)" if rewrite else ""))
     return differ
 
 
@@ -426,6 +437,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("decisions")
     p.add_argument("log", type=Path)
+    p.add_argument("--rewrite", action="store_true")
     p = sub.add_parser("collisions")
     p.add_argument("logs", type=Path, nargs="*")
     p.add_argument("--recorder", type=Path, nargs="*", default=[])
@@ -438,7 +450,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "decisions":
-        return 1 if replay(args.log) else 0
+        return 1 if replay(args.log, args.rewrite) and not args.rewrite else 0
     tz = ZoneInfo(args.tz)
     if args.command == "collisions":
         if args.recorder:

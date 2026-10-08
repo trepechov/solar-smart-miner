@@ -35,12 +35,12 @@ A Home Assistant custom integration that steers ASIC miner power limits from rea
 
 Bitcoin ASIC miners are power-hungry and most efficient when run continuously at a fixed wattage. Homes with solar panels and batteries operate in a constantly shifting energy environment: production peaks midday, drops at night, batteries fill and drain. Without automation, miners either waste solar surplus or drain batteries unnecessarily.
 
-Solar Smart Miner closes that gap. On every update a rule-based controller reads your current energy state from Home Assistant and proposes a power step (or a stop/start) for each miner, which you apply with a button. An AI advisor reviews the same inputs and the proposal on a configurable interval; it reasons with your chosen profile (e.g. maximise solar self-consumption, protect battery SOC, never draw from the grid) and logs its reasoning for every decision it makes.
+Solar Smart Miner closes that gap. On every update a rule-based controller reads your current energy state from Home Assistant and proposes a power step (or a stop/start) for each miner, which you apply with a button. An AI advisor reviews the same inputs and the proposal on a configurable interval and logs its reasoning for every decision it makes.
 
 ## Features
 
 - **Rule-based power control with an AI advisor**: the rules propose per-miner power steps from live energy data; an agent on any OpenRouter-compatible model (including free Llama/Gemma) comments on each proposal, and gains authority only in later, evidence-gated stages
-- **Four built-in profiles** — Battery-focused, Solar-max, Grid-agnostic, Grid-independent; switchable from the HA UI without restart
+- **Solar-follow** — follows the sun on a small steady grid import, for setups without a battery (battery profiles come later)
 - **Hard safety layer** — temperature ceiling, battery SOC floor, and solar fault checks run before every AI decision and cannot be reasoned around
 - **Manual and Automatic control** — in Manual (the default) the farm gets one proposal and you press **Apply proposal**, and only then is a miner touched; in Automatic the proposal is applied every cycle, paced by the ramp lock; switchable from the HA UI
 - **Telegram notifications** — every power limit change and every safety override sends a message with the reason
@@ -88,7 +88,7 @@ The integration is set up through the Home Assistant UI config flow:
 2. Optionally paste an [OpenRouter](https://openrouter.ai) API key and pick a model. Without a key the controller still runs, rule-based.
 3. Optionally add a battery SOC sensor.
 4. Set safety thresholds (temperature ceiling, battery SOC floor).
-5. Choose a starting profile and polling interval.
+5. Choose the polling interval.
 
 Miners are not configured here: every miner set up in [hass-miner](https://github.com/Schnitzel/hass-miner) is picked up automatically.
 
@@ -101,7 +101,7 @@ Open **Settings → Devices & services → Solar Smart Miner → Configure**. Sa
 | **Sensors** | Solar / net-meter entity and what it measures, house consumption (optional), battery SOC (optional), and reference sensors for the AI log: actual PV output and the solar forecast (all optional) |
 | **Miner stop method** | Per miner: the relay switch that cuts it off (empty = use the miner's own pause switch) |
 | **AI (OpenRouter)** | Turn the AI on or off, API key (shown hidden), model, seconds between AI requests |
-| **Settings** | Profile, power steps, tuning time, polling interval, target temperature and tolerance, battery floor, control mode, Telegram, development mocks |
+| **Settings** | Power steps, tuning time, polling interval, target temperature and tolerance, battery floor, control mode, Telegram, development mocks |
 
 ### AI advice (OpenRouter)
 
@@ -117,20 +117,13 @@ Every request is appended to `<HA config>/solar_smart_miner/ai_log.jsonl`, one J
 
 The last 20 entries are also on the **AI advice** sensor (`history` and `actions` attributes) and in the card from **Add to dashboard** under *AI log*.
 
-## Profiles
+## Solar-follow
 
-> **Being replaced.** These four are from the first versions. The focus is **Solar-follow** for setups without a battery: a small steady draw from the grid proves all solar is used (Solar-max already works this way). Battery profiles are not designed yet. See [decision-making requirements §6](docs/brainstorms/2026-10-05-decision-making-requirements.md).
+There is one profile, **Solar-follow**, for setups without a battery: a small steady draw from the grid proves all the solar is used. (Up to 0.7 it was called Solar-max, and there were three more profiles; a stored one is switched to Solar-follow on update, and the profile select is gone.) Battery profiles are not designed yet. See [decision-making requirements §6](docs/brainstorms/2026-10-05-decision-making-requirements.md).
 
-| Profile | Behaviour |
-|---|---|
-| **Battery-focused** | Prioritise preserving battery SOC; run at efficiency-optimal wattage; back off as battery drops |
-| **Solar-max** | Follow the solar on a small steady grid import (see [Solar-max: steering on the import](#solar-max-steering-on-the-import)) |
-| **Grid-agnostic** | Use solar surplus freely and supplement with grid without penalty; optimise for hashrate |
-| **Grid-independent** | Never draw net power from the grid; cap miner wattage to (production − base consumption) |
+### Steering on the import
 
-### Solar-max: steering on the import
-
-Without a battery the inverters hold their output to the load (zero export), so at 0 W on the meter you can't tell 500 W of sun from 5 kW. A small steady **import** is the only proof all the solar is used. Solar-max steers on it:
+Without a battery the inverters hold their output to the load (zero export), so at 0 W on the meter you can't tell 500 W of sun from 5 kW. A small steady **import** is the only proof all the solar is used. Solar-follow steers on it:
 
 - **Below the minimum import** (Configure → Settings, 200 W by default): the solar covers the house and the inverters are probably holding back, so it adds one increment: it **starts a stopped miner** at its lowest step first, otherwise it raises the weakest running miner one step. The ramp lock then waits 4 minutes, and the import shows whether the sun carried it. This is also how the miners start in the morning. Nothing starts while the sun is below the horizon (`sun.sun`).
 - **Between the minimum and the maximum import** (400 W by default): hold. Keep the range at least one power step wide, so a step from just outside lands inside.
@@ -206,7 +199,7 @@ Every time the proposal changes, `<config>/solar_smart_miner/decisions.jsonl` ge
 2. Midday, a step-down the rules propose: press Apply proposal, watch the number change, check `actions.jsonl` has a `pending` then an `ok` line, and that the next cycle treats the miner as tuning.
 3. A step-up on the same miner after it has settled.
 4. A stop with the pause method, then a start: note whether the limit can be set while paused and how long until it is back.
-5. Let a plan change between looking and pressing (change the profile): confirm the "proposal changed" notification.
+5. Let a plan change between looking and pressing (change a setting): confirm the "proposal changed" notification.
 6. Pull the network or switch the miner off and press: confirm `failed` after the grace time and the notification.
 7. A proposal with two miners moving in opposite directions: the reduction goes first.
 8. Turn the fixed-hour schedule automation off, then switch to **Automatic**: the next proposal is applied within one cycle, the card title says "applied automatically", `actions.jsonl` lines carry `"trigger": "auto"`, and nothing else is sent for 4 minutes after a change.

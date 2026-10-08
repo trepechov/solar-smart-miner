@@ -11,11 +11,13 @@ from .const import (  # noqa: F401
     DOMAIN,
     LEGACY_CONTROL_MODE_PREVIEW,
     DEFAULT_TUNING_SETTLE_MINUTES,
+    DEFAULT_PROFILE,
     LEGACY_IMPORT_TARGET,
+    LEGACY_PROFILES,
     LEGACY_TUNING_SETTLE_MINUTES,
     control_mode_of,
 )
-from .config_flow import CONF_TUNING_SETTLE
+from .config_flow import CONF_PROFILE, CONF_TUNING_SETTLE
 from .coordinator import SolarMinerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -25,9 +27,12 @@ PLATFORMS: list[str] = ["button", "select", "sensor"]
 
 # (domain, unique-id suffix) of entities an older version created and this one no longer does.
 # v0.6.0 had a proposal sensor and an Apply button per miner; the proposal is farm-level now.
+# 0.8.0 has one profile, so the profile select has nothing to choose (it returns with the
+# battery profiles; see PROFILES in const.py).
 RETIRED_ENTITIES: tuple[tuple[str, str], ...] = (
     ("button", "_apply"),
     ("sensor", "_proposed_action"),
+    ("select", "_profile"),
 )
 
 
@@ -36,6 +41,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _migrate_control_mode(hass, entry)
     _drop_legacy_import_target(hass, entry)
     _migrate_tuning_settle(hass, entry)
+    _migrate_profile(hass, entry)
     _remove_retired_entities(hass, entry)
     coordinator = SolarMinerCoordinator(hass, entry)
     await coordinator.ai_log.async_load_history()
@@ -99,3 +105,15 @@ def _migrate_tuning_settle(hass: HomeAssistant, entry: ConfigEntry) -> None:
         entry, options={**entry.options, CONF_TUNING_SETTLE: DEFAULT_TUNING_SETTLE_MINUTES}
     )
     _LOGGER.info("Tuning time of 60 minutes replaced by the %s-minute default", DEFAULT_TUNING_SETTLE_MINUTES)
+
+
+def _migrate_profile(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """One profile since 0.8.0: a stored older one becomes Solar-follow, once. Solar-max was
+    its forerunner (same rules); the others are dropped (owner, 2026-10-09)."""
+    stored = entry.options.get(CONF_PROFILE)
+    if stored not in LEGACY_PROFILES:
+        return
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, CONF_PROFILE: DEFAULT_PROFILE}
+    )
+    _LOGGER.info("Profile %s no longer exists; switched to Solar-follow", stored)

@@ -52,7 +52,6 @@ from .const import (
     HASS_MINER_PLATFORM,
     MIN_AI_INTERVAL,
     MIN_POLLING_INTERVAL,
-    PROFILES,
     SOLAR_ENTITY_TYPE_NET_EXPORT,
     SOLAR_ENTITY_TYPE_NET_IMPORT,
     SOLAR_ENTITY_TYPE_PRODUCTION,
@@ -81,8 +80,8 @@ REFERENCE_ENTITY_KEYS = (
 CONF_TEMP_TARGET = "temp_target"
 CONF_TEMP_TOLERANCE = "temp_tolerance"
 CONF_BATTERY_FLOOR = "battery_floor"
-CONF_IMPORT_MIN = "import_min"  # W: Solar-max's minimum grid import
-CONF_IMPORT_MAX = "import_max"  # W: Solar-max's maximum grid import
+CONF_IMPORT_MIN = "import_min"  # W: Solar-follow's minimum grid import
+CONF_IMPORT_MAX = "import_max"  # W: Solar-follow's maximum grid import
 CONF_STEP_DOWN_DELAY = "step_down_delay_minutes"  # a shortfall must last this long first
 CONF_MORNING_STEP_DOWN_DELAY = "morning_step_down_delay_minutes"  # the same while the sun rises
 CONF_PROFILE = "profile"
@@ -129,13 +128,6 @@ async def _async_model_options(hass: HomeAssistant, current_model: str | None) -
         for model_id, label in models
     ]
 
-
-_PROFILE_SELECTOR = SelectSelector(
-    SelectSelectorConfig(
-        options=[SelectOptionDict(value=p["name"], label=p["display_name"]) for p in PROFILES],
-        mode=SelectSelectorMode.DROPDOWN,
-    )
-)
 
 _CONTROL_MODE_SELECTOR = SelectSelector(
     SelectSelectorConfig(
@@ -319,13 +311,9 @@ def _step3_schema(battery_floor: float = DEFAULT_BATTERY_FLOOR) -> vol.Schema:
     )
 
 
-def _step4_schema(
-    profile: str = DEFAULT_PROFILE,
-    polling_interval: int = DEFAULT_POLLING_INTERVAL,
-) -> vol.Schema:
+def _step4_schema(polling_interval: int = DEFAULT_POLLING_INTERVAL) -> vol.Schema:
     return vol.Schema(
         {
-            vol.Required(CONF_PROFILE, default=profile): _PROFILE_SELECTOR,
             vol.Required(CONF_POLLING_INTERVAL, default=polling_interval): _POLLING_SELECTOR,
         }
     )
@@ -336,9 +324,6 @@ def _options_schema(options: dict) -> vol.Schema:
         vol.Required(
             CONF_CONTROL_MODE, default=control_mode_of(options)
         ): _CONTROL_MODE_SELECTOR,
-        vol.Required(
-            CONF_PROFILE, default=options.get(CONF_PROFILE, DEFAULT_PROFILE)
-        ): _PROFILE_SELECTOR,
         vol.Required(
             CONF_POLLING_INTERVAL,
             default=options.get(CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL),
@@ -499,7 +484,7 @@ class SolarSmartMinerConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
-            self._options[CONF_PROFILE] = user_input[CONF_PROFILE]
+            self._options[CONF_PROFILE] = DEFAULT_PROFILE  # one profile until the battery ones
             self._options[CONF_POLLING_INTERVAL] = int(user_input[CONF_POLLING_INTERVAL])
             self._options[CONF_CONTROL_MODE] = DEFAULT_CONTROL_MODE
 
@@ -546,7 +531,6 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
                     CONF_POWER_STEPS: steps,
                     CONF_TUNING_SETTLE: int(user_input[CONF_TUNING_SETTLE]),
                     CONF_CONTROL_MODE: user_input[CONF_CONTROL_MODE],
-                    CONF_PROFILE: user_input[CONF_PROFILE],
                     CONF_POLLING_INTERVAL: int(user_input[CONF_POLLING_INTERVAL]),
                     CONF_TEMP_TARGET: int(user_input[CONF_TEMP_TARGET]),
                     CONF_TEMP_TOLERANCE: int(user_input[CONF_TEMP_TOLERANCE]),

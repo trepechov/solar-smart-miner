@@ -37,7 +37,7 @@ RAMP_MIN_MINUTES = 1
 HOLD_TOLERANCE_W = 150  # a shortfall this small keeps the current step (avoids re-tuning)
 UP_MARGIN_W = 100  # spare power needed beyond a step's cost before moving up to it
 
-# Solar-max (Solar-follow) keeps the grid import inside a range, never at zero: at zero a
+# Solar-follow keeps the grid import inside a range, never at zero: at zero a
 # throttled inverter hides how much more the panels could give. Below the minimum it takes one
 # increment; inside the range it holds; above the maximum it steps down once the import has
 # stayed that high for the step-down delay. Keep the range at least one power step wide, so a
@@ -49,62 +49,23 @@ DEFAULT_IMPORT_MAX_W = 400
 DEFAULT_STEP_DOWN_DELAY_MINUTES = 5
 DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES = 30
 
+# One profile until Setup B (a battery). The battery profiles (requirements doc §6.3) add
+# entries here and bring back the profile select (ProfileSelect, retired in 0.8.0) and the
+# Configure field; the stored `profile` option is kept for that. Owner, 2026-10-09: Full
+# power / Grid-agnostic, Grid-independent and Battery-focused are dropped.
 PROFILES = [
     {
-        "name": "battery_focused",
-        "display_name": "Battery-focused",
-        "description": (
-            "Prioritise preserving battery SOC. Run at efficiency-optimal wattage "
-            "and back off as battery drops toward the SOC floor."
-        ),
-        "parameters": {
-            "priority": "battery_soc",
-            "reduce_at_soc_pct": 60,
-            "stop_at_soc_pct": 20,
-            "grid_draw_allowed": True,
-        },
-    },
-    {
-        "name": "solar_max",
-        "display_name": "Solar-max",
-        "description": (
-            "Run at maximum wattage during high solar production. "
-            "Back off when production drops below consumption."
-        ),
-        "parameters": {
-            "priority": "solar_production",
-            "grid_draw_allowed": True,
-        },
-    },
-    {
-        "name": "grid_agnostic",
-        "display_name": "Grid-agnostic",
-        "description": (
-            "Use solar surplus freely and supplement with grid without penalty. "
-            "Optimise for maximum hashrate."
-        ),
-        "parameters": {
-            "priority": "hashrate",
-            "grid_draw_allowed": True,
-        },
-    },
-    {
-        "name": "grid_independent",
-        "display_name": "Grid-independent",
-        "description": (
-            "Never draw net power from the grid. "
-            "Cap miner wattage to (solar production − base household consumption)."
-        ),
-        "parameters": {
-            "priority": "grid_independence",
-            "grid_draw_allowed": False,
-        },
+        "name": "solar_follow",
+        "display_name": "Solar-follow",
+        "description": "Aim for a small steady grid import: all the solar is used, and a little more.",
     },
 ]
 
 PROFILE_NAMES = [p["name"] for p in PROFILES]
 PROFILES_BY_NAME = {p["name"]: p for p in PROFILES}
-DEFAULT_PROFILE = "solar_max"
+DEFAULT_PROFILE = "solar_follow"
+# Profiles of 0.7 and before; a stored one reads as Solar-follow (0.8.0).
+LEGACY_PROFILES = ("solar_max", "grid_agnostic", "grid_independent", "battery_focused")
 
 # Mock solar mode — development only
 CONF_MOCK_SOLAR_ENABLED = "mock_solar_enabled"

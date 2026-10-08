@@ -25,6 +25,7 @@ from ..const import (
     DEFAULT_POWER_STEPS,
     DEFAULT_RAMP_LOCK_MINUTES,
     DEFAULT_TUNING_SETTLE_MINUTES,
+    PROFILES,
     PROFILES_BY_NAME,
 )
 from ..protocols import ACTION_HOLD, CoordinatorSnapshot, Decision, MinerPlan
@@ -76,12 +77,13 @@ def build_decision(
     `minutes_import_high` >= the step-down delay (the morning delay while `sun_rising`).
     `sun_up` False blocks starts and step-ups; None means unknown.
     """
-    profile_def = PROFILES_BY_NAME.get(profile)
+    # One profile: an older stored name (before the migration ran) reads as Solar-follow.
+    profile_def = PROFILES_BY_NAME.get(profile, PROFILES[0])
     ctx = Context(
         snapshot=snapshot,
         steps=list(power_steps) if power_steps else list(DEFAULT_POWER_STEPS),
         profile=profile,
-        profile_label=profile_def["display_name"] if profile_def else profile,
+        profile_label=profile_def["display_name"],
         temp_target=temp_target,
         temp_tolerance=temp_tolerance,
         battery_floor=battery_floor,

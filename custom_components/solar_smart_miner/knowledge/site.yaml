@@ -144,7 +144,11 @@ entries:
       from the grid. Solar-max is its current forerunner. Battery profiles are left open.
       Full power, Grid-agnostic and Grid-independent are dropped.
     priority: P3
-    status: decided
+    status: retired
     source: "requirements doc §0.5 (round 6), §6"
-    date: "2026-10-06"
+    date: "2026-10-09"
     tags: [always]
+    note: >
+      Retired 2026-10-09 (0.8.0): the integration has one profile, Solar-follow (Solar-max
+      renamed); the others are gone and a stored one is migrated. The profile is a setting, not a
+      fact about a site. The battery profiles bring the choice back.
