@@ -1,7 +1,7 @@
 """Tests for the rule-based decisions: power steps, one change at a time, ramp lock, stop / start."""
 from __future__ import annotations
 
-from custom_components.solar_smart_miner.const import DEFAULT_POWER_STEPS
+from custom_components.solar_smart_miner.const import DEFAULT_POWER_STEPS, DEFAULT_TUNING_SETTLE_MINUTES
 from custom_components.solar_smart_miner.decision import build_decision, min_import_range_w
 from custom_components.solar_smart_miner.protocols import (
     ACTION_HOLD,
@@ -271,6 +271,22 @@ def test_a_settled_miner_is_stepped_up() -> None:
     for since in (None, 90.0):
         decision = _decide(_snapshot(5000.0, [_miner("a", limit=1100.0, since=since)]))
         assert decision.proposals == {"a": 1500.0}
+
+
+def test_by_default_a_changed_miner_settles_in_five_minutes() -> None:
+    # Owner, 2026-10-08: every step has a tuned profile, so a change settles in about 5 minutes;
+    # a stored hour let each miner step up only once an hour while the import sat near 0 W.
+    assert DEFAULT_TUNING_SETTLE_MINUTES == 5
+    still = build_decision(
+        _snapshot(5000.0, [_miner("a", limit=1100.0, since=3.0)]), "solar_max", 65, 10, 20,
+        import_min_w=0, power_steps=STEPS,
+    )
+    assert still.plans["a"].reason == "tuning"
+    settled = build_decision(
+        _snapshot(5000.0, [_miner("a", limit=1100.0, since=6.0)]), "solar_max", 65, 10, 20,
+        import_min_w=0, power_steps=STEPS,
+    )
+    assert settled.proposals == {"a": 1500.0}
 
 
 def test_tuning_never_blocks_stepping_down_or_stopping() -> None:
@@ -653,3 +669,76 @@ def test_the_narrowest_import_range_is_the_largest_step_gap() -> None:
     assert min_import_range_w([900.0, 1100.0, 1300.0]) == 200
     assert min_import_range_w([900.0, 1400.0, 1500.0]) == 500
     assert min_import_range_w([1000.0]) == 200
+
+
+# --- even load (secondary) -------------------------------------------------------------
+
+
+def test_with_the_import_in_range_limits_two_steps_apart_are_evened_out() -> None:
+    # 2026-10-08 afternoon: 2,500 / 1,900 / 1,100 W, boards 58 / 45 / 42 °C. Owner: split the
+    # power evenly once every miner runs; a step up first, so the import never drops below range.
+    miners = [_miner("a", limit=2500.0), _miner("b", limit=1900.0), _miner("c", limit=1100.0)]
+    decision = _decide(_metered(300.0, miners), import_min_w=200, import_max_w=400,
+                       power_steps=DEFAULT_POWER_STEPS)
+
+    assert decision.proposals == {"c": 1300.0}
+    assert decision.plans["c"].reason == "even load"
+    assert any(line.startswith("Even load:") for line in decision.trace)
+
+
+def test_limits_within_one_step_are_even_enough() -> None:
+    miners = [_miner("a", limit=1500.0), _miner("b", limit=1300.0), _miner("c", limit=1300.0)]
+    decision = _decide(_metered(300.0, miners), import_min_w=200, import_max_w=400)
+
+    assert decision.proposals == {}
+
+
+def test_the_hungriest_steps_down_when_the_weakest_cannot_step_up() -> None:
+    # c is warm (inside the band: no step up), so the load is evened from the top.
+    miners = [_miner("a", limit=2500.0), _miner("b", limit=1900.0), _miner("c", limit=1100.0, temp=70.0)]
+    decision = _decide(_metered(300.0, miners), import_min_w=200, import_max_w=400,
+                       power_steps=DEFAULT_POWER_STEPS)
+
+    assert decision.proposals == {"a": 2300.0}
+
+
+def test_after_sunset_the_load_is_evened_only_downwards() -> None:
+    miners = [_miner("a", limit=1900.0), _miner("b", limit=900.0)]
+    decision = _decide(_metered(300.0, miners), import_min_w=200, import_max_w=400,
+                       power_steps=DEFAULT_POWER_STEPS, sun_up=False)
+
+    assert decision.proposals == {"a": 1700.0}
+
+
+def test_of_equal_limits_the_coolest_steps_up_and_the_hottest_steps_down() -> None:
+    up = [_miner("a", limit=1900.0), _miner("b", limit=1100.0, temp=58.0), _miner("c", limit=1100.0, temp=50.0)]
+    assert _decide(_metered(300.0, up), import_min_w=200, import_max_w=400,
+                   power_steps=DEFAULT_POWER_STEPS).proposals == {"c": 1300.0}
+
+    down = [_miner("a", limit=1900.0, temp=55.0), _miner("b", limit=1900.0, temp=62.0), _miner("c", limit=1100.0)]
+    assert _decide(_metered(300.0, down), import_min_w=200, import_max_w=400,
+                   power_steps=DEFAULT_POWER_STEPS, sun_up=False).proposals == {"b": 1700.0}
+
+
+def test_below_the_minimum_the_coolest_of_the_weakest_steps_up() -> None:
+    miners = [_miner("a", limit=1100.0, temp=58.0), _miner("b", limit=1100.0, temp=45.0)]
+    decision = _decide(_metered(20.0, miners), import_min_w=200, import_max_w=400)
+
+    assert decision.proposals == {"b": 1300.0}
+
+
+def test_the_load_is_not_evened_while_a_miner_is_stopped() -> None:
+    # Starting the next miner comes first; evening out is for once every miner runs.
+    miners = [_miner("a", limit=2500.0), _miner("b", limit=1100.0), _miner("c", stopped=True)]
+    decision = _decide(_metered(300.0, miners), import_min_w=200, import_max_w=400,
+                       power_steps=DEFAULT_POWER_STEPS)
+
+    assert decision.proposals == {}
+
+
+def test_spare_power_raises_the_weakest_to_its_even_share_not_to_the_top() -> None:
+    # 4,800 W for three miners at 900 W: 1,600 W each. Without the cap the first miner would
+    # take 2,500 W and leave the others at 900 W.
+    decision = _decide(_snapshot(4800.0, _three(limit=900.0)), power_steps=DEFAULT_POWER_STEPS)
+
+    assert decision.proposals == {"a": 1500.0}

@@ -20,13 +20,14 @@ KB_PROMPT_BUDGET_CHARS = 6000
 KB_NIGHT_ELEVATION = -3  # deg; sun at or below this is night
 KB_TRANSITION_ELEVATION = 15  # deg; below this the sun is rising or setting
 
-# Every limit change restarts a miner, and a wattage it has never run takes up to an hour
-# to tune, so the limit only ever moves between these steps (900 to 2,500 W, every one run
-# on every miner). W; each miner uses the ones inside its own range.
+# Every limit change restarts a miner, and a wattage it has never run takes much longer to
+# tune, so the limit only ever moves between these steps (900 to 2,500 W, every one tuned on
+# every miner). W; each miner uses the ones inside its own range.
 DEFAULT_POWER_STEPS = [900, 1100, 1300, 1500, 1700, 1900, 2100, 2300, 2500]
-# Extra minutes a miner counts as tuning after a limit change (no step up, temperature ignored).
-# 0: every configured step has been tuned before, so a change is only a restart (ramp lock).
-DEFAULT_TUNING_SETTLE_MINUTES = 0
+# Minutes a miner counts as tuning after a limit change (no step up, temperature ignored).
+# The miners keep a tuned profile for every configured step, so a change settles in about
+# 5 minutes; an hour would hold the farm back all midday (owner, 2026-10-08).
+DEFAULT_TUNING_SETTLE_MINUTES = 5
 DEFAULT_RAMP_LOCK_MINUTES = 4  # after any change every miner holds while it restarts
 # A changed miner is done ramping early once it draws within this fraction of its new limit
 # (its hashrate may still be settling), but not before RAMP_MIN_MINUTES: right after a step
@@ -135,6 +136,8 @@ CONTROL_MODE_LABELS = {CONTROL_MODE_MANUAL: "Manual", CONTROL_MODE_AUTO: "Automa
 # it as the minimum. Its value means something else now, so it is dropped, not migrated.
 LEGACY_IMPORT_TARGET = "import_target"
 LEGACY_CONTROL_MODE_PREVIEW = "preview"  # removed in 0.7.2; a stored value reads as Manual
+# The old tuning time default (minutes): saved with the settings, it held every step up for an hour.
+LEGACY_TUNING_SETTLE_MINUTES = 60
 
 
 def control_mode_of(options) -> str:

@@ -142,8 +142,12 @@ entries:
     tags: [always, allocation, tuning]
     note: >
       Tuning is an exception, not the normal cost of a change: it happens on a step a miner has
-      never run (miner.revisit-is-a-restart). A change to a tuned step costs only the ramp lock.
-      On the reference farm (S9s, Braiins OS) tuning takes about 50 minutes.
+      never run (miner.revisit-is-a-restart). A change to a tuned step costs only the ramp lock
+      and a short settle (the tuning time setting, 5 minutes by default). On the reference farm
+      (S9s, Braiins OS) a first tuning takes about 50 minutes. Owner, 2026-10-08: tuning is rare,
+      the miners have tuned profiles for every configured step, and an hour is far too long. On
+      2026-10-08 a stored 60-minute setting let each miner step up only once an hour, so the
+      farm lagged the rising sun until about 14:30 with the import near 0 W all midday.
 
   - id: rule.stop-below-lowest-step
     title: Stop, don't idle
@@ -304,6 +308,9 @@ entries:
     date: "2026-10-05"
     situations: [situation.sunrise, situation.sunset, situation.cloud]
     tags: [sunrise, sunset, cloud]
+    note: >
+      Owner, 2026-10-08: starting a miner at its lowest step is fine even when it imports a lot at
+      first; such exceptions are accepted while the sun rises and sets.
 
   - id: rule.small-import-target
     title: Aim for a small steady import
@@ -428,8 +435,8 @@ entries:
     tags: [always, temperature, allocation]
     note: >
       How long "ramped back up" is: about 4 minutes for a step the miner has run before
-      (miner.revisit-is-a-restart). The ramp lock covers that; the tuning time setting (0 by
-      default since 2026-10-07) adds more for a step a miner has never run.
+      (miner.revisit-is-a-restart). The ramp lock covers that; the tuning time setting (5 minutes by
+      default since 2026-10-08) adds a short settle, raised only for a step a miner has never run.
 
   - id: rule.transition-by-agreement
     title: Sunrise and sunset need several signals
@@ -492,6 +499,27 @@ entries:
     date: "2026-10-07"
     situations: [situation.midday]
     tags: [midday, allocation]
+
+  - id: rule.even-load
+    title: Spread the load evenly once every miner runs
+    statement: >
+      Secondary to every other rule: once every miner is running, keep their limits within one
+      power step of each other, so no miner runs much hotter than the rest. Spare power raises a
+      miner no further than its even share or one step above the next-weakest. When nothing else
+      needs to change and two limits are two or more steps apart, the weakest (of equals, the
+      coolest) steps up one step; if it can't, the hungriest (of equals, the hottest) steps down
+      one. A step up that pushes the import over the range is taken back from the hungriest.
+    priority: P2
+    status: decided
+    source: "owner, 2026-10-08"
+    date: "2026-10-08"
+    situations: [situation.midday]
+    tags: [midday, allocation, temperature]
+    note: >
+      Reference farm, 2026-10-08 afternoon: 2,500 / 1,900 / 1,100 W with boards at 58 / 45 / 42 °C
+      and chips at 74 / 64 / 58 °C. The owner: one miner very hot and another 15 °C colder is not
+      safe for the miners. Stepping up first keeps the import from falling below the range (which
+      would throttle the inverters). In the code since 0.7.7 (decision._even_out).
 
   - id: rule.fill-running-first
     title: Fill a running miner before starting another
@@ -673,7 +701,7 @@ entries:
       it (rule.power-steps, miner.revisit-is-a-restart); the default steps are now the same. Seen
       before that: 2026-10-07 used them: Brod1 2,100 W at 12:30 and 2,300 W at 13:20, Brod2 2,100 and 2,300 W,
       Brod3 2,300 W at 14:48, with plans for 2,500 W all afternoon. Whether a miner had run these
-      steps before is not known from the logs. The code waits 0 minutes for tuning
-      (DEFAULT_TUNING_SETTLE_MINUTES), so it treats every step as already tuned. Settle by the
+      steps before is not known from the logs. The code waits 5 minutes for tuning
+      (DEFAULT_TUNING_SETTLE_MINUTES, 0 until 2026-10-08), so it treats every step as already tuned. Settle by the
       owner confirming the steps, and by checking the efficiency in the first hour after each
       miner's first change to 2,100 W or more.

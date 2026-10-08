@@ -130,3 +130,21 @@ async def test_the_old_import_target_is_dropped_at_setup(hass) -> None:
 
     assert "import_target" not in entry.options
     assert entry.options[CONF_PROFILE] == "solar_max"  # the other options are kept
+
+
+@pytest.mark.parametrize(("stored", "after"), [(60, 5), (20, 20)])
+async def test_the_old_one_hour_tuning_time_becomes_five_minutes_at_setup(hass, stored, after) -> None:
+    # 2026-10-08: a stored 60 let each miner step up only once an hour; the owner wants about 5.
+    # A value chosen on purpose (not the old default) is kept.
+    from custom_components.solar_smart_miner.config_flow import CONF_TUNING_SETTLE
+
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    entry = _make_entry(hass)
+    hass.config_entries.async_update_entry(entry, options={**entry.options, CONF_TUNING_SETTLE: stored})
+
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.options[CONF_TUNING_SETTLE] == after
+    assert entry.options[CONF_PROFILE] == "solar_max"  # the other options are kept

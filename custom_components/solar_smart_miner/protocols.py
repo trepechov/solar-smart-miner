@@ -42,7 +42,7 @@ class MinerSnapshot:
     relay_entity_id: str | None = None
     is_stopped: bool = False  # paused via its switch, or its relay is off
     # Minutes since the power limit was last seen to change. A miner re-tunes for
-    # up to an hour after that, so None (never seen to change) counts as settled.
+    # a few minutes after that, so None (never seen to change) counts as settled.
     minutes_since_limit_change: float | None = None
 
 

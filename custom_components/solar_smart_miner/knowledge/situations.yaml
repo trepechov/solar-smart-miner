@@ -48,7 +48,8 @@ situations:
       fire; record the settled values afterwards.
     in_code: >
       partial: only recent-change is used (decision._tuning_left, coordinator._minutes_since_limit_change),
-      with a 60 minute default; the measured tuning is about 50 minutes. A limit that was already set when
+      with a 5 minute default (owner, 2026-10-08: every configured step has a tuned profile); a first
+      tuning of a new step is about 50 minutes. A limit that was already set when
       Home Assistant started counts as settled.
     status: in_use
 

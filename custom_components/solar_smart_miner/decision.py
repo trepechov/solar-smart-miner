@@ -137,8 +137,9 @@ def _one_change(
     *,
     down_at_w: float = HOLD_TOLERANCE_W,
     step_up_anyway: bool = False,
-) -> tuple[MinerSnapshot, int | None] | None:
-    """The one miner to change for a budget, and its new step (index; None = stop).
+    may_step_up: bool = True,
+) -> tuple[MinerSnapshot, int | None, str] | None:
+    """The one miner to change for a budget, its new step (index; None = stop) and the reason.
 
     Starts from where each miner is now, so a small budget wobble changes nothing: a
     shortfall up to `down_at_w` keeps the current steps (a cut then lands within
@@ -149,6 +150,13 @@ def _one_change(
     lowest step, else raise the weakest running miner one step.
     `caps` is the highest step a miner may step up to (a warm miner: its current one), and
     `tuning` the minutes a miner is still tuning (no step up until then).
+
+    Once every miner runs, the load is spread evenly (rule.even-load, secondary): extra power
+    raises a miner no further than its even share of the budget or one step above the
+    next-weakest. When the budget needs no change but two limits are two or more steps apart,
+    the weakest (of equals, the coolest) steps up one step, or if it can't (or `may_step_up` is
+    False), the hungriest (of equals, the hottest) steps down one. A step up that pushes the
+    import over the range is then taken back from the hungriest.
     """
     level: dict[str, int | None] = {
         m.miner_id: None if m.is_stopped else _nearest_level(ladders[m.miner_id], m.power_limit_w)
@@ -159,8 +167,15 @@ def _one_change(
         lv = level[m.miner_id]
         return 0.0 if lv is None else ladders[m.miner_id][lv]
 
+    def temp(m: MinerSnapshot) -> float:
+        return m.temperature_c if m.temperature_c is not None else 0.0
+
+    def top_of(m: MinerSnapshot) -> int:
+        return min(caps.get(m.miner_id, len(ladders[m.miner_id]) - 1), len(ladders[m.miner_id]) - 1)
+
     total = sum(watts(m) for m in candidates)
     running = [m for m in candidates if level[m.miner_id] is not None]
+    all_running = len(running) == len(candidates) > 1
 
     if total > budget + down_at_w:
         # Too much: the hungriest miner that can take the whole cut and keep running,
@@ -175,9 +190,10 @@ def _one_change(
                     break
         # Of equals, the last miner in the list: the first ones start first and stop last.
         if fits:
-            return max(reversed(fits), key=lambda pair: watts(pair[0]))
+            m, new = max(reversed(fits), key=lambda pair: (watts(pair[0]), temp(pair[0])))
+            return m, new, "budget"
         if running:
-            return min(reversed(running), key=watts), None
+            return min(reversed(running), key=watts), None, "budget"
         return None
 
     spare = budget - total
@@ -186,12 +202,21 @@ def _one_change(
         if level[m.miner_id] is None and (
             step_up_anyway or ladders[m.miner_id][0] + UP_MARGIN_W <= spare
         ):
-            return m, 0
-    # ... else raise the weakest running miner as far as the spare power allows.
-    for m in sorted(running, key=watts):
+            return m, 0, "budget"
+    # ... else raise the weakest running miner (of equals, the coolest) as far as the spare
+    # power allows; with every miner running, no further than its even share of the budget or
+    # one step above the next-weakest, whichever is higher.
+    share = budget / len(running) if running else 0.0
+    for m in sorted(running, key=lambda x: (watts(x), temp(x))):
         lv = level[m.miner_id]
         ladder = ladders[m.miner_id]
-        top = min(caps.get(m.miner_id, len(ladder) - 1), len(ladder) - 1)
+        top = top_of(m)
+        if all_running:
+            ceiling = max(min(watts(o) for o in running if o is not m), ladder[lv])
+            top = min(top, max(
+                i for i in range(len(ladder))
+                if i == 0 or ladder[i] <= share or ladder[i - 1] <= ceiling
+            ))
         new = max(
             (i for i in range(lv + 1, top + 1) if ladder[i] - ladder[lv] + UP_MARGIN_W <= spare),
             default=None,
@@ -206,11 +231,24 @@ def _one_change(
                 f"(~{tuning[m.miner_id]:.0f} min left) → holding {_w(m.power_limit_w)}"
             )
             continue
-        return m, new
+        return m, new, "budget"
+    if all_running:
+        # Even load: one step closer when two miners are two or more steps apart. Within one
+        # step is even enough; evening that out would only make them trade places.
+        low = min(running, key=lambda x: (watts(x), temp(x)))
+        high = max(running, key=lambda x: (watts(x), temp(x)))
+        lv_low, lv_high = level[low.miner_id], level[high.miner_id]
+        if lv_high > 0 and ladders[high.miner_id][lv_high - 1] > watts(low):
+            spread = f"{high.name} {_w(watts(high))} against {low.name} {_w(watts(low))}"
+            if may_step_up and lv_low < top_of(low) and low.miner_id not in tuning:
+                trace.append(f"Even load: {spread} → {low.name} one step up")
+                return low, lv_low + 1, "even load"
+            trace.append(f"Even load: {spread} → {high.name} one step down")
+            return high, lv_high - 1, "even load"
     # Nothing to change for the budget: move a limit that is off the steps onto the nearest one.
     for m in running:
         if m.power_limit_w is not None and m.power_limit_w != ladders[m.miner_id][level[m.miner_id]]:
-            return m, level[m.miner_id]
+            return m, level[m.miner_id], "budget"
     return None
 
 
@@ -478,14 +516,14 @@ def build_decision(
     }
     change = _one_change(
         candidates, budget, ladders, caps, tuning, trace,
-        down_at_w=down_at_w, step_up_anyway=step_up_anyway,
+        down_at_w=down_at_w, step_up_anyway=step_up_anyway, may_step_up=sun_up is not False,
     )
     if change is None:
         others_wait(None, "budget")
         for mid in tuning:
             plans[mid] = MinerPlan(ACTION_HOLD, limit_w=plans[mid].limit_w, reason="tuning")
         return done(f"{profile_label}: budget {_w(budget)}")
-    m, lv = change
+    m, lv, why = change
     ladder = ladders[m.miner_id]
     if lv is None:
         reason = "not enough power for the lowest step"
@@ -495,7 +533,7 @@ def build_decision(
         if plans[m.miner_id].action == ACTION_STOP:
             trace.append(f"{m.name}: {reason}")
     else:
-        plans[m.miner_id] = to_step(m, ladder[lv], "budget")
+        plans[m.miner_id] = to_step(m, ladder[lv], why)
     trace.append(f"One miner changes at a time → {m.name}; the others wait for the next decision")
     others_wait(m, "budget")
     return done(f"{profile_label}: budget {_w(budget)}")

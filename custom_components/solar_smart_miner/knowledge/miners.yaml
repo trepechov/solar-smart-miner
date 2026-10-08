@@ -101,7 +101,11 @@ entries:
     date: "2026-10-06"
     tags: [allocation, tuning]
     situations: [situation.tuning]
-    note: Two samples, both 1300 to 1500 W. A decrease, or a different step, is not measured yet.
+    note: >
+      Two samples, both 1300 to 1500 W. On 2026-10-08 every limit change, up and down, showed the
+      pause switch off for 1 to 2.5 minutes. The controller treats a running miner whose switch goes
+      off within the ramp lock after a limit change as restarting, not stopped: read as stopped, it
+      was sent "start at the lowest step", which undid the change four times that day.
 
   - id: miner.hass-miner-optimistic
     title: hass-miner reports commands before the miner acts
@@ -203,7 +207,8 @@ entries:
       Not measured yet: check on the first applied change to a step tuned before that efficiency is
       near miner.settled-values within about 5 minutes. Then raise to verified. The steps up to
       2,500 W confirmed by the owner on 2026-10-07 (conflict.power-steps-config); settled values are
-      measured only up to 1,900 W.
+      measured only up to 1,900 W. Owner, 2026-10-08: the settle after a change is usually about
+      5 minutes (the tuning time default).
 
   - id: miner.settled-values
     title: What a tuned miner gives at each step

@@ -831,7 +831,7 @@ async def test_settings_default_to_the_agreed_steps(hass: HomeAssistant) -> None
     await _get_options_flow_result(hass, entry, options_input={})
 
     assert entry.options[CONF_POWER_STEPS] == [900, 1100, 1300, 1500, 1700, 1900, 2100, 2300, 2500]
-    assert entry.options[CONF_TUNING_SETTLE] == 0  # every step is tuned: a change is only a restart
+    assert entry.options[CONF_TUNING_SETTLE] == 5  # owner, 2026-10-08: every step is tuned, a change settles in ~5 min
 
 
 def test_temperature_defaults_are_the_agreed_band() -> None:

@@ -10,9 +10,12 @@ from .const import (  # noqa: F401
     CONF_CONTROL_MODE,
     DOMAIN,
     LEGACY_CONTROL_MODE_PREVIEW,
+    DEFAULT_TUNING_SETTLE_MINUTES,
     LEGACY_IMPORT_TARGET,
+    LEGACY_TUNING_SETTLE_MINUTES,
     control_mode_of,
 )
+from .config_flow import CONF_TUNING_SETTLE
 from .coordinator import SolarMinerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -32,6 +35,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # First, before the reload listener exists: rewriting the options later would reload at once.
     _migrate_control_mode(hass, entry)
     _drop_legacy_import_target(hass, entry)
+    _migrate_tuning_settle(hass, entry)
     _remove_retired_entities(hass, entry)
     coordinator = SolarMinerCoordinator(hass, entry)
     await coordinator.ai_log.async_load_history()
@@ -84,3 +88,14 @@ def _drop_legacy_import_target(hass: HomeAssistant, entry: ConfigEntry) -> None:
     options = {k: v for k, v in entry.options.items() if k != LEGACY_IMPORT_TARGET}
     hass.config_entries.async_update_entry(entry, options=options)
     _LOGGER.info("Dropped the old grid import target; the import range settings apply")
+
+
+def _migrate_tuning_settle(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """The old one-hour tuning default, stored when the settings were saved, becomes the
+    5-minute settle (0.7.7): every step has a tuned profile, and an hour held the farm back."""
+    if entry.options.get(CONF_TUNING_SETTLE) != LEGACY_TUNING_SETTLE_MINUTES:
+        return
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, CONF_TUNING_SETTLE: DEFAULT_TUNING_SETTLE_MINUTES}
+    )
+    _LOGGER.info("Tuning time of 60 minutes replaced by the %s-minute default", DEFAULT_TUNING_SETTLE_MINUTES)
