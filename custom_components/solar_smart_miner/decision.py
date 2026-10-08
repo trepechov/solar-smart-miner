@@ -21,7 +21,7 @@ from .const import (
     DEFAULT_RAMP_LOCK_MINUTES,
     DEFAULT_TUNING_SETTLE_MINUTES,
     HOLD_TOLERANCE_W,
-    METER_NEAR_ZERO_W,
+    IMPORT_BAND_W,
     PROFILES_BY_NAME,
     UP_MARGIN_W,
 )
@@ -134,12 +134,19 @@ def _one_change(
     caps: dict[str, int],
     tuning: dict[str, float],
     trace: list[str],
+    *,
+    down_at_w: float = HOLD_TOLERANCE_W,
+    step_up_anyway: bool = False,
 ) -> tuple[MinerSnapshot, int | None] | None:
     """The one miner to change for a budget, and its new step (index; None = stop).
 
     Starts from where each miner is now, so a small budget wobble changes nothing: a
-    shortfall up to HOLD_TOLERANCE_W keeps the current steps, and stepping up needs
-    UP_MARGIN_W of spare power on top. The change may skip steps; it is one restart either way.
+    shortfall up to `down_at_w` keeps the current steps (a cut then lands within
+    HOLD_TOLERANCE_W of the budget), and stepping up needs UP_MARGIN_W of spare power on top.
+    The change may skip steps; it is one restart either way.
+    `step_up_anyway`: the meter shows spare solar the budget can't (throttled inverters), so
+    take one increment even without the spare power for it: start a stopped miner at its
+    lowest step, else raise the weakest running miner one step.
     `caps` is the highest step a miner may step up to (a warm miner: its current one), and
     `tuning` the minutes a miner is still tuning (no step up until then).
     """
@@ -155,7 +162,7 @@ def _one_change(
     total = sum(watts(m) for m in candidates)
     running = [m for m in candidates if level[m.miner_id] is not None]
 
-    if total > budget + HOLD_TOLERANCE_W:
+    if total > budget + down_at_w:
         # Too much: the hungriest miner that can take the whole cut and keep running,
         # on the highest step that fits; if none can, stop the lowest-power one.
         fits: list[tuple[MinerSnapshot, int]] = []
@@ -176,7 +183,9 @@ def _one_change(
     spare = budget - total
     # Room to spare: start a stopped miner at its lowest step first ...
     for m in candidates:
-        if level[m.miner_id] is None and ladders[m.miner_id][0] + UP_MARGIN_W <= spare:
+        if level[m.miner_id] is None and (
+            step_up_anyway or ladders[m.miner_id][0] + UP_MARGIN_W <= spare
+        ):
             return m, 0
     # ... else raise the weakest running miner as far as the spare power allows.
     for m in sorted(running, key=watts):
@@ -187,6 +196,8 @@ def _one_change(
             (i for i in range(lv + 1, top + 1) if ladder[i] - ladder[lv] + UP_MARGIN_W <= spare),
             default=None,
         )
+        if new is None and step_up_anyway and lv < top:
+            new = lv + 1
         if new is None:
             continue
         if m.miner_id in tuning:
@@ -201,24 +212,6 @@ def _one_change(
         if m.power_limit_w is not None and m.power_limit_w != ladders[m.miner_id][level[m.miner_id]]:
             return m, level[m.miner_id]
     return None
-
-
-def _solar_follow_extra(energy: EnergySnapshot, import_target_w: float, trace: list[str]) -> float:
-    """Watts Solar-follow adds to the measured budget: the import target.
-
-    It aims for a small steady import (the target), since without a battery that is the
-    only proof all the solar is used. When the meter sits near 0 W the inverters may be
-    throttled and the measured budget hides the real headroom; the target alone leaves room
-    for one step up, so the headroom is probed a step at a time and the import shows whether
-    it was there. The solar forecast can be far off, so it is shown but never decides.
-    """
-    trace.append(f"Grid import target: {_w(import_target_w)}")
-    if energy.grid_net_w is not None and abs(energy.grid_net_w) <= METER_NEAR_ZERO_W:
-        trace.append(
-            "Meter near 0 W: the inverters may be throttled, so the spare power is probed "
-            "one step at a time (the forecast is not used to size it)"
-        )
-    return import_target_w
 
 
 def _tuning_left(m: MinerSnapshot, settle_minutes: float) -> float | None:
@@ -240,12 +233,23 @@ def build_decision(
     import_target_w: float = DEFAULT_IMPORT_TARGET_W,
     minutes_since_change: float | None = None,
     ramp_lock_minutes: float = DEFAULT_RAMP_LOCK_MINUTES,
+    minutes_import_high: float | None = None,
+    step_down_delay_minutes: float = 0.0,
+    morning_step_down_delay_minutes: float = 0.0,
+    sun_up: bool | None = None,
+    sun_rising: bool | None = None,
 ) -> Decision:
     """One plan per miner. Apart from safety, at most one miner changes per decision.
 
     `minutes_since_change` is the time since the last change on any miner (a command sent,
     or a limit or stop seen to change), None if none is known; 0 while a command is still
     being checked. Until `ramp_lock_minutes` have passed every miner holds.
+
+    Solar-max with a known meter steers on the grid import (rule.small-import-target):
+    below `import_target_w` (the floor) it takes one increment, from the floor to
+    IMPORT_BAND_W above it it holds, and above that it steps down once the import has been
+    that high for `minutes_import_high` >= the step-down delay (the morning delay while
+    `sun_rising`). `sun_up` False blocks starts and step-ups; None means unknown.
     """
     energy = snapshot.energy
     steps = list(power_steps) if power_steps else list(DEFAULT_POWER_STEPS)
@@ -403,8 +407,41 @@ def build_decision(
         return done(f"{profile_label}: budget unknown")
 
     available = energy.available_for_miners_w
+    down_at_w = HOLD_TOLERANCE_W
+    step_up_anyway = False
     if profile == "solar_max":
-        available += _solar_follow_extra(energy, import_target_w, trace)
+        # Aim for a small steady import: at 0 W throttled inverters hide what the panels could give.
+        available += import_target_w
+        if energy.grid_net_w is not None:
+            import_w = -energy.grid_net_w
+            # The measured import decides whether to step down; the budget only sizes the cut.
+            if import_w <= import_target_w + IMPORT_BAND_W:
+                down_at_w = math.inf
+            trace.append(
+                f"Grid import floor: {_w(import_target_w)}; holds up to "
+                f"{_w(import_target_w + IMPORT_BAND_W)}, steps down above"
+            )
+            if import_w < import_target_w:
+                if sun_up is False:
+                    trace.append("Import below the floor but the sun is down → nothing starts or steps up")
+                else:
+                    step_up_anyway = True
+                    trace.append(
+                        f"Import {_w(import_w)} below the floor: the solar covers the house and the "
+                        "inverters may be holding back → one more increment (start a stopped "
+                        "miner first, else one step up)"
+                    )
+            elif import_w > import_target_w + IMPORT_BAND_W:
+                wait = morning_step_down_delay_minutes if sun_rising else step_down_delay_minutes
+                lasted = minutes_import_high or 0.0
+                if lasted < wait:
+                    why = " (the sun is rising and should catch up)" if sun_rising else ""
+                    trace.append(
+                        f"Import {_w(import_w)} above the band for {lasted:.0f} min; steps down "
+                        f"after {wait:.0f} min{why} → every miner holds"
+                    )
+                    others_wait(None, "waiting for the sun" if sun_rising else "waiting out the shortfall")
+                    return done(f"{profile_label}: import {_w(import_w)} above the band, waiting")
     budget = max(available, 0.0)
     if profile == "battery_focused" and energy.battery_soc_pct is not None and profile_def:
         stop_at = profile_def["parameters"]["stop_at_soc_pct"]
@@ -418,7 +455,10 @@ def build_decision(
         for m in candidates
         if not m.is_stopped and (left := _tuning_left(m, tuning_settle_minutes)) is not None
     }
-    change = _one_change(candidates, budget, ladders, caps, tuning, trace)
+    change = _one_change(
+        candidates, budget, ladders, caps, tuning, trace,
+        down_at_w=down_at_w, step_up_anyway=step_up_anyway,
+    )
     if change is None:
         others_wait(None, "budget")
         for mid in tuning:

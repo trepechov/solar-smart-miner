@@ -35,6 +35,7 @@ from .config_flow import (
     CONF_FORECAST_REMAINING_ENTITY,
     CONF_GRID_ENTITY,
     CONF_IMPORT_TARGET,
+    CONF_MORNING_STEP_DOWN_DELAY,
     CONF_OPENROUTER_KEY,
     CONF_OPENROUTER_MODEL,
     CONF_POLLING_INTERVAL,
@@ -44,6 +45,7 @@ from .config_flow import (
     CONF_PV_ENTITY,
     CONF_SOLAR_ENTITY,
     CONF_SOLAR_ENTITY_TYPE,
+    CONF_STEP_DOWN_DELAY,
     CONF_TEMP_TARGET,
     CONF_TEMP_TOLERANCE,
     CONF_TUNING_SETTLE,
@@ -61,14 +63,17 @@ from .const import (
     DEFAULT_AI_INTERVAL,
     DEFAULT_BATTERY_FLOOR,
     DEFAULT_IMPORT_TARGET_W,
+    DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES,
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_POWER_STEPS,
     DEFAULT_PROFILE,
+    DEFAULT_STEP_DOWN_DELAY_MINUTES,
     DEFAULT_TEMP_TARGET,
     DEFAULT_TEMP_TOLERANCE,
     DEFAULT_TUNING_SETTLE_MINUTES,
     DOMAIN,
     HASS_MINER_PLATFORM,
+    IMPORT_BAND_W,
     MIN_AI_INTERVAL,
     SOLAR_ENTITY_TYPE_NET_IMPORT,
     SOLAR_ENTITY_TYPE_PRODUCTION,
@@ -206,6 +211,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         self._limit_seen: dict[str, tuple[float | None, float | None]] = {}
         self._stopped_seen: dict[str, bool] = {}  # miner id -> stopped at the last read
         self._last_change: float | None = None  # time.monotonic() of the last command or stop/start seen
+        self._import_high_since: float | None = None  # time.monotonic() the import went above the band
         self._building: CoordinatorSnapshot | None = None  # the snapshot of the cycle being worked out
         # miner id -> (plan fingerprint, reason) of the last automatic refusal, so it isn't repeated
         self._auto_refused: dict[str, tuple[str, str]] = {}
@@ -410,6 +416,22 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         if self._last_change is not None:
             ages.append((time.monotonic() - self._last_change) / 60)
         return min(ages, default=None)
+
+    def _minutes_import_high(
+        self, energy: EnergySnapshot, floor_w: float, since_change: float | None
+    ) -> float | None:
+        """Minutes the grid import has stayed above the band (None while it isn't).
+
+        Counted again from the last change: a step down that didn't cover the shortfall waits
+        the delay again before the next one.
+        """
+        if energy.grid_net_w is None or -energy.grid_net_w <= floor_w + IMPORT_BAND_W:
+            self._import_high_since = None
+            return None
+        if self._import_high_since is None:
+            self._import_high_since = time.monotonic()
+        lasted = (time.monotonic() - self._import_high_since) / 60
+        return lasted if since_change is None else min(lasted, since_change)
 
     def seed_activity(self) -> None:
         """After a restart or reload, start from the action log: the feed of applied actions, and
@@ -786,6 +808,9 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
 
         snapshot = CoordinatorSnapshot(energy=energy, miners=miners)
         options = self._entry.options
+        import_floor = float(options.get(CONF_IMPORT_TARGET, DEFAULT_IMPORT_TARGET_W))
+        since_change = self._minutes_since_change(miners)
+        sun = self.hass.states.get("sun.sun")
         decision = build_decision(
             snapshot,
             profile=options.get(CONF_PROFILE, DEFAULT_PROFILE),
@@ -796,8 +821,17 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             tuning_settle_minutes=float(
                 options.get(CONF_TUNING_SETTLE, DEFAULT_TUNING_SETTLE_MINUTES)
             ),
-            import_target_w=float(options.get(CONF_IMPORT_TARGET, DEFAULT_IMPORT_TARGET_W)),
-            minutes_since_change=self._minutes_since_change(miners),
+            import_target_w=import_floor,
+            minutes_since_change=since_change,
+            minutes_import_high=self._minutes_import_high(energy, import_floor, since_change),
+            step_down_delay_minutes=float(
+                options.get(CONF_STEP_DOWN_DELAY, DEFAULT_STEP_DOWN_DELAY_MINUTES)
+            ),
+            morning_step_down_delay_minutes=float(
+                options.get(CONF_MORNING_STEP_DOWN_DELAY, DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES)
+            ),
+            sun_up=None if sun is None else sun.state == "above_horizon",
+            sun_rising=None if sun is None else bool(sun.attributes.get("rising")),
         )
         # Only record changes, so the history reads as a log of what shifted.
         if not self._history or self._history[0]["summary"] != decision.summary:

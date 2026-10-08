@@ -67,7 +67,9 @@
           "temp_target": "Target temperature",
           "temp_tolerance": "Temperature tolerance (above the target)",
           "battery_floor": "Battery SOC floor",
-          "import_target": "Grid import target (Solar-max)",
+          "import_target": "Grid import floor (Solar-max)",
+          "step_down_delay_minutes": "Step-down delay (Solar-max)",
+          "morning_step_down_delay_minutes": "Step-down delay while the sun is rising (Solar-max)",
           "telegram_bot_token": "Telegram bot token (optional)",
           "telegram_chat_id": "Telegram chat ID (optional)",
           "mock_solar_enabled": "Use Forecast.Solar as mock solar data (development only)",
@@ -79,7 +81,9 @@
         "data_description": {
           "temp_target": "Below this a miner may step up if there is energy. From here up to target + tolerance it holds, even with spare energy.",
           "temp_tolerance": "At or above target + tolerance a miner steps down one step. The Braiins OS cutoff on the miner stays the last line of defense.",
-          "import_target": "Without a battery, a small steady grid import is the only proof that all the solar is used: at 0 W a throttled inverter hides what the panels could give. Solar-max steps up when the import is about 300 W below this, and down when it is more than 150 W above.",
+          "import_target": "Without a battery, a small steady grid import is the only proof that all the solar is used: at 0 W a throttled inverter hides what the panels could give. Below this import Solar-max adds one increment (starts a stopped miner at its lowest step first, else raises one miner one step); up to 300 W above it holds; above that it steps down. Default 250 W.",
+          "step_down_delay_minutes": "How long the import must stay above the band before Solar-max steps down, so a passing cloud costs no restart. Default 5.",
+          "morning_step_down_delay_minutes": "The same while the sun is rising (until solar noon): a miner started early may import for a while, the sun catches up. Default 30.",
           "power_steps": "Every power-limit change restarts the miner, and a wattage it has never run takes up to an hour to tune, so limits only ever move between these steps. Each miner uses the steps inside its own range. Default: 900 to 2500 in 200 W steps.",
           "tuning_settle_minutes": "Only needed for a step a miner has never run (about 50 minutes); 0 when every step has been tuned before. The miners don't report their tuning state, so it is estimated as the time since the limit last changed. While a miner is tuning it is not stepped up and its temperature is ignored (stepping down and stopping are still allowed). Every change also holds the whole farm for 4 minutes while the miner restarts."
         }

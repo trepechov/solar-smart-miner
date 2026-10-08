@@ -39,9 +39,11 @@ from .const import (
     DEFAULT_BATTERY_FLOOR,
     DEFAULT_CONTROL_MODE,
     DEFAULT_IMPORT_TARGET_W,
+    DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES,
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_POWER_STEPS,
     DEFAULT_PROFILE,
+    DEFAULT_STEP_DOWN_DELAY_MINUTES,
     DEFAULT_TEMP_TARGET,
     DEFAULT_TEMP_TOLERANCE,
     DEFAULT_TUNING_SETTLE_MINUTES,
@@ -77,7 +79,9 @@ REFERENCE_ENTITY_KEYS = (
 CONF_TEMP_TARGET = "temp_target"
 CONF_TEMP_TOLERANCE = "temp_tolerance"
 CONF_BATTERY_FLOOR = "battery_floor"
-CONF_IMPORT_TARGET = "import_target"  # W of grid import Solar-max aims for
+CONF_IMPORT_TARGET = "import_target"  # W: Solar-max's grid import floor
+CONF_STEP_DOWN_DELAY = "step_down_delay_minutes"  # a shortfall must last this long first
+CONF_MORNING_STEP_DOWN_DELAY = "morning_step_down_delay_minutes"  # the same while the sun rises
 CONF_PROFILE = "profile"
 CONF_POLLING_INTERVAL = "polling_interval"
 CONF_TELEGRAM_TOKEN = "telegram_bot_token"
@@ -353,6 +357,22 @@ def _options_schema(options: dict) -> vol.Schema:
             )
         ),
         vol.Required(
+            CONF_STEP_DOWN_DELAY,
+            default=options.get(CONF_STEP_DOWN_DELAY, DEFAULT_STEP_DOWN_DELAY_MINUTES),
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=0, max=120, step=1, unit_of_measurement="min", mode=NumberSelectorMode.BOX
+            )
+        ),
+        vol.Required(
+            CONF_MORNING_STEP_DOWN_DELAY,
+            default=options.get(CONF_MORNING_STEP_DOWN_DELAY, DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES),
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=0, max=240, step=1, unit_of_measurement="min", mode=NumberSelectorMode.BOX
+            )
+        ),
+        vol.Required(
             CONF_POWER_STEPS, default=_format_power_steps(options.get(CONF_POWER_STEPS))
         ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT)),
         vol.Required(
@@ -519,6 +539,8 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
                     CONF_TEMP_TOLERANCE: int(user_input[CONF_TEMP_TOLERANCE]),
                     CONF_BATTERY_FLOOR: int(user_input[CONF_BATTERY_FLOOR]),
                     CONF_IMPORT_TARGET: int(user_input[CONF_IMPORT_TARGET]),
+                    CONF_STEP_DOWN_DELAY: int(user_input[CONF_STEP_DOWN_DELAY]),
+                    CONF_MORNING_STEP_DOWN_DELAY: int(user_input[CONF_MORNING_STEP_DOWN_DELAY]),
                 }
             )
             self._pending_options.pop("temp_ceiling", None)  # replaced by target + tolerance

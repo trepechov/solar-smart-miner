@@ -77,10 +77,26 @@ entries:
       The house consumption is about 98% miners. The rest is one PC and anything not counted
       in the miners' own power reading, about 70 W on 3.9 kW.
     priority: P3
-    status: verified
+    status: retired
     source: "measured: PV 3926 W against miners 3856 W, 2026-10-05"
-    date: "2026-10-05"
+    date: "2026-10-08"
     tags: [always, grid]
+    note: Retired 2026-10-08 for site.base-load (the owner puts the rest of the house at about 500 W).
+
+  - id: site.base-load
+    title: Everything but the miners draws about 500 W
+    statement: >
+      The house load other than the miners is about 500 W. So an import well below that means the
+      solar covers part of the house, and near 0 W it covers all of it and the zero-export
+      inverters may be holding back (rule.small-import-target).
+    priority: P3
+    status: verified
+    source: "owner, 2026-10-08; measured: about 470 W import at night with all three miners paused, 2026-10-08 06:00 to 07:15"
+    date: "2026-10-08"
+    tags: [always, grid]
+    note: >
+      Paused miners may still draw for their control boards and fans, so part of the 470 W may be
+      them. It varies (energy.unseen-load).
 
   - id: site.forecast-setup
     title: How the solar forecast is set up

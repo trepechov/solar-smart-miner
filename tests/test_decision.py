@@ -491,64 +491,99 @@ def _metered(import_w: float, miners: list[MinerSnapshot], **energy) -> Coordina
     return _snapshot(draw - import_w, miners, grid_net_w=-import_w, **energy)
 
 
-def test_throttled_meter_near_zero_steps_up_to_reach_the_import_target() -> None:
+def test_import_below_the_floor_steps_up_one_step() -> None:
     snapshot = _metered(30.0, _three(limit=1100.0))  # throttled: the meter sits near 0 W
 
-    aimed = _decide(snapshot, import_target_w=400)
-    assert list(aimed.proposals.values()) == [1300.0]  # one miner, one step
-    assert "Grid import target: 400 W" in aimed.trace
-    # Aiming for zero import (the old budget) never sees the hidden solar.
+    decision = _decide(snapshot, import_target_w=250)
+    assert list(decision.proposals.values()) == [1300.0]  # one miner, one step
+    assert any(line.startswith("Grid import floor: 250 W") for line in decision.trace)
+    # With no floor, 30 W of import sits inside the band: nothing moves.
     assert _decide(snapshot, import_target_w=0).proposals == {}
 
 
 def test_import_inside_the_band_holds() -> None:
-    for import_w in (150.0, 400.0, 500.0):
-        decision = _decide(_metered(import_w, _three(limit=1100.0)), import_target_w=400)
+    for import_w in (250.0, 400.0, 550.0):
+        decision = _decide(_metered(import_w, _three(limit=1100.0)), import_target_w=250)
         assert set(_actions(decision).values()) == {ACTION_HOLD}, import_w
 
 
-def test_import_well_above_the_target_steps_down() -> None:
-    decision = _decide(_metered(700.0, _three(limit=1100.0)), import_target_w=400)
+def test_import_above_the_band_steps_down() -> None:
+    decision = _decide(_metered(600.0, _three(limit=1500.0)), import_target_w=250)
 
-    assert list(decision.proposals.values()) == [900.0]
+    assert list(decision.proposals.values()) == [1100.0]  # one miner, straight to the step that fits
 
 
-def test_throttled_meter_probes_one_step_and_never_uses_the_forecast() -> None:
+def test_all_stopped_and_import_below_the_floor_starts_a_miner() -> None:
+    # 2026-10-08: all paused, meter at 0 W from 07:45, budget stuck at the import target, so
+    # the 1,000 W a start needs never showed up and nothing started until 09:54.
+    miners = [_miner(i, stopped=True) for i in "abc"]
+    decision = _decide(_metered(0.0, miners), import_target_w=250)
+
+    assert _actions(decision) == {"a": ACTION_START, "b": ACTION_HOLD, "c": ACTION_HOLD}
+    assert decision.plans["a"].limit_w == 900.0  # its lowest step
+
+
+def test_below_the_floor_the_next_stopped_miner_starts_before_a_raise() -> None:
+    miners = [_miner("a", limit=1300.0), _miner("b", stopped=True), _miner("c", stopped=True)]
+    decision = _decide(_metered(20.0, miners), import_target_w=250)
+
+    assert _actions(decision) == {"a": ACTION_HOLD, "b": ACTION_START, "c": ACTION_HOLD}
+
+
+def test_nothing_starts_while_the_sun_is_down() -> None:
+    miners = [_miner(i, stopped=True) for i in "abc"]
+    decision = _decide(_metered(0.0, miners), import_target_w=250, sun_up=False)
+
+    assert decision.proposals == {}
+    assert set(_actions(decision).values()) == {ACTION_HOLD}
+    assert any("the sun is down" in line for line in decision.trace)
+
+
+def test_step_down_waits_until_the_shortfall_has_lasted() -> None:
+    snapshot = _metered(600.0, _three(limit=1500.0))
+    kw = {"import_target_w": 250, "step_down_delay_minutes": 5, "sun_rising": False}
+
+    early = _decide(snapshot, minutes_import_high=2, **kw)
+    assert early.proposals == {}
+    assert any("steps down after 5 min" in line for line in early.trace)
+    assert list(_decide(snapshot, minutes_import_high=6, **kw).proposals.values()) == [1100.0]
+
+
+def test_while_the_sun_rises_a_shortfall_waits_for_the_morning_delay() -> None:
+    # Owner, 2026-10-08: some import in the morning is fine, the sun will come.
+    snapshot = _metered(600.0, _three(limit=1500.0))
+    kw = {
+        "import_target_w": 250,
+        "step_down_delay_minutes": 5,
+        "morning_step_down_delay_minutes": 30,
+        "sun_rising": True,
+    }
+
+    waiting = _decide(snapshot, minutes_import_high=10, **kw)
+    assert waiting.proposals == {}
+    assert any("the sun is rising" in line for line in waiting.trace)
+    assert list(_decide(snapshot, minutes_import_high=31, **kw).proposals.values()) == [1100.0]
+
+
+def test_the_forecast_never_changes_the_proposal() -> None:
     # Owner, 2026-10-07: the forecast can be far off, so it is shown but never decides.
     miners = [_miner("a", limit=1500.0), _miner("b", limit=1500.0), _miner("c", stopped=True)]
 
-    blind = _decide(_metered(20.0, miners), import_target_w=400)
-    assert blind.plans["c"].action == ACTION_HOLD  # 380 W short of target can't start 900 W
-    assert any("probed one step at a time" in line for line in blind.trace)
-
+    blind = _decide(_metered(20.0, miners), import_target_w=250)
     seen = _decide(
-        _metered(20.0, miners, forecast_now_w=6000.0, pv_power_w=3000.0), import_target_w=400
+        _metered(20.0, miners, forecast_now_w=6000.0, pv_power_w=3000.0), import_target_w=250
     )
     assert seen.plans == blind.plans
     assert not any("hidden headroom" in line for line in seen.trace)
     assert "Forecast PV now: 6,000 W (reference only)" in seen.trace
 
 
-def test_throttled_meter_leaves_room_for_one_step_up() -> None:
-    decision = _decide(_metered(20.0, _three(limit=1100.0)), import_target_w=400)
-
-    assert sorted(decision.proposals.values()) == [1300.0]
-
-
-def test_real_export_is_measured_so_the_forecast_is_not_added() -> None:
-    snapshot = _metered(-800.0, _three(limit=1100.0), forecast_now_w=9000.0, pv_power_w=3000.0)
-    decision = _decide(snapshot, import_target_w=400)
-
-    assert not any("hidden headroom" in line for line in decision.trace)
-    assert decision.proposals == _decide(_metered(-800.0, _three(limit=1100.0)), import_target_w=400).proposals
-
-
-def test_import_target_applies_only_to_solar_max() -> None:
+def test_import_floor_applies_only_to_solar_max() -> None:
     snapshot = _metered(30.0, _three(limit=1100.0))
-    decision = _decide(snapshot, profile="grid_independent", import_target_w=400)
+    decision = _decide(snapshot, profile="grid_independent", import_target_w=250)
 
     assert decision.proposals == {}
-    assert not any("import target" in line for line in decision.trace)
+    assert not any("import floor" in line.lower() for line in decision.trace)
 
 
 # --- replay of a real evening --------------------------------------------------------

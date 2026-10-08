@@ -11,7 +11,7 @@ entries:
     source: "code: coordinator._derive_balance"
     date: "2026-10-05"
     tags: [always, allocation]
-    note: Solar-max adds the import target to it (rule.small-import-target), and the forecast headroom when the meter is near 0 W.
+    note: Solar-max adds the import floor to it (rule.small-import-target); the forecast is never added (rule.forecast-reference-only).
 
   - id: energy.throttle-hides-headroom
     title: Throttling hides extra solar
@@ -60,13 +60,19 @@ entries:
 
   - id: energy.morning-curve
     title: Morning rise
-    statement: The speed of the morning rise has not been measured yet.
+    statement: >
+      On 2026-10-08 (clear, all miners paused) the inverters woke at about 07:15 (sun 0 deg), PV
+      covered the house and the meter reached 0 W at 07:45 (5 deg), and they reported power
+      limited from 07:50 (6 deg), steadily from about 08:15 (10 deg). How fast the real potential
+      rises after that is not known: throttled, PV only shows the load.
     priority: P3
-    status: assumed
-    source: "none; study pending, requirements doc §5.4"
-    date: "2026-10-05"
+    status: verified
+    source: "measured: HA history of the inverter status, PV and the meter, 2026-10-08"
+    date: "2026-10-08"
     tags: [sunrise]
-    note: Throttling distorts the history. Use periods with import, the forecast, or actual PV.
+    note: >
+      One clear morning in early October; the times move with the season. Starts at the import
+      floor (rule.small-import-target) will show when a 900 W miner can first be carried.
 
   - id: energy.unseen-load
     title: A load outside the miners can appear

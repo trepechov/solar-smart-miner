@@ -1131,7 +1131,7 @@ async def test_power_steps_and_tuning_options_drive_the_decision(hass, add_hass_
 
     assert list(decision.proposals.values()) == [1000.0]  # only the configured steps
     assert any("Power steps: 700, 1,000 W" in line for line in decision.trace)
-    assert "Grid import target: 250 W" in decision.trace
+    assert any(line.startswith("Grid import floor: 250 W") for line in decision.trace)
 
 
 async def test_a_sent_command_holds_the_whole_farm_for_the_ramp_lock(hass, add_hass_miner, monkeypatch) -> None:
@@ -1190,3 +1190,52 @@ async def test_a_miner_stopped_or_started_by_hand_starts_the_ramp_lock(hass, add
     now[0] += 30
     snapshot = await coordinator._async_update_data()
     assert snapshot.decision.summary.startswith("Waiting for a miner to restart")
+
+
+async def test_a_paused_farm_starts_a_miner_below_the_import_floor_only_with_the_sun_up(
+    hass, add_hass_miner
+) -> None:
+    # 2026-10-08: everything paused, meter at 0 W for two hours, nothing started.
+    add_hass_miner(MINER_IP, limit="900", power="0", active="off", limit_attrs={"min": 500.0, "max": 3500.0})
+    hass.states.async_set(SOLAR_ENTITY, "500")
+    hass.states.async_set(GRID_ENTITY, "500")  # the house: the meter reads 0 W
+    coordinator = SolarMinerCoordinator(hass, _make_entry(hass))
+
+    hass.states.async_set("sun.sun", "below_horizon", {"elevation": -4.0, "rising": True})
+    plan = next(iter((await coordinator._async_update_data()).decision.plans.values()))
+    assert plan.action == "hold"
+
+    hass.states.async_set("sun.sun", "above_horizon", {"elevation": 6.0, "rising": True})
+    plan = next(iter((await coordinator._async_update_data()).decision.plans.values()))
+    assert (plan.action, plan.limit_w) == ("start", 900.0)
+
+
+async def test_step_down_waits_for_the_import_to_stay_above_the_band(
+    hass, add_hass_miner, monkeypatch
+) -> None:
+    import time as time_module
+
+    from custom_components.solar_smart_miner.config_flow import CONF_STEP_DOWN_DELAY
+
+    now = [1000.0]
+    monkeypatch.setattr(time_module, "monotonic", lambda: now[0])
+    add_hass_miner(MINER_IP, limit="1500", power="1500", temperature="55",
+                   limit_attrs={"min": 500.0, "max": 3500.0})
+    hass.states.async_set(SOLAR_ENTITY, "600")
+    hass.states.async_set(GRID_ENTITY, "1500")  # importing 900 W
+    coordinator = SolarMinerCoordinator(hass, _make_entry(hass, options={CONF_STEP_DOWN_DELAY: 5}))
+
+    first = (await coordinator._async_update_data()).decision
+    assert next(iter(first.plans.values())).action == "hold"
+    assert any("steps down after 5 min" in line for line in first.trace)
+
+    now[0] += 6 * 60
+    plan = next(iter((await coordinator._async_update_data()).decision.plans.values()))
+    assert plan.action in ("set_limit", "stop")
+
+    # The import back inside the band resets the clock.
+    hass.states.async_set(SOLAR_ENTITY, "1200")
+    await coordinator._async_update_data()
+    hass.states.async_set(SOLAR_ENTITY, "600")
+    plan = next(iter((await coordinator._async_update_data()).decision.plans.values()))
+    assert plan.action == "hold"

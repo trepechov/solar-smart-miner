@@ -58,20 +58,6 @@ entries:
       No longer moot: since 2026-10-07 the steps go up to 2,500 W (rule.power-steps). Measure the
       settled efficiency at 2,100 to 2,500 W against miner.settled-values.
 
-  - id: open.import-band
-    title: Import target and band defaults
-    statement: >
-      What import target and band work for normal operation, given the band has to be wider
-      than 200 W?
-    priority: P3
-    status: open
-    source: "requirements doc §9 point 4"
-    date: "2026-10-05"
-    tags: [midday, allocation]
-    note: >
-      The code uses a 400 W target (a setting) since 2026-10-06, chosen so a throttled meter
-      sitting at a few tens of watts still counts as "well below target". Not tuned from the logs.
-
   - id: open.rise-and-fall-speed
     title: How fast does production rise and fall?
     statement: >
