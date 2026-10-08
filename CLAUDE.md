@@ -25,8 +25,9 @@ custom_components/solar_smart_miner/   # HA integration source
   config_flow.py       # setup wizard and options flow
   coordinator.py       # DataUpdateCoordinator — fetches solar/grid/battery/miner state,
                        #   builds the decision preview, schedules AI advice requests
-  decision.py          # rule-based decision preview: power steps, stop/start plans, tuning
-                       #   awareness (plans are never applied yet)
+  decision/            # the rules, one module per group, run in order by __init__.build_decision:
+                       #   safety → pacing → limits → profiles (target) → allocation (+ tidy);
+                       #   context.py carries one decision through them, describe.py the words
   ai.py                # OpenRouter client: prompt, chat completion, JSON answer parsing, free-model list
   kb.py                # loads the knowledge base and picks the facts each AI request gets
   ai_log.py            # JSONL log of every AI request (inputs, rule proposal, AI actions) + widget history

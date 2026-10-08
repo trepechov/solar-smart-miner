@@ -742,3 +742,33 @@ def test_spare_power_raises_the_weakest_to_its_even_share_not_to_the_top() -> No
     decision = _decide(_snapshot(4800.0, _three(limit=900.0)), power_steps=DEFAULT_POWER_STEPS)
 
     assert decision.proposals == {"a": 1500.0}
+
+
+# --- the pipeline -----------------------------------------------------------------
+
+
+def test_a_failing_rule_holds_every_miner_instead_of_failing_the_update(monkeypatch, caplog) -> None:
+    from custom_components.solar_smart_miner.decision import limits
+
+    def broken(ctx):
+        raise ZeroDivisionError("a bug")
+
+    monkeypatch.setattr(limits, "check", broken)
+    decision = _decide(_snapshot(3000.0, [_miner("a", limit=1300.0), _miner("b", stopped=True)]))
+
+    assert decision.summary == "Error in the rules: every miner holds"
+    assert {mid: (p.action, p.limit_w) for mid, p in decision.plans.items()} == {
+        "a": (ACTION_HOLD, 1300.0), "b": (ACTION_HOLD, 1300.0),
+    }
+    assert any("ZeroDivisionError: a bug" in line for line in decision.trace)
+    assert "every miner holds" in caplog.text
+
+
+def test_the_groups_run_in_order_and_an_earlier_one_wins() -> None:
+    # Safety (sensor lost) wins over pacing (ramp lock) over limits (too warm).
+    warm = [_miner("a", temp=90.0), _miner("b")]
+    assert _decide(_snapshot(3000.0, warm, solar_fault=True), minutes_since_change=1).summary.startswith(
+        "Safety:"
+    )
+    assert _decide(_snapshot(3000.0, warm), minutes_since_change=1).summary.startswith("Waiting")
+    assert _decide(_snapshot(3000.0, warm)).summary.startswith("Temperature:")
