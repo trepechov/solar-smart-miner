@@ -45,6 +45,10 @@ Each file holds a list of `entries`. One entry is one fact:
 
 An `assumed` P1 is a smell: either verify it or lower it.
 
+**Fewer rules.** Before adding a rule, try to change or retire one; two entries that say the same thing are
+merged. Each active rule is either enforced by the code (with a test) or is advice for the AI only. See
+"Fewer Rules" in the project's CLAUDE.md.
+
 ## Files
 
 | File | Holds |

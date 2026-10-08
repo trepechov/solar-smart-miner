@@ -58,6 +58,17 @@ scripts/               # dev utilities (install-git-hooks.sh, etc.)
 
 **The integration is for any farm; the owner's farm is the reference example.** Its miner count, models (S9), wattages, timings, voltage and cooling show how to reason, never a fixed rule. Before writing an entry, decide whether it is a **principle** (true on any farm) or a **measurement of the reference farm**. A `statement` holds the principle, worded against the configuration ("the configured power steps", "the ramp lock"), with no site wattages, miner counts, miner names or entity ids; the reference farm's numbers go in `note`/`source`. Values that depend on the miner type or the site (power steps, ramp and tuning time, voltage limit, temperature band) are settings, defaulting to the reference farm's values. Keep entries and prompts short: don't add text or code for cases that can't happen.
 
+## Fewer Rules
+
+**Always aim to reduce the number of decision rules.** Every rule added is another way for two rules to meet and break each other; most farm bugs so far were exactly that (a restart read as a stop meeting "start a stopped miner first"; the budget meeting zero export; the tuning window meeting one-change-per-proposal). So:
+
+- **Before adding a rule, try to change or remove one.** A fix that adds a special case on top of another special case is a sign the earlier rule was wrong; fix that one instead.
+- **Leave the decision with the same number of rules or fewer**, and say so in the commit when the count changes. Retiring a rule is a good outcome, not a loss.
+- **Precedence is explicit.** Rules sit in ordered groups (safety → pacing → limits → target → allocation → tidy); an earlier group always wins, and a later one never undoes it. A new rule goes into a group at a chosen position, not into a new `if` wherever it fits. Changing a rule's priority means moving it in that order, replaying, and releasing; it is never a runtime setting.
+- **One concept, one definition.** One notion of "sunrise", one of "settling after a change", one steering signal per profile. If two pieces of code compute the same idea differently, merge them.
+- **Each rule has one place in the code, one test and one knowledge-base entry.** A rule with no test or no entry is removed or given both; a knowledge-base rule the code doesn't enforce is marked as advice for the AI, not as active.
+- **When a rule changes, look for the rules it meets**: replay real farm cycles and check the logs for reversals and flip-flops (see the decision pipeline plan, `docs/plans/2026-10-09-001-refactor-decision-pipeline-plan.md`).
+
 ## Testing Policy
 
 **Every change ships with tests, in the same commit.** New behaviour gets new tests; a fix gets a test that fails without it; a changed behaviour gets its old tests updated, never deleted to make them pass. Check this before committing: if a changed file has no matching test change, say why or add one.

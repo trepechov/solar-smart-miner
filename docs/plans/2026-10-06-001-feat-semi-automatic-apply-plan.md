@@ -61,6 +61,12 @@ Check off each unit after it is implemented, tested and committed.
 - [x] **A5**: README and knowledge base
 - [ ] **A2**: Automation-only guards: **deferred** (owner, 2026-10-07). The ramp lock and one-miner-per-proposal part is done (commit 3ca794c).
 
+**Shipped after Phase 2 (v0.7.3–0.7.7, 2026-10-08), without plan units:** Solar-max import range and
+step-down delays (8003b62, 05b2b27), ramp lock ends early (fc69adc), import range fixes (8f6a8aa, bd8d293),
+restart not read as stopped (9b0b2c4, covers part of S11), even load and 5-min tuning (0955d09). Listed with
+the collisions they fixed in `docs/plans/2026-10-09-001-refactor-decision-pipeline-plan.md`, which takes the
+rule engine from here.
+
 **Phase 3: AI authority (later, separate plan)**
 
 - [ ] **AI1**: The AI chooses allocation inside the rules' envelope (requirements §7 roadmap stage 2), gated on its own evidence
@@ -292,6 +298,11 @@ S1-S8 are built. The review found four gaps in what they do and one gap in what 
 **Tests:** no setting gives no warning; setting with the automation `on` gives the attribute and notification text; `off` clears it.
 
 ### S11. Verify against the miner, not hass-miner's echo
+
+*Update 2026-10-09:* now first in the order of `docs/plans/2026-10-09-001-refactor-decision-pipeline-plan.md`.
+It **replaces, not adds**: its "done" criterion becomes the one per-miner settling record (that plan's
+overlap 4), and the 9b0b2c4 restart override and the fc69adc early end are expressed through it. The third
+bullet below is already partly shipped in 9b0b2c4.
 
 hass-miner's switch and number write the new state straight after the call (`_attr_is_on` / `_attr_native_value`), and its switch keeps that value while `updating_switch` is set, so "the entity reads the new value" is true even when the miner never acted (`miner.hass-miner-optimistic`).
 
