@@ -42,11 +42,12 @@ class Context:
     plans: dict[str, MinerPlan] = field(default_factory=dict)
     candidates: list[MinerSnapshot] = field(default_factory=list)
     # Filled by the groups on the way: the highest step a warm miner may have (Limits), and
-    # what the profile asks of the allocation (Target).
+    # what the target asks of the allocation (up, down or None) and from what import.
     caps: dict[str, int] = field(default_factory=dict)
-    budget: float = 0.0
-    down_at_w: float = 0.0
-    step_up_anyway: bool = False
+    import_w: float | None = None
+    direction: str | None = None
+    excess_w: float = 0.0
+    may_step_up: bool = True
 
     @property
     def energy(self):

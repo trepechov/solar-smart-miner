@@ -99,9 +99,9 @@ async def test_pressing_apply_sends_the_whole_proposal(hass, add_hass_miner) -> 
     await _press(hass, _entity_id(hass, "button", "_apply_all"))
 
     assert [(c.data["entity_id"], c.data["value"]) for c in calls] == [
-        (reg["power_limit"].entity_id, 1500.0)
+        (reg["power_limit"].entity_id, 1300.0)  # one step: Solar-follow steers on the import
     ]
-    assert _state(hass, "sensor", "_last_action").state == "Brod1: 1,500 W (pending)"
+    assert _state(hass, "sensor", "_last_action").state == "Brod1: 1,300 W (pending)"
 
 
 async def test_pressing_apply_with_everything_refused_shows_why(hass, add_hass_miner) -> None:
@@ -165,9 +165,9 @@ async def test_activity_shows_the_farm_proposal(hass, add_hass_miner) -> None:
 
     state = _state(hass, "sensor", "_activity")
 
-    assert state.state == "Brod1 1,500 W (from 1,100 W)"
-    assert state.attributes["proposal"] == "Brod1 1,500 W (from 1,100 W)"
-    assert state.attributes["feed"][0]["plan"] == "Brod1 1,500 W (from 1,100 W)"
+    assert state.state == "Brod1 1,300 W (from 1,100 W)"
+    assert state.attributes["proposal"] == "Brod1 1,300 W (from 1,100 W)"
+    assert state.attributes["feed"][0]["plan"] == "Brod1 1,300 W (from 1,100 W)"
     assert state.attributes["feed"][0]["current"] is True
 
 
@@ -212,11 +212,12 @@ async def test_activity_feed_follows_proposals_then_the_applied_action(
     coordinator = entry.runtime_data
 
     await _press(hass, _entity_id(hass, "button", "_apply_all"))
-    hass.states.async_set(reg["power_limit"].entity_id, "1500", LIMITS)
+    hass.states.async_set(reg["power_limit"].entity_id, "1300", LIMITS)
     hass.states.async_set(reg["miner_consumption"].entity_id, "unknown")  # restarting
     await coordinator.async_refresh()
     now[0] += 90
-    hass.states.async_set(reg["miner_consumption"].entity_id, "1500")  # at its new limit
+    hass.states.async_set(reg["miner_consumption"].entity_id, "1300")  # at its new limit
+    hass.states.async_set(GRID, "5300")  # and the import is inside the range
     await coordinator.async_refresh()
     await hass.async_block_till_done()
 
@@ -226,7 +227,7 @@ async def test_activity_feed_follows_proposals_then_the_applied_action(
     # it draws its new limit (S11), not when the number reads it back.
     assert kinds == [("applied", "ok"), ("proposal", None), ("applied", "pending"), ("proposal", None)]
     assert feed[1]["plan"] == "no action" and feed[1]["current"] is False
-    assert feed[2]["plan"] == "1,500 W" and feed[2]["miner"] == "Brod1"
+    assert feed[2]["plan"] == "1,300 W" and feed[2]["miner"] == "Brod1"
     assert feed[3]["current"] is False  # an old proposal is never current
 
 
@@ -240,7 +241,7 @@ async def test_a_changed_proposal_adds_an_entry_and_retires_the_old_one(hass, ad
 
     assert [(e["plan"], e["current"]) for e in feed] == [
         (feed[0]["plan"], True),
-        ("Brod1 1,500 W (from 1,100 W)", False),
+        ("Brod1 1,300 W (from 1,100 W)", False),
     ]
     assert feed[0]["plan"].startswith("Brod1 ") and feed[0]["plan"] != feed[1]["plan"]
 

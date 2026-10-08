@@ -152,11 +152,11 @@ entries:
   - id: rule.stop-below-lowest-step
     title: Stop, don't idle
     statement: >
-      When the budget doesn't cover the lowest step, the miner is stopped through its stop
-      procedure (a relay switch if configured, otherwise its own pause switch), not left
-      running at a hardware minimum. It is started again when its lowest step fits with a
-      small margin. The miner's lowest configured step is the pause threshold; there is no
-      separate one. A shortfall must outlast the cloud tolerance before a miner is paused
+      When the import is over the maximum and no running miner can cut enough while keeping a
+      configured step, one miner is stopped through its stop procedure (a relay switch if
+      configured, otherwise its own pause switch), not left running at a hardware minimum. A
+      stopped miner is started again, at its lowest step, as the next increment. The miner's
+      lowest configured step is the pause threshold; there is no separate one. A shortfall must outlast the cloud tolerance before a miner is paused
       (rule.down-slowly-up-promptly).
     priority: P1
     status: decided
@@ -166,7 +166,7 @@ entries:
     tags: [always, sunset, sunrise, allocation, night]
     note: >
       On the reference farm the lowest step is 900 W (the 1000 W threshold was dropped in
-      round 7) and the start margin is 100 W.
+      round 7). The 100 W start margin went with the budget (2026-10-09).
 
   - id: rule.hold-on-sensor-drop
     title: A sensor drop holds, it doesn't re-tune
@@ -345,6 +345,11 @@ entries:
       power steps, and a narrower stored range is widened to it. The minimum has its own setting;
       the old single import target (400 W on the reference farm) was read as the minimum and
       made the range 400 to 400 W on 2026-10-08, so it is dropped at setup.
+      Owner, 2026-10-09 (0.8.0): the measured import alone decides, with no power budget: an
+      increment is always one step (a start, else the weakest miner one step up), a cut is the
+      smallest that brings the import under the maximum. The budget's 150 W tolerance and 100 W
+      margin are gone. Multi-step jumps up are gone too, so a morning ramp-up takes one ramp
+      lock per step.
 
   - id: rule.forecast-reference-only
     title: The solar forecast never decides
@@ -572,8 +577,8 @@ entries:
     statement: >
       At sunrise, start the next stopped miner at its lowest step rather than raising the one
       that just started. Production keeps rising, so raising one miner again and again costs a
-      restart each time. Start each miner at the lowest step, and the next one when there is
-      budget for its lowest step.
+      restart each time. Start each miner at the lowest step, and the next one at the next
+      increment (rule.small-import-target).
     priority: P1
     status: decided
     source: "requirements doc §5.3, §5.4, §0.6 round 7; owner, 2026-10-07"

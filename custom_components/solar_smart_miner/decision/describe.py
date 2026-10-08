@@ -12,7 +12,7 @@ from ..protocols import (
 
 
 def _w(value: float | None) -> str:
-    return f"{value:,.0f} W" if value is not None else "unknown"
+    return f"{round(value):,} W" if value is not None else "unknown"  # an int: never "-0 W"
 
 
 def _describe_energy(energy: EnergySnapshot) -> list[str]:

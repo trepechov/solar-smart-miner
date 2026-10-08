@@ -11,7 +11,10 @@ entries:
     source: "code: coordinator._derive_balance"
     date: "2026-10-05"
     tags: [always, allocation]
-    note: Solar-max adds the minimum import to it (rule.small-import-target); the forecast is never added (rule.forecast-reference-only).
+    note: >
+      Since 2026-10-09 (0.8.0) no rule uses it: Solar-follow steers on the measured import alone
+      (rule.small-import-target). It stays on the card and in the AI's readings ("Available for
+      miners"). The forecast is never added (rule.forecast-reference-only).
 
   - id: energy.throttle-hides-headroom
     title: Throttling hides extra solar

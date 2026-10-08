@@ -34,8 +34,6 @@ DEFAULT_RAMP_LOCK_MINUTES = 4  # after any change every miner holds while it res
 # down the old, higher draw would otherwise read as already there.
 RAMP_DONE_FRACTION = 0.05
 RAMP_MIN_MINUTES = 1
-HOLD_TOLERANCE_W = 150  # a shortfall this small keeps the current step (avoids re-tuning)
-UP_MARGIN_W = 100  # spare power needed beyond a step's cost before moving up to it
 
 # Solar-follow keeps the grid import inside a range, never at zero: at zero a
 # throttled inverter hides how much more the panels could give. Below the minimum it takes one

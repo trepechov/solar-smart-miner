@@ -669,7 +669,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         if (reason := await self._async_refresh_for_apply()) is not None:
             return await self._async_refuse_all(shown, trigger, reason)
 
-        # The proposal is one bundle: the plans are worked out from one shared budget, so if any
+        # The proposal is one bundle: the plans are worked out together, so if any
         # of them changed after the refresh none is applied.
         now = {
             mid: plan.fingerprint

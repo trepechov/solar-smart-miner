@@ -158,7 +158,7 @@ def _raise_if_turned_away(name: str, result: CommandResult) -> None:
 class ApplyAllButton(CoordinatorEntity[SolarMinerCoordinator], ButtonEntity):
     """Carry out the farm's proposal as shown: stops and step-downs first, then step-ups and starts.
 
-    The proposal is one bundle worked out from one power budget, so it is applied whole or not at all.
+    The proposal is one bundle worked out together, so it is applied whole or not at all.
     """
 
     _attr_has_entity_name = True

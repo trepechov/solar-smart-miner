@@ -9,8 +9,8 @@ undoes it (CLAUDE.md, "Fewer Rules"):
 1. Safety (safety.py): may end the decision and change several miners at once.
 2. Pacing (pacing.py): after a change every miner holds while it restarts (the ramp lock).
 3. Limits (limits.py): the temperature band.
-4. Target (profiles.py): the profile's up, down or hold, as a power budget.
-5. Allocation and 6. Tidy (allocation.py): one miner's step for that budget.
+4. Target (profiles.py): up, down or hold, from the measured grid import.
+5. Allocation and 6. Tidy (allocation.py): which one miner moves, and to which step.
 
 If the rules themselves fail, every miner holds and the trace says why (a failed update would
 leave the integration's entities unavailable).
@@ -71,11 +71,11 @@ def build_decision(
     being checked. Until `ramp_lock_minutes` have passed every miner holds. `ramp_done` names
     the changed miners that already draw their new power, so they no longer hold the farm.
 
-    Solar-max with a known meter steers on the grid import (rule.small-import-target):
-    below `import_min_w` (the minimum) it takes one increment, up to `import_max_w` it
-    holds, and above that it steps down once the import has been that high for
-    `minutes_import_high` >= the step-down delay (the morning delay while `sun_rising`).
-    `sun_up` False blocks starts and step-ups; None means unknown.
+    Solar-follow steers on the measured grid import alone (rule.small-import-target): below
+    `import_min_w` (the minimum) it takes one increment, up to `import_max_w` it holds, and
+    above that it steps down once the import has been that high for `minutes_import_high` >=
+    the step-down delay (the morning delay while `sun_rising`). `sun_up` False blocks starts
+    and step-ups; None means unknown.
     """
     # One profile: an older stored name (before the migration ran) reads as Solar-follow.
     profile_def = PROFILES_BY_NAME.get(profile, PROFILES[0])

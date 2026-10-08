@@ -83,7 +83,8 @@ async def test_apply_writes_a_pending_line_then_an_ok_line(hass, add_hass_miner,
     assert first["command_id"] == outcome["command_id"]
     assert (first["miner"], first["trigger"]) == ("Brod1", "manual")
     assert first["plan"] == {
-        "action": "set_limit", "limit_w": plan.limit_w, "method": None, "reason": "budget"
+        "action": "set_limit", "limit_w": plan.limit_w, "method": None,
+        "reason": "import below the minimum",
     }
     assert first["before"]["limit_w"] == 1100.0 and first["before"]["temp_c"] == 55.0
     assert first["energy"]["available_w"] is not None
