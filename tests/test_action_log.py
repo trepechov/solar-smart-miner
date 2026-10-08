@@ -59,14 +59,24 @@ async def _setup(hass, add_hass_miner, *, ai_actions=None):
     return coordinator
 
 
-async def test_apply_writes_a_pending_line_then_an_ok_line(hass, add_hass_miner) -> None:
+async def test_apply_writes_a_pending_line_then_an_ok_line(hass, add_hass_miner, monkeypatch) -> None:
+    import time as time_module
+
+    now = [1000.0]
+    monkeypatch.setattr(time_module, "monotonic", lambda: now[0])
     coordinator = await _setup(hass, add_hass_miner)
     calls = async_mock_service(hass, "number", "set_value")
     miner_id, plan = next(iter(coordinator.data.decision.plans.items()))
 
     await coordinator.async_apply_shown(miner_id, plan.fingerprint)
-    hass.states.async_set(calls[0].data["entity_id"], str(plan.limit_w))
-    await coordinator.controller.async_check_pending()
+    # The number reads back the limit and the miner restarts with it (no power meanwhile) ...
+    hass.states.async_set(calls[0].data["entity_id"], str(plan.limit_w), LIMITS)
+    hass.states.async_set("sensor.miner_00_00_00_00_00_01_miner_consumption", "unknown")
+    await coordinator._async_update_data()
+    # ... then draws its new limit: only now is the command done.
+    now[0] += 90
+    hass.states.async_set("sensor.miner_00_00_00_00_00_01_miner_consumption", str(plan.limit_w))
+    await coordinator._async_update_data()
 
     first, outcome = _lines(coordinator.action_log)
     assert (first["result"], outcome["result"]) == ("pending", "ok")

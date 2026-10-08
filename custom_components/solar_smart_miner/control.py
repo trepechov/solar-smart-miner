@@ -3,9 +3,13 @@
 The one place that touches the miners. It is reached from the Apply button (trigger
 "manual", control mode Manual) and from the coordinator's cycle (trigger "auto", control
 mode Automatic). Every command is checked before it is sent
-(guards), sent with blocking service calls, then watched until the miner's entity shows
-the expected value or the grace time runs out. Each step is reported to `on_event`
-(the action log) and a failure raises the `control.apply-failed` notification.
+(guards), sent with blocking service calls, then watched: first until the miner's entity
+shows the expected value, then until the miner itself did it (S11: hass-miner echoes a
+value the miner may never apply). Each step is reported to `on_event` (the action log)
+and a failure raises the `control.apply-failed` notification.
+
+Every change, ours or one seen, gets one `Settling` record per miner: the ramp lock, the
+"restarting, not stopped" reading and the command's verification all read it.
 """
 from __future__ import annotations
 
@@ -27,7 +31,10 @@ from .const import (
     APPLY_VERIFY_GRACE_S,
     CONTROL_MODE_AUTO,
     CONTROL_MODE_MANUAL,
+    DEFAULT_RAMP_LOCK_MINUTES,
     DOMAIN,
+    RAMP_DONE_FRACTION,
+    RAMP_MIN_MINUTES,
 )
 from .decision import _describe_plan, _ladder
 from .protocols import (
@@ -58,6 +65,59 @@ _MODES_FOR_TRIGGER = {TRIGGER_MANUAL: {CONTROL_MODE_MANUAL}, TRIGGER_AUTO: {CONT
 
 _STAGE_SWITCH = "switch"  # waiting for a stop / start switch to reach its state
 _STAGE_LIMIT = "limit"  # waiting for the power limit to read back
+_STAGE_MINER = "miner"  # the entity shows it; waiting for the miner itself (S11)
+
+
+def is_mining(miner: MinerSnapshot | None) -> bool:
+    """Running and hashing: not stopped, drawing power, and a hashrate (where read) above 0."""
+    return (
+        miner is not None
+        and not miner.is_stopped
+        and (miner.power_w or 0.0) > 0
+        and (miner.hashrate_th is None or miner.hashrate_th > 0)
+    )
+
+
+def draws_its_limit(miner: MinerSnapshot) -> bool:
+    """Drawing within RAMP_DONE_FRACTION of its power limit (its hashrate may still settle)."""
+    if miner.power_w is None or not miner.power_limit_w:
+        return False
+    return abs(miner.power_w - miner.power_limit_w) <= RAMP_DONE_FRACTION * miner.power_limit_w
+
+
+@dataclass
+class Settling:
+    """One miner after a change (a command sent, or a stop, start or limit change seen).
+
+    A limit change restarts the miner: it stops mining for a minute or more (hass-miner shows
+    its pause switch off meanwhile), then comes back below its new limit, overshoots and
+    settles (measured on the reference farm, 2026-10-08). The change is done once the miner
+    has been seen to restart (`gap_seen`) and draws its new limit; a stop once it no longer
+    mines. Not before RAMP_MIN_MINUTES: right after a change the old reading can look done.
+    """
+
+    since: float  # time.monotonic() of the change
+    stopping: bool  # the change stops the miner
+    restarting: bool = False  # a running miner given a new limit: a switch reading off is the restart
+    gap_seen: bool = False  # the miner stopped mining after the change: it has restarted
+
+    def observe(self, miner: MinerSnapshot | None) -> None:
+        if not is_mining(miner):
+            self.gap_seen = True
+
+    def age_min(self, now: float) -> float:
+        return (now - self.since) / 60
+
+    def done(self, miner: MinerSnapshot | None, now: float) -> bool:
+        if self.age_min(now) < RAMP_MIN_MINUTES:
+            return False
+        if self.stopping:
+            return not is_mining(miner)
+        return self.gap_seen and is_mining(miner) and draws_its_limit(miner)
+
+    def restarted(self, miner: MinerSnapshot | None) -> bool:
+        """Did what it was told, even if not settled yet: restarted and mining, or stopped."""
+        return not is_mining(miner) if self.stopping else self.gap_seen and is_mining(miner)
 
 
 @dataclass
@@ -97,6 +157,7 @@ class PendingCommand:
     deadline: float  # time.monotonic()
     limit_entity_id: str | None = None  # a start: the number to set once the switch is on
     calls: list[dict] = field(default_factory=list)
+    sent_at: float = 0.0  # time.monotonic() of the first call
 
 
 def _state_float(state) -> float | None:
@@ -116,15 +177,57 @@ class MinerController:
         get_mode: Callable[[], str],
         on_limit_applied: Callable[[str, float], None] | None = None,
         on_event: Callable[[CommandEvent], Awaitable[None]] | None = None,
+        get_ramp_lock_minutes: Callable[[], float] = lambda: DEFAULT_RAMP_LOCK_MINUTES,
     ) -> None:
         self._hass = hass
         self._get_mode = get_mode
         self._on_limit_applied = on_limit_applied
         self._on_event = on_event
+        self._get_ramp_lock_minutes = get_ramp_lock_minutes
         self._pending: dict[str, PendingCommand] = {}  # miner id -> command being verified
+        self.settling: dict[str, Settling] = {}  # miner id -> its last change, until it is over
 
     def is_pending(self, miner_id: str) -> bool:
         return miner_id in self._pending
+
+    # --- settling after a change --------------------------------------------
+
+    def note_change(
+        self, miner: MinerSnapshot, *, stopping: bool, restarting: bool = False
+    ) -> None:
+        """A change on this miner, sent or seen: it settles from now.
+
+        A second sign of the same change (the number reading back the limit we sent) moves the
+        start to now and keeps what was already seen of the restart.
+        """
+        now = time.monotonic()
+        record = self.settling.get(miner.miner_id)
+        if record is not None and record.stopping == stopping and record.age_min(now) < self._ramp_lock():
+            record.since = now
+            record.restarting = record.restarting or restarting
+        else:
+            record = self.settling[miner.miner_id] = Settling(now, stopping, restarting)
+        record.observe(miner)
+
+    def restarting(self, miner_id: str) -> bool:
+        """The miner was given a new limit while running and is still within the ramp lock."""
+        record = self.settling.get(miner_id)
+        return (
+            record is not None
+            and record.restarting
+            and record.age_min(time.monotonic()) < self._ramp_lock()
+        )
+
+    def _ramp_lock(self) -> float:
+        return float(self._get_ramp_lock_minutes())
+
+    def _observe(self, miners: dict[str, MinerSnapshot]) -> None:
+        """Feed this cycle's readings to every record; forget the ones past the ramp lock."""
+        now = time.monotonic()
+        for miner_id, record in list(self.settling.items()):
+            record.observe(miners.get(miner_id))
+            if record.age_min(now) >= self._ramp_lock() and miner_id not in self._pending:
+                del self.settling[miner_id]
 
     # --- guards -----------------------------------------------------------
 
@@ -224,6 +327,7 @@ class MinerController:
 
         # Registered before the first await, so a second press can't slip past the guard.
         self._pending[miner.miner_id] = pending
+        pending.sent_at = time.monotonic()
         if error := await self._send(call):
             del self._pending[miner.miner_id]
             result = CommandResult(RESULT_FAILED, error, [call], command_id)
@@ -232,6 +336,9 @@ class MinerController:
             return result
 
         pending.calls.append(call)
+        self.note_change(
+            miner, stopping=plan.action == ACTION_STOP, restarting=plan.action == ACTION_SET_LIMIT
+        )
         if plan.action in (ACTION_SET_LIMIT, ACTION_START) and self._on_limit_applied:
             # The miner re-tunes now: the next cycle already counts it as tuning.
             self._on_limit_applied(miner.miner_id, plan.limit_w)
@@ -260,18 +367,57 @@ class MinerController:
 
     # --- verification -----------------------------------------------------
 
-    async def async_check_pending(self) -> None:
-        """Called every coordinator cycle: finish the commands whose result has shown up."""
+    async def async_check_pending(self, miners: dict[str, MinerSnapshot] | None = None) -> None:
+        """Called every coordinator cycle with the miners just read: finish the commands that
+        are done. The entity showing the new value is not enough; the miner must do it too."""
+        miners = miners or {}
+        self._observe(miners)
+        now = time.monotonic()
         for pending in list(self._pending.values()):
-            if self._reached(pending):
+            if pending.stage == _STAGE_MINER:
+                await self._check_miner(pending, miners.get(pending.miner_id), now)
+            elif self._reached(pending):
                 if pending.stage == _STAGE_SWITCH and pending.limit_entity_id:
                     await self._set_limit_after_start(pending)
                 else:
-                    await self._finish(pending, RESULT_OK, "the miner shows the new value")
-            elif time.monotonic() >= pending.deadline:
+                    self._wait_for_miner(pending)
+                    await self._check_miner(pending, miners.get(pending.miner_id), now)
+            elif now >= pending.deadline:
                 await self._finish(
                     pending, RESULT_FAILED, f"{pending.entity_id} never reached {pending.expected}"
                 )
+
+    def _wait_for_miner(self, pending: PendingCommand) -> None:
+        """The entity shows the new value; now the miner itself, within the ramp lock and a grace."""
+        pending.stage = _STAGE_MINER
+        pending.deadline = max(
+            pending.deadline,
+            pending.sent_at + self._ramp_lock() * 60 + APPLY_VERIFY_GRACE_S,
+        )
+
+    async def _check_miner(
+        self, pending: PendingCommand, miner: MinerSnapshot | None, now: float
+    ) -> None:
+        record = self.settling.get(pending.miner_id)
+        stopping = pending.plan.action == ACTION_STOP
+        if record is not None and record.done(miner, now):
+            await self._finish(
+                pending, RESULT_OK, "the miner stopped" if stopping else "the miner runs at its new limit"
+            )
+        elif now < pending.deadline:
+            return
+        elif not stopping and record is not None and record.restarted(miner):
+            await self._finish(
+                pending, RESULT_OK,
+                f"the miner restarted and draws {miner.power_w:,.0f} W, still settling",
+            )
+        elif stopping:
+            await self._finish(pending, RESULT_FAILED, "the switch reads off but the miner still mines")
+        else:
+            await self._finish(
+                pending, RESULT_FAILED,
+                f"{pending.entity_id} reads {pending.expected} but the miner never came back mining",
+            )
 
     def _reached(self, pending: PendingCommand) -> bool:
         state = self._hass.states.get(pending.entity_id)
@@ -295,7 +441,7 @@ class MinerController:
             return
         limit_w = pending.plan.limit_w
         if abs(current - limit_w) < _LIMIT_TOLERANCE_W:
-            await self._finish(pending, RESULT_OK, "started, and it already has the limit")
+            self._wait_for_miner(pending)  # started, and it already has the limit
             return
         call = self._limit_call(pending.limit_entity_id, limit_w)
         pending.calls.append(call)

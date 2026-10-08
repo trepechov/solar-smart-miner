@@ -298,8 +298,10 @@ alerts:
     title: A command didn't take
     severity: critical
     category: control
-    condition: A limit change, stop or start was sent but the entity didn't reach the value, or the service call failed.
-    normal: The state follows within seconds.
+    condition: >
+      A limit change, stop or start was sent but the entity didn't reach the value, the service call
+      failed, or the miner didn't do it (didn't restart and mine again, or kept mining after a stop).
+    normal: The entity follows within seconds; the miner restarts and mines again within the ramp lock.
     not_alert: []
     thresholds: {grace_s: 60, relay_start_grace_s: 300}
     action: freeze
@@ -309,7 +311,8 @@ alerts:
     resolves_when: The entity matches the last command, or the command is acknowledged.
     note: >
       Raised by the command executor (control.py) when an applied command fails or isn't seen in
-      time (300 s for a relay start, the miner has to boot). Freezing automatic applying comes with
+      time (300 s for a relay start, the miner has to boot). Since 2026-10-09 (S11) also when the
+      entity echoes the value but the miner doesn't act within the ramp lock plus 60 s. Freezing automatic applying comes with
       automatic mode; today it is a notification per miner.
 
   - id: control.schedule-conflict

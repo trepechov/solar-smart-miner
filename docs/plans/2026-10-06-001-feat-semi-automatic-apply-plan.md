@@ -48,7 +48,7 @@ Check off each unit after it is implemented, tested and committed.
 **Phase 1 follow-ups (from the 2026-10-06 review; do before or alongside S9)**
 
 - [ ] **S10**: Schedule automation setting and the Manual-mode warning (Decision 4)
-- [ ] **S11**: Verify against the miner, not hass-miner's own echo; hold the lock through the limit-change restart
+- [x] **S11**: Verify against the miner, not hass-miner's own echo; hold the lock through the limit-change restart
 - [ ] **S12**: Any exception from a service call is a `failed` command
 - [ ] **S13**: Plan-age guard: refuse a press when the plan changed just before it
 - [ ] **S14**: Evidence logging: unpressed proposals, a 60-minute outcome line, engine version

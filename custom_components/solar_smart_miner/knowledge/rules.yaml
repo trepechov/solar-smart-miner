@@ -276,6 +276,10 @@ entries:
       miner may change (for example a rising morning). In the code since 2026-10-08: within 5% of
       its limit, and not before 1 minute (right after a step down the old draw is still high);
       stopped miners count as done. The 4 minutes stay the upper bound.
+      Since 2026-10-09 (S11) one settling record per miner decides it: a change is done once the
+      miner has been seen to restart (stop mining) and mines again within 5% of its limit; a stop
+      once it no longer mines. A miner that reads stopped after a limit change no longer ends the
+      lock early. The same record makes a command "ok" (miner.hass-miner-optimistic).
       Without it (v0.7.0, 2026-10-07) a restarting miner reports nothing and is read as stopped:
       right after Brod1 went to 2,100 W the rules proposed Brod2 up as if Brod1 drew 0 W, and after
       the 16:02 bundle they proposed starting all three at 1,900 W. Still open: a miner that is

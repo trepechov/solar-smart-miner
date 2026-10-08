@@ -333,15 +333,73 @@ async def test_refused_command_does_not_touch_the_tuning_clock(h) -> None:
 # --- verification ---------------------------------------------------------
 
 
-async def test_limit_reading_back_finishes_ok(h) -> None:
+def _seen(**kw) -> dict[str, MinerSnapshot]:
+    """The miners as the coordinator read them this cycle."""
+    return {"192.168.1.10": _miner(**kw)}
+
+
+RESTARTING = dict(power_w=None, hashrate_th=0.0)  # hass-miner during a restart: no power, no hashes
+
+
+async def test_limit_reading_back_and_the_miner_restarting_with_it_finishes_ok(h, clock) -> None:
     await h.apply(_set_limit(1300.0))
     h.hass.states.async_set(NUMBER, "1300.0")
+    await h.controller.async_check_pending(_seen(power_limit_w=1300.0, **RESTARTING))
+    assert h.statuses == [RESULT_PENDING]  # the number reads it, but the miner hasn't done it yet
 
-    await h.controller.async_check_pending()
+    clock[0] += 90
+    await h.controller.async_check_pending(_seen(power_limit_w=1300.0, power_w=1295.0, hashrate_th=60.0))
 
     assert h.statuses == [RESULT_PENDING, RESULT_OK]
+    assert h.events[1].reason == "the miner runs at its new limit"
     assert h.events[0].command_id == h.events[1].command_id
     assert not h.controller.is_pending("192.168.1.10")
+
+
+async def test_an_echoed_limit_alone_is_not_ok(h, clock, hass) -> None:
+    # S11: hass-miner writes the new value straight away, even when the miner never acts.
+    await h.apply(_set_limit(1300.0))
+    h.hass.states.async_set(NUMBER, "1300.0")
+    unchanged = _seen(power_limit_w=1300.0, power_w=1100.0, hashrate_th=50.0)  # never restarted
+
+    await h.controller.async_check_pending(unchanged)
+    clock[0] += APPLY_VERIFY_GRACE_S + 1  # past the echo's grace: the miner gets the ramp lock
+    await h.controller.async_check_pending(unchanged)
+    assert h.statuses == [RESULT_PENDING]
+
+    clock[0] += 4 * 60
+    await h.controller.async_check_pending(unchanged)
+    await hass.async_block_till_done()
+
+    assert h.statuses == [RESULT_PENDING, RESULT_FAILED]
+    assert "never came back mining" in h.events[-1].reason
+    assert "solar_smart_miner_apply_failed_192_168_1_10" in hass.data["persistent_notification"]
+
+
+async def test_a_miner_that_restarted_but_still_settles_is_ok_at_the_deadline(h, clock) -> None:
+    # Measured 2026-10-08: back at about 85 % of the new limit, overshooting, settled after ~5 min.
+    await h.apply(_set_limit(1300.0))
+    h.hass.states.async_set(NUMBER, "1300.0")
+    await h.controller.async_check_pending(_seen(power_limit_w=1300.0, **RESTARTING))
+
+    clock[0] += 5 * 60 + 1
+    await h.controller.async_check_pending(_seen(power_limit_w=1300.0, power_w=1400.0, hashrate_th=60.0))
+
+    assert h.statuses == [RESULT_PENDING, RESULT_OK]
+    assert "still settling" in h.events[-1].reason
+
+
+async def test_the_settling_record_follows_the_restart(h, clock) -> None:
+    await h.apply(_set_limit(1300.0))
+    record = h.controller.settling["192.168.1.10"]
+    assert (record.stopping, record.restarting, record.gap_seen) == (False, True, False)
+    assert h.controller.restarting("192.168.1.10")
+
+    await h.controller.async_check_pending(_seen(power_limit_w=1300.0, **RESTARTING))
+    assert record.gap_seen
+
+    clock[0] += 4 * 60  # past the ramp lock: no longer read as restarting
+    assert not h.controller.restarting("192.168.1.10")
 
 
 async def test_still_waiting_inside_the_grace_time(h, clock) -> None:
@@ -373,16 +431,34 @@ async def test_timeout_gives_failed_and_one_replaced_notification(h, clock, hass
     assert len(hass.data["persistent_notification"]) == 1
 
 
-async def test_stop_is_ok_when_the_switch_reads_off(h) -> None:
+async def test_stop_is_ok_once_the_switch_reads_off_and_the_miner_stopped_mining(h, clock) -> None:
     await h.apply(_stop())
     h.hass.states.async_set(SWITCH, "off")
+    await h.controller.async_check_pending(_seen(is_stopped=True, power_w=None))
+    assert h.statuses == [RESULT_PENDING]  # not before a hass-miner refresh has had time
 
-    await h.controller.async_check_pending()
+    clock[0] += 60
+    await h.controller.async_check_pending(_seen(is_stopped=True, power_w=None))
 
     assert h.statuses == [RESULT_PENDING, RESULT_OK]
+    assert h.events[-1].reason == "the miner stopped"
 
 
-async def test_start_sets_the_limit_only_after_the_switch_is_on(h) -> None:
+async def test_a_stop_the_miner_ignores_fails(h, clock, hass) -> None:
+    await h.apply(_stop())
+    h.hass.states.async_set(SWITCH, "off")
+    still = _seen(is_stopped=False, power_w=1100.0, hashrate_th=50.0)  # the switch echoes; it mines on
+
+    await h.controller.async_check_pending(still)
+    clock[0] += 5 * 60 + 1
+    await h.controller.async_check_pending(still)
+    await hass.async_block_till_done()
+
+    assert h.statuses == [RESULT_PENDING, RESULT_FAILED]
+    assert "still mines" in h.events[-1].reason
+
+
+async def test_start_sets_the_limit_only_after_the_switch_is_on(h, clock) -> None:
     h.hass.states.async_set(SWITCH, "off")
     h.hass.states.async_set(NUMBER, "unavailable")
     await h.apply(_start(limit_w=1300.0), _miner(is_stopped=True))
@@ -403,16 +479,22 @@ async def test_start_sets_the_limit_only_after_the_switch_is_on(h) -> None:
 
     h.hass.states.async_set(NUMBER, "1300")
     await h.controller.async_check_pending()
+    assert h.statuses == [RESULT_PENDING]  # set, but not mining yet
+
+    clock[0] += 90
+    await h.controller.async_check_pending(_seen(power_limit_w=1300.0, power_w=1290.0, hashrate_th=60.0))
     assert h.statuses == [RESULT_PENDING, RESULT_OK]
     assert [c["service"] for c in h.events[-1].calls] == ["switch.turn_on", "number.set_value"]
 
 
-async def test_start_skips_the_limit_when_the_miner_already_has_it(h) -> None:
+async def test_start_skips_the_limit_when_the_miner_already_has_it(h, clock) -> None:
     h.hass.states.async_set(SWITCH, "off")
-    await h.apply(_start(limit_w=1100.0), _miner(is_stopped=True))
+    await h.apply(_start(limit_w=1100.0), _miner(is_stopped=True, power_w=None))
     h.hass.states.async_set(SWITCH, "on")  # the number still reads 1100
 
     await h.controller.async_check_pending()
+    clock[0] += 90
+    await h.controller.async_check_pending(_seen(power_w=1100.0, hashrate_th=50.0))
 
     assert not h.number_calls
     assert h.statuses == [RESULT_PENDING, RESULT_OK]
@@ -487,3 +569,16 @@ async def test_failure_notification_describes_the_plan_in_words(h, clock, hass) 
     message = hass.data["persistent_notification"]["solar_smart_miner_apply_failed_192_168_1_10"]["message"]
     assert message.startswith("Brod1: the command (1,300 W) didn't take")
     assert "|" not in message
+
+
+def test_a_miner_reading_stopped_has_not_finished_a_limit_change(clock) -> None:
+    # 9b0b2c4: a restart read as a stop ended the ramp lock early ("stopped counts as done").
+    record = control.Settling(since=clock[0], stopping=False, restarting=True)
+    clock[0] += 120
+    paused_by_the_restart = _miner(is_stopped=True, power_w=None, hashrate_th=0.0)
+
+    record.observe(paused_by_the_restart)
+
+    assert record.gap_seen
+    assert not record.done(paused_by_the_restart, clock[0])
+    assert record.done(_miner(power_w=1100.0, hashrate_th=50.0), clock[0])

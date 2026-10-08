@@ -128,16 +128,23 @@ async def test_the_ramp_lock_spaces_the_automatic_changes(hass, add_hass_miner, 
     await coordinator._async_update_data()
     assert len(calls) == 1
 
-    # The miner shows its new limit; the lock still runs from the change.
+    # The miner shows its new limit and restarts; the lock still runs from the change.
     first = next(r for r in miners.values() if r["power_limit"].entity_id == calls[0].data["entity_id"])
     hass.states.async_set(first["power_limit"].entity_id, str(first_w), LIMITS)
+    hass.states.async_set(first["miner_consumption"].entity_id, "unknown")
     clock[0] += 60
     snapshot = await coordinator._async_update_data()
     assert len(calls) == 1
     assert any("ramp lock" in line for line in snapshot.decision.trace)
 
+    # Mining again below its new limit (still ramping): the lock holds.
+    hass.states.async_set(first["miner_consumption"].entity_id, str(first_w * 0.85))
+    clock[0] += 60
+    await coordinator._async_update_data()
+    assert len(calls) == 1
+
     # Once the lock is over, the next proposal goes out.
-    clock[0] += 4 * 60
+    clock[0] += 3 * 60
     await coordinator._async_update_data()
     assert len(calls) == 2
 

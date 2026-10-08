@@ -1256,12 +1256,15 @@ async def test_ramp_lock_ends_early_once_the_changed_miner_draws_its_new_power(
     hass.states.async_set(SOLAR_ENTITY, "5000")
     hass.states.async_set(GRID_ENTITY, "1500")
     coordinator = SolarMinerCoordinator(hass, _make_entry(hass))
-    miner_id = (await coordinator._async_update_data()).miners[0].miner_id
-
-    coordinator._changed_at[miner_id] = now[0] - 30  # changed 30 s ago
+    snapshot = (await coordinator._async_update_data()).miners[0]
+    hass.states.async_set(miner["miner_consumption"].entity_id, "0")  # it restarts ...
+    now[0] -= 30
+    coordinator.controller.note_change(snapshot, stopping=False, restarting=True)  # changed 30 s ago
+    now[0] += 30
     assert (await coordinator._async_update_data()).decision.summary.startswith("Waiting for a miner")
 
-    now[0] += 60  # 90 s after the change, drawing 1,290 of 1,300 W
+    now[0] += 60  # 90 s after the change, back and drawing 1,290 of 1,300 W
+    hass.states.async_set(miner["miner_consumption"].entity_id, "1290")
     decision = (await coordinator._async_update_data()).decision
     assert not decision.summary.startswith("Waiting for a miner")
     assert any("already at the new power" in line for line in decision.trace)

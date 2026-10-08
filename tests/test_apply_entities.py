@@ -200,21 +200,32 @@ async def test_the_proposal_changes_one_miner_and_lists_reductions_first(hass, a
     assert coordinator.proposal_text() == "Brod2 1,300 W (from 1,500 W) · Brod1 1,500 W (from 900 W)"
 
 
-async def test_activity_feed_follows_proposals_then_the_applied_action(hass, add_hass_miner) -> None:
+async def test_activity_feed_follows_proposals_then_the_applied_action(
+    hass, add_hass_miner, monkeypatch
+) -> None:
+    import time as time_module
+
+    now = [1000.0]
+    monkeypatch.setattr(time_module, "monotonic", lambda: now[0])
     entry, reg = await _setup(hass, add_hass_miner)
     async_mock_service(hass, "number", "set_value")
     coordinator = entry.runtime_data
 
     await _press(hass, _entity_id(hass, "button", "_apply_all"))
     hass.states.async_set(reg["power_limit"].entity_id, "1500", LIMITS)
+    hass.states.async_set(reg["miner_consumption"].entity_id, "unknown")  # restarting
+    await coordinator.async_refresh()
+    now[0] += 90
+    hass.states.async_set(reg["miner_consumption"].entity_id, "1500")  # at its new limit
     await coordinator.async_refresh()
     await hass.async_block_till_done()
 
     feed = _state(hass, "sensor", "_activity").attributes["feed"]
     kinds = [(e["kind"], e.get("result")) for e in feed]
-    # Newest first: once the miner reached 1,500 W nothing is left to propose, after the ok line.
-    assert kinds == [("proposal", None), ("applied", "ok"), ("applied", "pending"), ("proposal", None)]
-    assert feed[0]["plan"] == "no action" and feed[0]["current"] is False
+    # Newest first: nothing is left to propose while the miner restarts; the ok line comes once
+    # it draws its new limit (S11), not when the number reads it back.
+    assert kinds == [("applied", "ok"), ("proposal", None), ("applied", "pending"), ("proposal", None)]
+    assert feed[1]["plan"] == "no action" and feed[1]["current"] is False
     assert feed[2]["plan"] == "1,500 W" and feed[2]["miner"] == "Brod1"
     assert feed[3]["current"] is False  # an old proposal is never current
 

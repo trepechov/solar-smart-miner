@@ -102,6 +102,10 @@ entries:
     tags: [allocation, tuning]
     situations: [situation.tuning]
     note: >
+      Recorder, 2026-10-08, every change: power and hashrate unknown within seconds, the switch off
+      about 40 s later, back on 30 s to 2.5 min after that at about 85% of the new limit, then about
+      5 to 9% over it for 1 to 3 minutes, and at the limit about 4.5 to 5 minutes after the change.
+      A paused miner reads unknown power and 0 TH/s.
       Two samples, both 1300 to 1500 W. On 2026-10-08 every limit change, up and down, showed the
       pause switch off for 1 to 2.5 minutes. The controller treats a running miner whose switch goes
       off within the ramp lock after a limit change as restarting, not stopped: read as stopped, it
@@ -119,6 +123,10 @@ entries:
     source: "code: hass-miner switch.py async_turn_on/off and number.py async_set_native_value, 2026-10-06"
     date: "2026-10-06"
     tags: [always, control]
+    note: >
+      Since 2026-10-09 (S11) a command is "ok" only once the miner did it: a limit change when the
+      miner has restarted and mines at its new limit (or, at the deadline of the ramp lock plus
+      60 s, has restarted and mines at all); a stop when it no longer mines. Otherwise "failed".
 
   - id: miner.resume-cost
     title: Resuming a paused miner
