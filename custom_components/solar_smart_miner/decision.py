@@ -17,7 +17,7 @@ import math
 
 from .const import (
     DEFAULT_IMPORT_MAX_W,
-    DEFAULT_IMPORT_TARGET_W,
+    DEFAULT_IMPORT_MIN_W,
     DEFAULT_POWER_STEPS,
     DEFAULT_RAMP_LOCK_MINUTES,
     DEFAULT_TUNING_SETTLE_MINUTES,
@@ -214,6 +214,12 @@ def _one_change(
     return None
 
 
+def min_import_range_w(steps: list[float]) -> float:
+    """The narrowest Solar-max import range: the largest gap between neighbouring power steps
+    (200 W with one step), so one step up from below the minimum stays within the maximum."""
+    return max((b - a for a, b in zip(steps, steps[1:])), default=200.0)
+
+
 def _tuning_left(m: MinerSnapshot, settle_minutes: float) -> float | None:
     """Minutes the miner is still assumed to be tuning, or None if it has settled."""
     since = m.minutes_since_limit_change
@@ -230,7 +236,7 @@ def build_decision(
     battery_floor: float,
     power_steps: list[float] | None = None,
     tuning_settle_minutes: float = DEFAULT_TUNING_SETTLE_MINUTES,
-    import_target_w: float = DEFAULT_IMPORT_TARGET_W,
+    import_min_w: float = DEFAULT_IMPORT_MIN_W,
     import_max_w: float = DEFAULT_IMPORT_MAX_W,
     minutes_since_change: float | None = None,
     ramp_lock_minutes: float = DEFAULT_RAMP_LOCK_MINUTES,
@@ -249,7 +255,7 @@ def build_decision(
     the changed miners that already draw their new power, so they no longer hold the farm.
 
     Solar-max with a known meter steers on the grid import (rule.small-import-target):
-    below `import_target_w` (the minimum) it takes one increment, up to `import_max_w` it
+    below `import_min_w` (the minimum) it takes one increment, up to `import_max_w` it
     holds, and above that it steps down once the import has been that high for `minutes_import_high` >= the step-down delay (the morning delay while
     `sun_rising`). `sun_up` False blocks starts and step-ups; None means unknown.
     """
@@ -418,25 +424,25 @@ def build_decision(
     step_up_anyway = False
     if profile == "solar_max":
         # Aim for a small steady import: at 0 W throttled inverters hide what the panels could give.
-        available += import_target_w
+        available += import_min_w
         if energy.grid_net_w is not None:
             import_w = -energy.grid_net_w
-            if import_max_w <= import_target_w:
-                # A saved minimum from before the range (or a bad edit): a zero-width range
-                # would step up and down around one value.
-                import_max_w = import_target_w + steps[1] - steps[0] if len(steps) > 1 else import_target_w + 200
+            if import_max_w - import_min_w < (width := min_import_range_w(steps)):
+                # Narrower than one step: a step up from below the minimum could land above
+                # the maximum, and the farm would step up and down around it.
+                import_max_w = import_min_w + width
                 trace.append(
-                    "Import maximum not above the minimum → using "
-                    f"{_w(import_max_w)} (one power step above); fix it in Configure → Settings"
+                    "Import maximum less than one power step above the minimum → using "
+                    f"{_w(import_max_w)}; fix it in Configure → Settings"
                 )
-            trace.append(f"Grid import range: {_w(import_target_w)} to {_w(import_max_w)}")
+            trace.append(f"Grid import range: {_w(import_min_w)} to {_w(import_max_w)}")
             if import_w <= import_max_w:
                 # The measured import decides whether to step down; the budget only sizes the cut.
                 down_at_w = math.inf
             else:
                 # A cut sized to bring the import back to the maximum, no further.
-                available += import_max_w - import_target_w - HOLD_TOLERANCE_W
-            if import_w < import_target_w:
+                available += import_max_w - import_min_w - HOLD_TOLERANCE_W
+            if import_w < import_min_w:
                 if sun_up is False:
                     trace.append("Import below the minimum but the sun is down → nothing starts or steps up")
                 else:

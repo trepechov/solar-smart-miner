@@ -330,6 +330,10 @@ entries:
       step-down delay (rule.down-slowly-up-promptly). Before, the budget had to cover a start
       (lowest step + 100 W) while a throttled meter can only show the import target, so a
       stopped farm never started (rule.resume-next-at-sunrise, 2026-10-08).
+      Since 0.7.6 the settings form refuses a range narrower than the largest gap between the
+      power steps, and a narrower stored range is widened to it. The minimum has its own setting;
+      the old single import target (400 W on the reference farm) was read as the minimum and
+      made the range 400 to 400 W on 2026-10-08, so it is dropped at setup.
 
   - id: rule.forecast-reference-only
     title: The solar forecast never decides

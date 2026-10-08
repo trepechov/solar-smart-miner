@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from custom_components.solar_smart_miner.const import DEFAULT_POWER_STEPS
-from custom_components.solar_smart_miner.decision import build_decision
+from custom_components.solar_smart_miner.decision import build_decision, min_import_range_w
 from custom_components.solar_smart_miner.protocols import (
     ACTION_HOLD,
     ACTION_SET_LIMIT,
@@ -64,7 +64,7 @@ def _decide(
 ):
     # Import target 0: these tests check the allocation against a given budget. The
     # Solar-follow import target has its own tests below.
-    kw.setdefault("import_target_w", 0)
+    kw.setdefault("import_min_w", 0)
     kw.setdefault("power_steps", STEPS)
     return build_decision(snapshot, profile, temp_target, temp_tolerance, battery_floor, **kw)
 
@@ -88,7 +88,7 @@ def test_default_steps_are_the_agreed_ladder() -> None:
 def test_without_configured_steps_the_default_ladder_is_used() -> None:
     decision = build_decision(
         _snapshot(9000.0, [_miner("a", limit=900.0)]), "solar_max", 65, 10, 20,
-        import_target_w=0,
+        import_min_w=0,
     )
     assert decision.proposals == {"a": 2500.0}
 
@@ -494,29 +494,29 @@ def _metered(import_w: float, miners: list[MinerSnapshot], **energy) -> Coordina
 def test_import_below_the_minimum_steps_up_one_step() -> None:
     snapshot = _metered(30.0, _three(limit=1100.0))  # throttled: the meter sits near 0 W
 
-    decision = _decide(snapshot, import_target_w=200, import_max_w=400)
+    decision = _decide(snapshot, import_min_w=200, import_max_w=400)
     assert list(decision.proposals.values()) == [1300.0]  # one miner, one step
     assert "Grid import range: 200 W to 400 W" in decision.trace
     # With no minimum, 30 W of import sits inside the range: nothing moves.
-    assert _decide(snapshot, import_target_w=0, import_max_w=400).proposals == {}
+    assert _decide(snapshot, import_min_w=0, import_max_w=400).proposals == {}
 
 
 def test_import_inside_the_range_holds() -> None:
     # Owner, 2026-10-08: import at least 200 W, step down above 400 W.
     for import_w in (200.0, 300.0, 400.0):
-        decision = _decide(_metered(import_w, _three(limit=1100.0)), import_target_w=200, import_max_w=400)
+        decision = _decide(_metered(import_w, _three(limit=1100.0)), import_min_w=200, import_max_w=400)
         assert set(_actions(decision).values()) == {ACTION_HOLD}, import_w
 
 
 def test_import_above_the_maximum_steps_down_back_into_the_range() -> None:
-    decision = _decide(_metered(700.0, _three(limit=1500.0)), import_target_w=200, import_max_w=400)
+    decision = _decide(_metered(700.0, _three(limit=1500.0)), import_min_w=200, import_max_w=400)
 
     # 300 W over the maximum: one miner 1,500 → 1,100 W, the smallest cut that brings it back.
     assert list(decision.proposals.values()) == [1100.0]
 
 
 def test_import_above_the_band_steps_down() -> None:
-    decision = _decide(_metered(600.0, _three(limit=1500.0)), import_target_w=250)
+    decision = _decide(_metered(600.0, _three(limit=1500.0)), import_min_w=200)
 
     assert list(decision.proposals.values()) == [1100.0]  # one miner, straight to the step that fits
 
@@ -525,7 +525,7 @@ def test_all_stopped_and_import_below_the_floor_starts_a_miner() -> None:
     # 2026-10-08: all paused, meter at 0 W from 07:45, budget stuck at the import target, so
     # the 1,000 W a start needs never showed up and nothing started until 09:54.
     miners = [_miner(i, stopped=True) for i in "abc"]
-    decision = _decide(_metered(0.0, miners), import_target_w=250)
+    decision = _decide(_metered(0.0, miners), import_min_w=250)
 
     assert _actions(decision) == {"a": ACTION_START, "b": ACTION_HOLD, "c": ACTION_HOLD}
     assert decision.plans["a"].limit_w == 900.0  # its lowest step
@@ -533,14 +533,14 @@ def test_all_stopped_and_import_below_the_floor_starts_a_miner() -> None:
 
 def test_below_the_floor_the_next_stopped_miner_starts_before_a_raise() -> None:
     miners = [_miner("a", limit=1300.0), _miner("b", stopped=True), _miner("c", stopped=True)]
-    decision = _decide(_metered(20.0, miners), import_target_w=250)
+    decision = _decide(_metered(20.0, miners), import_min_w=250)
 
     assert _actions(decision) == {"a": ACTION_HOLD, "b": ACTION_START, "c": ACTION_HOLD}
 
 
 def test_nothing_starts_while_the_sun_is_down() -> None:
     miners = [_miner(i, stopped=True) for i in "abc"]
-    decision = _decide(_metered(0.0, miners), import_target_w=250, sun_up=False)
+    decision = _decide(_metered(0.0, miners), import_min_w=250, sun_up=False)
 
     assert decision.proposals == {}
     assert set(_actions(decision).values()) == {ACTION_HOLD}
@@ -549,7 +549,7 @@ def test_nothing_starts_while_the_sun_is_down() -> None:
 
 def test_step_down_waits_until_the_shortfall_has_lasted() -> None:
     snapshot = _metered(600.0, _three(limit=1500.0))
-    kw = {"import_target_w": 250, "step_down_delay_minutes": 5, "sun_rising": False}
+    kw = {"import_min_w": 200, "step_down_delay_minutes": 5, "sun_rising": False}
 
     early = _decide(snapshot, minutes_import_high=2, **kw)
     assert early.proposals == {}
@@ -561,7 +561,7 @@ def test_while_the_sun_rises_a_shortfall_waits_for_the_morning_delay() -> None:
     # Owner, 2026-10-08: some import in the morning is fine, the sun will come.
     snapshot = _metered(600.0, _three(limit=1500.0))
     kw = {
-        "import_target_w": 250,
+        "import_min_w": 200,
         "step_down_delay_minutes": 5,
         "morning_step_down_delay_minutes": 30,
         "sun_rising": True,
@@ -577,9 +577,9 @@ def test_the_forecast_never_changes_the_proposal() -> None:
     # Owner, 2026-10-07: the forecast can be far off, so it is shown but never decides.
     miners = [_miner("a", limit=1500.0), _miner("b", limit=1500.0), _miner("c", stopped=True)]
 
-    blind = _decide(_metered(20.0, miners), import_target_w=250)
+    blind = _decide(_metered(20.0, miners), import_min_w=250)
     seen = _decide(
-        _metered(20.0, miners, forecast_now_w=6000.0, pv_power_w=3000.0), import_target_w=250
+        _metered(20.0, miners, forecast_now_w=6000.0, pv_power_w=3000.0), import_min_w=250
     )
     assert seen.plans == blind.plans
     assert not any("hidden headroom" in line for line in seen.trace)
@@ -588,7 +588,7 @@ def test_the_forecast_never_changes_the_proposal() -> None:
 
 def test_import_floor_applies_only_to_solar_max() -> None:
     snapshot = _metered(30.0, _three(limit=1100.0))
-    decision = _decide(snapshot, profile="grid_independent", import_target_w=250)
+    decision = _decide(snapshot, profile="grid_independent", import_min_w=250)
 
     assert decision.proposals == {}
     assert not any("import floor" in line.lower() for line in decision.trace)
@@ -636,9 +636,20 @@ def test_morning_replay_fills_a_running_miner_before_starting_the_next() -> None
 
 
 def test_a_range_with_no_width_is_widened_by_one_step() -> None:
-    # An install upgraded from the single import target: the saved 400 W becomes the minimum
-    # and the maximum defaults to 400 W too.
-    decision = _decide(_metered(500.0, _three(limit=1100.0)), import_target_w=400, import_max_w=400)
+    decision = _decide(_metered(500.0, _three(limit=1100.0)), import_min_w=400, import_max_w=400)
 
     assert "Grid import range: 400 W to 600 W" in decision.trace
     assert set(_actions(decision).values()) == {ACTION_HOLD}
+
+
+def test_a_range_narrower_than_one_step_is_widened() -> None:
+    # 200 to 300 W: a 200 W step up from 150 W import would land at 350 W, above the maximum.
+    decision = _decide(_metered(150.0, _three(limit=1100.0)), import_min_w=200, import_max_w=300)
+
+    assert "Grid import range: 200 W to 400 W" in decision.trace
+
+
+def test_the_narrowest_import_range_is_the_largest_step_gap() -> None:
+    assert min_import_range_w([900.0, 1100.0, 1300.0]) == 200
+    assert min_import_range_w([900.0, 1400.0, 1500.0]) == 500
+    assert min_import_range_w([1000.0]) == 200

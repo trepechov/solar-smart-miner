@@ -1112,7 +1112,8 @@ async def test_applied_limit_counts_as_tuning_from_the_next_cycle(hass, add_hass
 
 async def test_power_steps_and_tuning_options_drive_the_decision(hass, add_hass_miner) -> None:
     from custom_components.solar_smart_miner.config_flow import (
-        CONF_IMPORT_TARGET,
+        CONF_IMPORT_MAX,
+        CONF_IMPORT_MIN,
         CONF_POWER_STEPS,
         CONF_TEMP_TARGET,
         CONF_TUNING_SETTLE,
@@ -1121,7 +1122,7 @@ async def test_power_steps_and_tuning_options_drive_the_decision(hass, add_hass_
     add_hass_miner(MINER_IP, limit="700", power="690", limit_attrs={"min": 500.0, "max": 3500.0})
     # The miner reads 65 °C: at the default target it would hold, under a 70 °C target it may step up.
     options = {CONF_POWER_STEPS: [700, 1000], CONF_TUNING_SETTLE: 30, CONF_TEMP_TARGET: 70,
-               CONF_IMPORT_TARGET: 250}
+               CONF_IMPORT_MIN: 250, CONF_IMPORT_MAX: 600}
     entry = _make_entry(hass, options=options)
 
     # Plenty of budget (the 1,500 W grid sensor is the house, miners included).
@@ -1131,7 +1132,7 @@ async def test_power_steps_and_tuning_options_drive_the_decision(hass, add_hass_
 
     assert list(decision.proposals.values()) == [1000.0]  # only the configured steps
     assert any("Power steps: 700, 1,000 W" in line for line in decision.trace)
-    assert "Grid import range: 250 W to 400 W" in decision.trace
+    assert "Grid import range: 250 W to 600 W" in decision.trace
 
 
 async def test_a_sent_command_holds_the_whole_farm_for_the_ramp_lock(hass, add_hass_miner, monkeypatch) -> None:

@@ -10,6 +10,7 @@ from .const import (  # noqa: F401
     CONF_CONTROL_MODE,
     DOMAIN,
     LEGACY_CONTROL_MODE_PREVIEW,
+    LEGACY_IMPORT_TARGET,
     control_mode_of,
 )
 from .coordinator import SolarMinerCoordinator
@@ -30,6 +31,7 @@ RETIRED_ENTITIES: tuple[tuple[str, str], ...] = (
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # First, before the reload listener exists: rewriting the options later would reload at once.
     _migrate_control_mode(hass, entry)
+    _drop_legacy_import_target(hass, entry)
     _remove_retired_entities(hass, entry)
     coordinator = SolarMinerCoordinator(hass, entry)
     await coordinator.ai_log.async_load_history()
@@ -72,3 +74,13 @@ def _migrate_control_mode(hass: HomeAssistant, entry: ConfigEntry) -> None:
         entry, options={**entry.options, CONF_CONTROL_MODE: control_mode_of({})}
     )
     _LOGGER.info("Control mode Preview no longer exists; switched to Manual")
+
+
+def _drop_legacy_import_target(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """The old single import target (0.7.4 and before) must not set the import range: drop
+    it, so the minimum and maximum come from their own settings (or the defaults)."""
+    if LEGACY_IMPORT_TARGET not in entry.options:
+        return
+    options = {k: v for k, v in entry.options.items() if k != LEGACY_IMPORT_TARGET}
+    hass.config_entries.async_update_entry(entry, options=options)
+    _LOGGER.info("Dropped the old grid import target; the import range settings apply")

@@ -556,7 +556,7 @@ async def test_options_flow_saves_again_after_telegram_was_left_blank(hass: Home
     assert result["data"]["telegram_chat_id"] is None
     assert result["data"][CONF_TEMP_TARGET] == 60
     assert result["data"][CONF_TEMP_TOLERANCE] == 8
-    assert result["data"]["import_target"] == 200  # the defaults when left as is
+    assert result["data"]["import_min"] == 200  # the defaults when left as is
     assert result["data"]["import_max"] == 400
     assert result["data"]["step_down_delay_minutes"] == 5
     assert result["data"]["morning_step_down_delay_minutes"] == 30
@@ -927,8 +927,31 @@ async def test_options_flow_refuses_an_import_maximum_not_above_the_minimum(hass
             CONF_TEMP_TARGET: 60,
             CONF_TEMP_TOLERANCE: 8,
             CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
-            "import_target": 400,
+            "import_min": 400,
             "import_max": 400,
+        },
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"] == {"import_max": "invalid_import_range"}
+
+
+async def test_options_flow_refuses_an_import_range_narrower_than_one_power_step(hass) -> None:
+    entry = MockConfigEntry(domain=DOMAIN, data=dict(_make_entry(hass).data), options={})
+    entry.add_to_hass(hass)
+
+    result = await _get_options_flow_result(
+        hass,
+        entry,
+        options_input={
+            CONF_CONTROL_MODE: "manual",
+            CONF_PROFILE: DEFAULT_PROFILE,
+            CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
+            CONF_TEMP_TARGET: 60,
+            CONF_TEMP_TOLERANCE: 8,
+            CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
+            "import_min": 200,
+            "import_max": 400,
+            "power_steps": "900, 1400, 1900",  # 500 W apart
         },
     )
     assert result["type"] == FlowResultType.FORM

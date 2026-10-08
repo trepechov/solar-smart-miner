@@ -39,7 +39,7 @@ from .const import (
     DEFAULT_BATTERY_FLOOR,
     DEFAULT_CONTROL_MODE,
     DEFAULT_IMPORT_MAX_W,
-    DEFAULT_IMPORT_TARGET_W,
+    DEFAULT_IMPORT_MIN_W,
     DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES,
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_POWER_STEPS,
@@ -58,6 +58,7 @@ from .const import (
     SOLAR_ENTITY_TYPE_PRODUCTION,
     control_mode_of,
 )
+from .decision import min_import_range_w
 
 CONF_SOLAR_ENTITY = "solar_production_entity"
 CONF_SOLAR_ENTITY_TYPE = "solar_entity_type"
@@ -80,7 +81,7 @@ REFERENCE_ENTITY_KEYS = (
 CONF_TEMP_TARGET = "temp_target"
 CONF_TEMP_TOLERANCE = "temp_tolerance"
 CONF_BATTERY_FLOOR = "battery_floor"
-CONF_IMPORT_TARGET = "import_target"  # W: Solar-max's minimum grid import
+CONF_IMPORT_MIN = "import_min"  # W: Solar-max's minimum grid import
 CONF_IMPORT_MAX = "import_max"  # W: Solar-max's maximum grid import
 CONF_STEP_DOWN_DELAY = "step_down_delay_minutes"  # a shortfall must last this long first
 CONF_MORNING_STEP_DOWN_DELAY = "morning_step_down_delay_minutes"  # the same while the sun rises
@@ -352,7 +353,7 @@ def _options_schema(options: dict) -> vol.Schema:
             )
         ),
         vol.Required(
-            CONF_IMPORT_TARGET, default=options.get(CONF_IMPORT_TARGET, DEFAULT_IMPORT_TARGET_W)
+            CONF_IMPORT_MIN, default=options.get(CONF_IMPORT_MIN, DEFAULT_IMPORT_MIN_W)
         ): NumberSelector(
             NumberSelectorConfig(
                 min=0, max=3000, step=50, unit_of_measurement="W", mode=NumberSelectorMode.BOX
@@ -536,7 +537,8 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
             steps = parse_power_steps(user_input[CONF_POWER_STEPS])
             if steps is None:
                 errors[CONF_POWER_STEPS] = "invalid_power_steps"
-            if int(user_input[CONF_IMPORT_MAX]) <= int(user_input[CONF_IMPORT_TARGET]):
+            width = int(user_input[CONF_IMPORT_MAX]) - int(user_input[CONF_IMPORT_MIN])
+            if width < min_import_range_w(steps or DEFAULT_POWER_STEPS):
                 errors[CONF_IMPORT_MAX] = "invalid_import_range"
         if user_input is not None and not errors:
             self._pending_options.update(
@@ -549,7 +551,7 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
                     CONF_TEMP_TARGET: int(user_input[CONF_TEMP_TARGET]),
                     CONF_TEMP_TOLERANCE: int(user_input[CONF_TEMP_TOLERANCE]),
                     CONF_BATTERY_FLOOR: int(user_input[CONF_BATTERY_FLOOR]),
-                    CONF_IMPORT_TARGET: int(user_input[CONF_IMPORT_TARGET]),
+                    CONF_IMPORT_MIN: int(user_input[CONF_IMPORT_MIN]),
                     CONF_IMPORT_MAX: int(user_input[CONF_IMPORT_MAX]),
                     CONF_STEP_DOWN_DELAY: int(user_input[CONF_STEP_DOWN_DELAY]),
                     CONF_MORNING_STEP_DOWN_DELAY: int(user_input[CONF_MORNING_STEP_DOWN_DELAY]),

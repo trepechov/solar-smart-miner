@@ -115,3 +115,18 @@ async def test_a_stored_preview_mode_becomes_manual_at_setup_without_a_reload(ha
     assert entry.runtime_data is coordinator  # rewritten before the reload listener existed
     assert coordinator.control_mode == "manual"
     assert entry.options[CONF_PROFILE] == "solar_max"  # the other options are kept
+
+
+async def test_the_old_import_target_is_dropped_at_setup(hass) -> None:
+    # Up to 0.7.4 "import_target" held the single 400 W target; read as the minimum it made the
+    # range 400 to 400 W. Dropped, the range comes from its own settings (the defaults here).
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    entry = _make_entry(hass)
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "import_target": 400})
+
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert "import_target" not in entry.options
+    assert entry.options[CONF_PROFILE] == "solar_max"  # the other options are kept

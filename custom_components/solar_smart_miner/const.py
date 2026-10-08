@@ -41,7 +41,7 @@ UP_MARGIN_W = 100  # spare power needed beyond a step's cost before moving up to
 # increment; inside the range it holds; above the maximum it steps down once the import has
 # stayed that high for the step-down delay. Keep the range at least one power step wide, so a
 # step from just outside lands inside.
-DEFAULT_IMPORT_TARGET_W = 200  # the minimum import (setting "import_target")
+DEFAULT_IMPORT_MIN_W = 200  # the minimum import (setting "import_min")
 DEFAULT_IMPORT_MAX_W = 400
 # A shortfall must last this long before a step down (rule.down-slowly-up-promptly); while the
 # sun is rising it waits longer, since production is catching up. Minutes.
@@ -131,6 +131,9 @@ CONTROL_MODE_AUTO = "auto"  # the coordinator applies the proposal every cycle
 CONTROL_MODES = [CONTROL_MODE_MANUAL, CONTROL_MODE_AUTO]
 DEFAULT_CONTROL_MODE = CONTROL_MODE_MANUAL  # nothing is applied until the owner presses or chooses Auto
 CONTROL_MODE_LABELS = {CONTROL_MODE_MANUAL: "Manual", CONTROL_MODE_AUTO: "Automatic"}
+# Up to 0.7.4 "import_target" held the single import target (400 W by default); 0.7.4 read
+# it as the minimum. Its value means something else now, so it is dropped, not migrated.
+LEGACY_IMPORT_TARGET = "import_target"
 LEGACY_CONTROL_MODE_PREVIEW = "preview"  # removed in 0.7.2; a stored value reads as Manual
 
 

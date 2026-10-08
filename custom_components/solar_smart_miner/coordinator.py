@@ -35,7 +35,7 @@ from .config_flow import (
     CONF_FORECAST_REMAINING_ENTITY,
     CONF_GRID_ENTITY,
     CONF_IMPORT_MAX,
-    CONF_IMPORT_TARGET,
+    CONF_IMPORT_MIN,
     CONF_MORNING_STEP_DOWN_DELAY,
     CONF_OPENROUTER_KEY,
     CONF_OPENROUTER_MODEL,
@@ -64,7 +64,7 @@ from .const import (
     DEFAULT_AI_INTERVAL,
     DEFAULT_BATTERY_FLOOR,
     DEFAULT_IMPORT_MAX_W,
-    DEFAULT_IMPORT_TARGET_W,
+    DEFAULT_IMPORT_MIN_W,
     DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES,
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_POWER_STEPS,
@@ -834,7 +834,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
 
         snapshot = CoordinatorSnapshot(energy=energy, miners=miners)
         options = self._entry.options
-        import_min = float(options.get(CONF_IMPORT_TARGET, DEFAULT_IMPORT_TARGET_W))
+        import_min = float(options.get(CONF_IMPORT_MIN, DEFAULT_IMPORT_MIN_W))
         import_max = float(options.get(CONF_IMPORT_MAX, DEFAULT_IMPORT_MAX_W))
         since_change = self._minutes_since_change(miners)
         sun = self.hass.states.get("sun.sun")
@@ -848,7 +848,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             tuning_settle_minutes=float(
                 options.get(CONF_TUNING_SETTLE, DEFAULT_TUNING_SETTLE_MINUTES)
             ),
-            import_target_w=import_min,
+            import_min_w=import_min,
             import_max_w=import_max,
             minutes_since_change=since_change,
             ramp_done=list(self._ramp_done),
