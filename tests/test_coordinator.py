@@ -1271,3 +1271,54 @@ async def test_ramp_lock_ends_early_once_the_changed_miner_draws_its_new_power(
     assert (await coordinator._async_update_data()).decision.summary.startswith("Waiting for a miner")
     now[0] += 3 * 60
     assert not (await coordinator._async_update_data()).decision.summary.startswith("Waiting for a miner")
+
+
+async def test_a_miner_restarting_after_a_limit_change_is_not_read_as_stopped(
+    hass, add_hass_miner, monkeypatch
+) -> None:
+    # 2026-10-08 13:09: Brod3 restarting at 1,500 W showed its pause switch off for a minute
+    # or two; read as stopped, the ramp lock ended and the plan "start at 900 W" undid the step.
+    import time as time_module
+
+    now = [1000.0]
+    monkeypatch.setattr(time_module, "monotonic", lambda: now[0])
+    reg = add_hass_miner(MINER_IP, limit="1300", power="1300", temperature="55", active="on",
+                         limit_attrs={"min": 500.0, "max": 3500.0})
+    hass.states.async_set(SOLAR_ENTITY, "9000")
+    hass.states.async_set(GRID_ENTITY, "1300")
+    coordinator = SolarMinerCoordinator(hass, _make_entry(hass))
+    await coordinator._async_update_data()
+
+    hass.states.async_set(reg["power_limit"].entity_id, "1500", {"min": 500.0, "max": 3500.0})
+    await coordinator._async_update_data()
+    now[0] += 60
+    hass.states.async_set(reg["active"].entity_id, "off")
+    hass.states.async_set(reg["miner_consumption"].entity_id, "0")
+    now[0] += 60
+
+    snapshot = await coordinator._async_update_data()
+    assert snapshot.miners[0].is_stopped is False
+    assert snapshot.decision.summary.startswith("Waiting for a miner to restart")
+    assert all(plan.action != "start" for plan in snapshot.decision.plans.values())
+
+    # Still off well after the restart: it really is stopped.
+    now[0] += 5 * 60
+    assert (await coordinator._async_update_data()).miners[0].is_stopped is True
+
+
+async def test_a_stopped_miner_given_a_limit_stays_stopped(hass, add_hass_miner, monkeypatch) -> None:
+    # A start sets the limit first: until the switch turns on, the miner is still stopped.
+    import time as time_module
+
+    now = [1000.0]
+    monkeypatch.setattr(time_module, "monotonic", lambda: now[0])
+    reg = add_hass_miner(MINER_IP, limit="1300", power="0", active="off",
+                         limit_attrs={"min": 500.0, "max": 3500.0})
+    hass.states.async_set(SOLAR_ENTITY, "500")
+    hass.states.async_set(GRID_ENTITY, "500")
+    coordinator = SolarMinerCoordinator(hass, _make_entry(hass))
+    await coordinator._async_update_data()
+
+    hass.states.async_set(reg["power_limit"].entity_id, "900", {"min": 500.0, "max": 3500.0})
+    now[0] += 30
+    assert (await coordinator._async_update_data()).miners[0].is_stopped is True

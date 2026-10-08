@@ -360,6 +360,16 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 relay_state is not None and relay_state.state == "off"
             )
             power_limit_w = _parse_state_float(limit_state)
+            since_limit = self._minutes_since_limit_change(miner_id, power_limit_w)
+            if (
+                is_stopped
+                and self._stopped_seen.get(miner_id) is False
+                and since_limit is not None
+                and since_limit < DEFAULT_RAMP_LOCK_MINUTES
+            ):
+                # A limit change restarts the miner, and hass-miner shows its pause switch off
+                # for a minute or two meanwhile: it is restarting at its new limit, not stopped.
+                is_stopped = False
             if self._stopped_seen.get(miner_id, is_stopped) != is_stopped:
                 self._changed_at[miner_id] = time.monotonic()  # stopped or started, by us or by hand
             self._stopped_seen[miner_id] = is_stopped
@@ -383,9 +393,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                     switch_entity_id=active_entry.entity_id if active_entry else None,
                     relay_entity_id=relay_entity_id,
                     is_stopped=is_stopped,
-                    minutes_since_limit_change=self._minutes_since_limit_change(
-                        miner_id, power_limit_w
-                    ),
+                    minutes_since_limit_change=since_limit,
                 )
             )
 
@@ -395,8 +403,9 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         """Minutes since the miner's power limit was seen to change (None: never seen to).
 
         hass-miner doesn't expose the tuning state, so this stands in for it: a miner
-        re-tunes for up to an hour after a change. A limit that was already set when we
-        started watching has an unknown age, which counts as settled.
+        settles a few minutes after a change (a step it never ran takes longer). A limit
+        that was already set when we started watching has an unknown age, which counts as
+        settled.
         """
         now = time.monotonic()
         last_limit, changed = self._limit_seen.get(miner_id, (None, None))
