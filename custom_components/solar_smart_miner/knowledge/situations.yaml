@@ -158,7 +158,7 @@ situations:
       - {id: import-present, says: "There is a clear grid import: the load is above what the panels give.", kind: measured, weight: strong, uses: [sensor.power_meter_active_power], available: true}
       - {id: status-not-limited, says: "The inverters do not report power limited.", kind: measured, weight: strong, uses: [sensor.inverter_device_status], available: true}
     exceptions: A sunset also makes PV fall, but then there is import and the status stops saying power limited.
-    in_code: partial (decision.py, Solar-max only - import below the floor takes one increment, a start first; the inverter status is not read)
+    in_code: partial (decision.py, Solar-max only - import below the minimum takes one increment, a start first; the inverter status is not read)
     status: proposed
 
   - id: situation.dropout

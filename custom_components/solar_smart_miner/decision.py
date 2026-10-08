@@ -16,12 +16,12 @@ from __future__ import annotations
 import math
 
 from .const import (
+    DEFAULT_IMPORT_MAX_W,
     DEFAULT_IMPORT_TARGET_W,
     DEFAULT_POWER_STEPS,
     DEFAULT_RAMP_LOCK_MINUTES,
     DEFAULT_TUNING_SETTLE_MINUTES,
     HOLD_TOLERANCE_W,
-    IMPORT_BAND_W,
     PROFILES_BY_NAME,
     UP_MARGIN_W,
 )
@@ -231,6 +231,7 @@ def build_decision(
     power_steps: list[float] | None = None,
     tuning_settle_minutes: float = DEFAULT_TUNING_SETTLE_MINUTES,
     import_target_w: float = DEFAULT_IMPORT_TARGET_W,
+    import_max_w: float = DEFAULT_IMPORT_MAX_W,
     minutes_since_change: float | None = None,
     ramp_lock_minutes: float = DEFAULT_RAMP_LOCK_MINUTES,
     minutes_import_high: float | None = None,
@@ -246,9 +247,8 @@ def build_decision(
     being checked. Until `ramp_lock_minutes` have passed every miner holds.
 
     Solar-max with a known meter steers on the grid import (rule.small-import-target):
-    below `import_target_w` (the floor) it takes one increment, from the floor to
-    IMPORT_BAND_W above it it holds, and above that it steps down once the import has been
-    that high for `minutes_import_high` >= the step-down delay (the morning delay while
+    below `import_target_w` (the minimum) it takes one increment, up to `import_max_w` it
+    holds, and above that it steps down once the import has been that high for `minutes_import_high` >= the step-down delay (the morning delay while
     `sun_rising`). `sun_up` False blocks starts and step-ups; None means unknown.
     """
     energy = snapshot.energy
@@ -414,34 +414,34 @@ def build_decision(
         available += import_target_w
         if energy.grid_net_w is not None:
             import_w = -energy.grid_net_w
-            # The measured import decides whether to step down; the budget only sizes the cut.
-            if import_w <= import_target_w + IMPORT_BAND_W:
+            trace.append(f"Grid import range: {_w(import_target_w)} to {_w(import_max_w)}")
+            if import_w <= import_max_w:
+                # The measured import decides whether to step down; the budget only sizes the cut.
                 down_at_w = math.inf
-            trace.append(
-                f"Grid import floor: {_w(import_target_w)}; holds up to "
-                f"{_w(import_target_w + IMPORT_BAND_W)}, steps down above"
-            )
+            else:
+                # A cut sized to bring the import back to the maximum, no further.
+                available += import_max_w - import_target_w - HOLD_TOLERANCE_W
             if import_w < import_target_w:
                 if sun_up is False:
-                    trace.append("Import below the floor but the sun is down → nothing starts or steps up")
+                    trace.append("Import below the minimum but the sun is down → nothing starts or steps up")
                 else:
                     step_up_anyway = True
                     trace.append(
-                        f"Import {_w(import_w)} below the floor: the solar covers the house and the "
+                        f"Import {_w(import_w)} below the minimum: the solar covers the house and the "
                         "inverters may be holding back → one more increment (start a stopped "
                         "miner first, else one step up)"
                     )
-            elif import_w > import_target_w + IMPORT_BAND_W:
+            elif import_w > import_max_w:
                 wait = morning_step_down_delay_minutes if sun_rising else step_down_delay_minutes
                 lasted = minutes_import_high or 0.0
                 if lasted < wait:
                     why = " (the sun is rising and should catch up)" if sun_rising else ""
                     trace.append(
-                        f"Import {_w(import_w)} above the band for {lasted:.0f} min; steps down "
+                        f"Import {_w(import_w)} above the maximum for {lasted:.0f} min; steps down "
                         f"after {wait:.0f} min{why} → every miner holds"
                     )
                     others_wait(None, "waiting for the sun" if sun_rising else "waiting out the shortfall")
-                    return done(f"{profile_label}: import {_w(import_w)} above the band, waiting")
+                    return done(f"{profile_label}: import {_w(import_w)} above the maximum, waiting")
     budget = max(available, 0.0)
     if profile == "battery_focused" and energy.battery_soc_pct is not None and profile_def:
         stop_at = profile_def["parameters"]["stop_at_soc_pct"]

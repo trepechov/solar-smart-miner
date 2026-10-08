@@ -34,6 +34,7 @@ from .config_flow import (
     CONF_FORECAST_NOW_ENTITY,
     CONF_FORECAST_REMAINING_ENTITY,
     CONF_GRID_ENTITY,
+    CONF_IMPORT_MAX,
     CONF_IMPORT_TARGET,
     CONF_MORNING_STEP_DOWN_DELAY,
     CONF_OPENROUTER_KEY,
@@ -62,6 +63,7 @@ from .const import (
     DECISION_HISTORY_SIZE,
     DEFAULT_AI_INTERVAL,
     DEFAULT_BATTERY_FLOOR,
+    DEFAULT_IMPORT_MAX_W,
     DEFAULT_IMPORT_TARGET_W,
     DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES,
     DEFAULT_POLLING_INTERVAL,
@@ -73,7 +75,6 @@ from .const import (
     DEFAULT_TUNING_SETTLE_MINUTES,
     DOMAIN,
     HASS_MINER_PLATFORM,
-    IMPORT_BAND_W,
     MIN_AI_INTERVAL,
     SOLAR_ENTITY_TYPE_NET_IMPORT,
     SOLAR_ENTITY_TYPE_PRODUCTION,
@@ -418,14 +419,14 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         return min(ages, default=None)
 
     def _minutes_import_high(
-        self, energy: EnergySnapshot, floor_w: float, since_change: float | None
+        self, energy: EnergySnapshot, max_w: float, since_change: float | None
     ) -> float | None:
-        """Minutes the grid import has stayed above the band (None while it isn't).
+        """Minutes the grid import has stayed above the maximum (None while it isn't).
 
         Counted again from the last change: a step down that didn't cover the shortfall waits
         the delay again before the next one.
         """
-        if energy.grid_net_w is None or -energy.grid_net_w <= floor_w + IMPORT_BAND_W:
+        if energy.grid_net_w is None or -energy.grid_net_w <= max_w:
             self._import_high_since = None
             return None
         if self._import_high_since is None:
@@ -808,7 +809,8 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
 
         snapshot = CoordinatorSnapshot(energy=energy, miners=miners)
         options = self._entry.options
-        import_floor = float(options.get(CONF_IMPORT_TARGET, DEFAULT_IMPORT_TARGET_W))
+        import_min = float(options.get(CONF_IMPORT_TARGET, DEFAULT_IMPORT_TARGET_W))
+        import_max = float(options.get(CONF_IMPORT_MAX, DEFAULT_IMPORT_MAX_W))
         since_change = self._minutes_since_change(miners)
         sun = self.hass.states.get("sun.sun")
         decision = build_decision(
@@ -821,9 +823,10 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             tuning_settle_minutes=float(
                 options.get(CONF_TUNING_SETTLE, DEFAULT_TUNING_SETTLE_MINUTES)
             ),
-            import_target_w=import_floor,
+            import_target_w=import_min,
+            import_max_w=import_max,
             minutes_since_change=since_change,
-            minutes_import_high=self._minutes_import_high(energy, import_floor, since_change),
+            minutes_import_high=self._minutes_import_high(energy, import_max, since_change),
             step_down_delay_minutes=float(
                 options.get(CONF_STEP_DOWN_DELAY, DEFAULT_STEP_DOWN_DELAY_MINUTES)
             ),

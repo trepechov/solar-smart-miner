@@ -1131,7 +1131,7 @@ async def test_power_steps_and_tuning_options_drive_the_decision(hass, add_hass_
 
     assert list(decision.proposals.values()) == [1000.0]  # only the configured steps
     assert any("Power steps: 700, 1,000 W" in line for line in decision.trace)
-    assert any(line.startswith("Grid import floor: 250 W") for line in decision.trace)
+    assert "Grid import range: 250 W to 400 W" in decision.trace
 
 
 async def test_a_sent_command_holds_the_whole_farm_for_the_ramp_lock(hass, add_hass_miner, monkeypatch) -> None:

@@ -38,6 +38,7 @@ from .const import (
     CONTROL_MODES,
     DEFAULT_BATTERY_FLOOR,
     DEFAULT_CONTROL_MODE,
+    DEFAULT_IMPORT_MAX_W,
     DEFAULT_IMPORT_TARGET_W,
     DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES,
     DEFAULT_POLLING_INTERVAL,
@@ -79,7 +80,8 @@ REFERENCE_ENTITY_KEYS = (
 CONF_TEMP_TARGET = "temp_target"
 CONF_TEMP_TOLERANCE = "temp_tolerance"
 CONF_BATTERY_FLOOR = "battery_floor"
-CONF_IMPORT_TARGET = "import_target"  # W: Solar-max's grid import floor
+CONF_IMPORT_TARGET = "import_target"  # W: Solar-max's minimum grid import
+CONF_IMPORT_MAX = "import_max"  # W: Solar-max's maximum grid import
 CONF_STEP_DOWN_DELAY = "step_down_delay_minutes"  # a shortfall must last this long first
 CONF_MORNING_STEP_DOWN_DELAY = "morning_step_down_delay_minutes"  # the same while the sun rises
 CONF_PROFILE = "profile"
@@ -357,6 +359,13 @@ def _options_schema(options: dict) -> vol.Schema:
             )
         ),
         vol.Required(
+            CONF_IMPORT_MAX, default=options.get(CONF_IMPORT_MAX, DEFAULT_IMPORT_MAX_W)
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=50, max=5000, step=50, unit_of_measurement="W", mode=NumberSelectorMode.BOX
+            )
+        ),
+        vol.Required(
             CONF_STEP_DOWN_DELAY,
             default=options.get(CONF_STEP_DOWN_DELAY, DEFAULT_STEP_DOWN_DELAY_MINUTES),
         ): NumberSelector(
@@ -527,6 +536,8 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
             steps = parse_power_steps(user_input[CONF_POWER_STEPS])
             if steps is None:
                 errors[CONF_POWER_STEPS] = "invalid_power_steps"
+            if int(user_input[CONF_IMPORT_MAX]) <= int(user_input[CONF_IMPORT_TARGET]):
+                errors[CONF_IMPORT_MAX] = "invalid_import_range"
         if user_input is not None and not errors:
             self._pending_options.update(
                 {
@@ -539,6 +550,7 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
                     CONF_TEMP_TOLERANCE: int(user_input[CONF_TEMP_TOLERANCE]),
                     CONF_BATTERY_FLOOR: int(user_input[CONF_BATTERY_FLOOR]),
                     CONF_IMPORT_TARGET: int(user_input[CONF_IMPORT_TARGET]),
+                    CONF_IMPORT_MAX: int(user_input[CONF_IMPORT_MAX]),
                     CONF_STEP_DOWN_DELAY: int(user_input[CONF_STEP_DOWN_DELAY]),
                     CONF_MORNING_STEP_DOWN_DELAY: int(user_input[CONF_MORNING_STEP_DOWN_DELAY]),
                 }

@@ -491,20 +491,28 @@ def _metered(import_w: float, miners: list[MinerSnapshot], **energy) -> Coordina
     return _snapshot(draw - import_w, miners, grid_net_w=-import_w, **energy)
 
 
-def test_import_below_the_floor_steps_up_one_step() -> None:
+def test_import_below_the_minimum_steps_up_one_step() -> None:
     snapshot = _metered(30.0, _three(limit=1100.0))  # throttled: the meter sits near 0 W
 
-    decision = _decide(snapshot, import_target_w=250)
+    decision = _decide(snapshot, import_target_w=200, import_max_w=400)
     assert list(decision.proposals.values()) == [1300.0]  # one miner, one step
-    assert any(line.startswith("Grid import floor: 250 W") for line in decision.trace)
-    # With no floor, 30 W of import sits inside the band: nothing moves.
-    assert _decide(snapshot, import_target_w=0).proposals == {}
+    assert "Grid import range: 200 W to 400 W" in decision.trace
+    # With no minimum, 30 W of import sits inside the range: nothing moves.
+    assert _decide(snapshot, import_target_w=0, import_max_w=400).proposals == {}
 
 
-def test_import_inside_the_band_holds() -> None:
-    for import_w in (250.0, 400.0, 550.0):
-        decision = _decide(_metered(import_w, _three(limit=1100.0)), import_target_w=250)
+def test_import_inside_the_range_holds() -> None:
+    # Owner, 2026-10-08: import at least 200 W, step down above 400 W.
+    for import_w in (200.0, 300.0, 400.0):
+        decision = _decide(_metered(import_w, _three(limit=1100.0)), import_target_w=200, import_max_w=400)
         assert set(_actions(decision).values()) == {ACTION_HOLD}, import_w
+
+
+def test_import_above_the_maximum_steps_down_back_into_the_range() -> None:
+    decision = _decide(_metered(700.0, _three(limit=1500.0)), import_target_w=200, import_max_w=400)
+
+    # 300 W over the maximum: one miner 1,500 → 1,100 W, the smallest cut that brings it back.
+    assert list(decision.proposals.values()) == [1100.0]
 
 
 def test_import_above_the_band_steps_down() -> None:

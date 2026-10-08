@@ -11,7 +11,7 @@ entries:
     source: "code: coordinator._derive_balance"
     date: "2026-10-05"
     tags: [always, allocation]
-    note: Solar-max adds the import floor to it (rule.small-import-target); the forecast is never added (rule.forecast-reference-only).
+    note: Solar-max adds the minimum import to it (rule.small-import-target); the forecast is never added (rule.forecast-reference-only).
 
   - id: energy.throttle-hides-headroom
     title: Throttling hides extra solar

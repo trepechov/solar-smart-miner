@@ -31,13 +31,13 @@ DEFAULT_RAMP_LOCK_MINUTES = 4  # after any change every miner holds while it res
 HOLD_TOLERANCE_W = 150  # a shortfall this small keeps the current step (avoids re-tuning)
 UP_MARGIN_W = 100  # spare power needed beyond a step's cost before moving up to it
 
-# Solar-max (Solar-follow) keeps a small steady grid import, never zero: at zero a throttled
-# inverter hides how much more the panels could give. Below the floor (the import target
-# setting) it takes one increment; from the floor to IMPORT_BAND_W above it holds; above that
-# it steps down once the import has stayed that high for the step-down delay. The band is
-# wider than one 200 W step plus margin, so a step up can't push the import out the top.
-DEFAULT_IMPORT_TARGET_W = 250
-IMPORT_BAND_W = 300
+# Solar-max (Solar-follow) keeps the grid import inside a range, never at zero: at zero a
+# throttled inverter hides how much more the panels could give. Below the minimum it takes one
+# increment; inside the range it holds; above the maximum it steps down once the import has
+# stayed that high for the step-down delay. Keep the range at least one power step wide, so a
+# step from just outside lands inside.
+DEFAULT_IMPORT_TARGET_W = 200  # the minimum import (setting "import_target")
+DEFAULT_IMPORT_MAX_W = 400
 # A shortfall must last this long before a step down (rule.down-slowly-up-promptly); while the
 # sun is rising it waits longer, since production is catching up. Minutes.
 DEFAULT_STEP_DOWN_DELAY_MINUTES = 5

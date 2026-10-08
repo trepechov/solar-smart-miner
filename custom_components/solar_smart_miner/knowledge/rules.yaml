@@ -303,27 +303,28 @@ entries:
   - id: rule.small-import-target
     title: Aim for a small steady import
     statement: >
-      In Solar-follow, keep a small steady grid import, never below the floor (a setting). Below it
+      In Solar-follow, keep the grid import inside a small range (settings). Below the minimum
       the solar covers the house (site.base-load) and the inverters may be holding back: add one
-      increment, starting a stopped miner first. Well above the band: step down. Inside: hold.
-      The band must be wider than one power step. Solar-follow is for a farm with no battery whose inverters
+      increment, starting a stopped miner first. Above the maximum: step down. Inside: hold.
+      The range must be at least one power step wide. Solar-follow is for a farm with no battery whose inverters
       limit export; with export allowed, steer on the export instead, and with a battery
       these rules don't apply (battery profiles are open).
     priority: P1
     status: decided
-    source: "requirements doc §6.2; owner, 2026-10-08 (floor 250 W)"
+    source: "requirements doc §6.2; owner, 2026-10-08 (range 200 to 400 W)"
     date: "2026-10-08"
     situations: [situation.midday, situation.curtailed, situation.sunrise]
     tags: [midday, sunrise, allocation]
     note: >
-      Owner, 2026-10-08: the floor is 250 W, with a 300 W band; this settles the old question of
-      the import target and band defaults. In the code since 2026-10-08, for Solar-max: import
-      below the floor (setting, 250 W) takes
-      one increment even without the spare power for it, starting a stopped miner first, else one
-      step up on the weakest running miner; up to 300 W above the floor holds; above that steps
-      down after the step-down delay (rule.down-slowly-up-promptly). Before, the budget had to
-      cover a start (lowest step + 100 W) while a throttled meter can only show the import
-      target, so a stopped farm never started (rule.resume-next-at-sunrise, 2026-10-08).
+      Owner, 2026-10-08: import at least 200 W, step down above 400 W (earlier the same day a
+      250 W floor with a fixed 300 W band); this settles the old question of the import target
+      and band defaults. In the code since 2026-10-08, for Solar-max: import below the minimum
+      (setting) takes one increment even without the spare power for it, starting a stopped
+      miner first, else one step up on the weakest running miner; up to the maximum (setting)
+      holds; above it steps down, by the smallest cut that brings it back under, after the
+      step-down delay (rule.down-slowly-up-promptly). Before, the budget had to cover a start
+      (lowest step + 100 W) while a throttled meter can only show the import target, so a
+      stopped farm never started (rule.resume-next-at-sunrise, 2026-10-08).
 
   - id: rule.forecast-reference-only
     title: The solar forecast never decides
@@ -541,7 +542,7 @@ entries:
       2026-10-08: with all miners paused the meter sat at 0 W from 07:45, the inverters reported
       power limited from 07:50, and nothing started until Brod1 was started by hand at 09:54. With
       zero export the budget never showed the 1,000 W a start needed. Since 2026-10-08 an import
-      below the floor starts the next stopped miner (rule.small-import-target).
+      below the minimum starts the next stopped miner (rule.small-import-target).
 
   - id: rule.no-import-cap
     title: No cap on grid import

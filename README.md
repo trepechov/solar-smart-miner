@@ -132,9 +132,9 @@ The last 20 entries are also on the **AI advice** sensor (`history` and `actions
 
 Without a battery the inverters hold their output to the load (zero export), so at 0 W on the meter you can't tell 500 W of sun from 5 kW. A small steady **import** is the only proof all the solar is used. Solar-max steers on it:
 
-- **Below the import floor** (Configure → Settings, 250 W by default): the solar covers the house and the inverters are probably holding back, so it adds one increment: it **starts a stopped miner** at its lowest step first, otherwise it raises the weakest running miner one step. The ramp lock then waits 4 minutes, and the import shows whether the sun carried it. This is also how the miners start in the morning. Nothing starts while the sun is below the horizon (`sun.sun`).
-- **From the floor to 300 W above it:** hold.
-- **Above that:** step down, but only once the import has stayed that high for the **step-down delay** (5 minutes), so a passing cloud costs no restart. While the sun is rising (until solar noon) the delay is the **morning step-down delay** (30 minutes): a miner started early may import for a while, the sun catches up.
+- **Below the minimum import** (Configure → Settings, 200 W by default): the solar covers the house and the inverters are probably holding back, so it adds one increment: it **starts a stopped miner** at its lowest step first, otherwise it raises the weakest running miner one step. The ramp lock then waits 4 minutes, and the import shows whether the sun carried it. This is also how the miners start in the morning. Nothing starts while the sun is below the horizon (`sun.sun`).
+- **Between the minimum and the maximum import** (400 W by default): hold. Keep the range at least one power step wide, so a step from just outside lands inside.
+- **Above the maximum:** step down, as far as brings the import back under it, but only once the import has stayed that high for the **step-down delay** (5 minutes), so a passing cloud costs no restart. While the sun is rising (until solar noon) the delay is the **morning step-down delay** (30 minutes): a miner started early may import for a while, the sun catches up.
 
 The solar forecast is shown in the decision log and the AI log for reference only; it never decides.
 
