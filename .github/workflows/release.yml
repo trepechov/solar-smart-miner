@@ -1,16 +1,19 @@
 name: Release
 
-# A vX.Y.Z tag (pushed by scripts/release.sh) becomes a GitHub release. HACS tracks releases,
-# so Home Assistant shows it under Settings → Updates with these notes.
+# A push to main that raises the version in manifest.json becomes a GitHub release, tagged
+# v<version>. HACS tracks releases, so Home Assistant shows it under Settings → Updates with
+# these notes. The version bump goes in with the work it releases: no separate release commit,
+# no tag pushed by hand. Pushes that leave the version alone release nothing.
 on:
   push:
-    tags: ["v*.*.*"]
+    branches: [main]
+    paths: ["custom_components/solar_smart_miner/manifest.json"]
+  workflow_dispatch:  # re-run by hand: releases the current version if it isn't released yet
 
 permissions:
   contents: write
 
-# GitHub can start this twice for one tag push (it did for v0.7.2). Runs for the same tag queue
-# behind each other, and the second one finds the release already there and stops.
+# Two runs for the same commit queue behind each other; the second finds the release and stops.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -23,31 +26,41 @@ jobs:
         with:
           fetch-depth: 0  # all tags and commits, for the notes
 
-      - name: Tag matches manifest version
+      - name: Version to release
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(jq -r .version custom_components/solar_smart_miner/manifest.json)
-          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::tag $GITHUB_REF_NAME but manifest.json says $VERSION"
+          TAG="v$VERSION"
+          LATEST=$(git tag --list 'v*.*.*' --sort=-v:refname | head -n1)
+          echo "manifest $VERSION, latest tag ${LATEST:-none}"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || gh release view "$TAG" >/dev/null 2>&1; then
+            echo "$TAG is already released, nothing to do"
+            exit 0
+          fi
+          if [ -n "$LATEST" ] && [ "$(printf '%s\n%s\n' "$LATEST" "$TAG" | sort -V | tail -n1)" != "$TAG" ]; then
+            echo "::error::manifest.json version $VERSION is below the latest release $LATEST"
             exit 1
           fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "previous=$LATEST" >> "$GITHUB_OUTPUT"
 
-      # Work goes straight to main (no PRs), so the notes are the commits since the last tag,
-      # without the release commits themselves.
+      # Work goes straight to main (no PRs), so the notes are the commits since the last release.
       - name: Release notes
+        if: steps.version.outputs.tag
+        env:
+          PREV: ${{ steps.version.outputs.previous }}
         run: |
-          PREV=$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || true)
           {
             echo "## Changes"
-            git log --no-merges --format='- %s' ${PREV:+"$PREV.."}"$GITHUB_REF_NAME" | grep -v '^- chore(release):'
+            git log --no-merges --format='- %s' ${PREV:+"$PREV.."}"$GITHUB_SHA" | grep -v '^- chore(release):'
           } > notes.md
           cat notes.md
 
       - name: Publish release
+        if: steps.version.outputs.tag
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo "Release $GITHUB_REF_NAME already exists, nothing to do"
-            exit 0
-          fi
-          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh release create "$TAG" --title "$TAG" --notes-file notes.md --target "$GITHUB_SHA"
