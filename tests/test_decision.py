@@ -633,3 +633,12 @@ def test_morning_replay_fills_a_running_miner_before_starting_the_next() -> None
     # 2,100 W: the one running miner goes to its top step (1,500 W) rather than a second
     # miner starting; the second needs 900 W + 100 W margin on top of that.
     assert started == [0, 0, 1, 1, 1, 2, 2, 3]
+
+
+def test_a_range_with_no_width_is_widened_by_one_step() -> None:
+    # An install upgraded from the single import target: the saved 400 W becomes the minimum
+    # and the maximum defaults to 400 W too.
+    decision = _decide(_metered(500.0, _three(limit=1100.0)), import_target_w=400, import_max_w=400)
+
+    assert "Grid import range: 400 W to 600 W" in decision.trace
+    assert set(_actions(decision).values()) == {ACTION_HOLD}

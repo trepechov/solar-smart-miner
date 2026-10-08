@@ -421,6 +421,14 @@ def build_decision(
         available += import_target_w
         if energy.grid_net_w is not None:
             import_w = -energy.grid_net_w
+            if import_max_w <= import_target_w:
+                # A saved minimum from before the range (or a bad edit): a zero-width range
+                # would step up and down around one value.
+                import_max_w = import_target_w + steps[1] - steps[0] if len(steps) > 1 else import_target_w + 200
+                trace.append(
+                    "Import maximum not above the minimum → using "
+                    f"{_w(import_max_w)} (one power step above); fix it in Configure → Settings"
+                )
             trace.append(f"Grid import range: {_w(import_target_w)} to {_w(import_max_w)}")
             if import_w <= import_max_w:
                 # The measured import decides whether to step down; the budget only sizes the cut.
