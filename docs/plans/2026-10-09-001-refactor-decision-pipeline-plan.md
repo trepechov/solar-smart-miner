@@ -3,7 +3,7 @@ title: "refactor: Decision pipeline (§11), farm data apart from the rules, and 
 type: refactor
 date: 2026-10-09
 updated: 2026-10-09  # owner's answers; smoothing dropped; U3 reworked; U7 farm data, U8 hard-coded values
-status: planned, not started
+status: completed  # 0.8.0, 2026-10-09
 origin: docs/brainstorms/2026-10-05-decision-making-requirements.md
 related_plans:
   - docs/plans/2026-10-06-001-feat-semi-automatic-apply-plan.md  # S10-S14, A2 still open
@@ -29,7 +29,7 @@ the miners do within 15 s of HA picking up the release. 9b0b2c4 is the proof: a 
 So this plan first builds a net that catches a changed proposal before a release (U0), refactors without
 changing behaviour (U1), and then changes behaviour one rule per release.
 
-Nothing in this plan is implemented yet.
+Implemented in 0.8.0 (2026-10-09), one release instead of one per unit (owner); see the commits from 1a25d94 to the 0.8.0 bump.
 
 ---
 
