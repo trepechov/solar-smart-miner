@@ -582,3 +582,19 @@ def test_a_miner_reading_stopped_has_not_finished_a_limit_change(clock) -> None:
     assert record.gap_seen
     assert not record.done(paused_by_the_restart, clock[0])
     assert record.done(_miner(power_w=1100.0, hashrate_th=50.0), clock[0])
+
+
+
+async def test_the_limit_set_after_a_start_counts_as_a_restart(h, clock) -> None:
+    # Review 2026-10-09: the second step of a start restarts the miner; its switch reading off
+    # then must read as restarting, and the settling counts from the limit, not the start.
+    h.hass.states.async_set(SWITCH, "off")
+    h.hass.states.async_set(NUMBER, "900")
+    await h.apply(_start(limit_w=1300.0), _miner(is_stopped=True, power_w=None))
+    h.hass.states.async_set(SWITCH, "on")
+    clock[0] += 60
+    await h.controller.async_check_pending(_seen(power_w=900.0, hashrate_th=40.0, power_limit_w=900.0))
+
+    record = h.controller.settling["192.168.1.10"]
+    assert record.restarting and not record.gap_seen and record.since == clock[0]
+    assert h.controller.restarting("192.168.1.10")

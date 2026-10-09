@@ -107,17 +107,19 @@ def load_farm_facts(path: Path) -> list[Fact]:
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         entries = data.get("entries") or []
-    except (OSError, yaml.YAMLError, AttributeError) as err:
+        if not isinstance(entries, list):
+            raise TypeError("entries is not a list")
+    except (OSError, ValueError, TypeError, yaml.YAMLError, AttributeError) as err:
         _LOGGER.warning("Farm file %s not loaded, the AI gets no farm facts from it: %s", path, err)
         return []
     facts: list[Fact] = []
     for e in entries:
         try:
             fact = _fact(e)
-        except (KeyError, TypeError):
+        except (KeyError, TypeError, AttributeError):
             _LOGGER.warning("Farm file %s: an entry is missing a field, skipped: %s", path, e)
             continue
-        if fact.priority != "P3" or not fact.id.startswith("farm."):
+        if fact.priority != "P3" or not str(fact.id).startswith("farm."):
             # The user's file can't add rules that would sit next to the code's.
             _LOGGER.warning("Farm file %s: %s skipped (only P3 entries with farm. ids)", path, fact.id)
             continue

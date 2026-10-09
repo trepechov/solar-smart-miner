@@ -1,6 +1,7 @@
 """Tests for SolarMinerCoordinator — U11 (entity reads + power limit apply) and U10 (miner sum + mock consumption)."""
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -1347,9 +1348,20 @@ async def test_production_is_read_for_sunset_only_outside_a_ramp_lock_and_while_
 
 
 async def test_a_reload_during_sunset_stays_sunset(hass) -> None:
+    from homeassistant.util import dt as dt_util
+
     hass.states.async_set("sun.sun", "above_horizon", {"rising": False})
     first = SolarMinerCoordinator(hass, _make_entry(hass))
-    await first.decision_log.async_write({"inputs": {"sunset": True}})
+    stale = SolarMinerCoordinator(hass, _make_entry(hass))
+    await first.decision_log.async_write(
+        {"ts": (dt_util.now() - timedelta(hours=20)).isoformat(), "inputs": {"sunset": True}}
+    )
+    await stale.async_seed_transition()
+    assert not stale.transition.sunset  # yesterday evening's line: not sunset this afternoon
+
+    await first.decision_log.async_write(
+        {"ts": (dt_util.now() - timedelta(minutes=10)).isoformat(), "inputs": {"sunset": True}}
+    )
 
     again = SolarMinerCoordinator(hass, _make_entry(hass))
     await again.async_seed_transition()
@@ -1564,3 +1576,155 @@ async def test_the_ai_is_told_the_recent_commands(hass, mock_openrouter) -> None
     user = mock_openrouter.await_args.kwargs["messages"][1]["content"]
     assert "RECENT CHANGES (newest first)" in user and "12:01:30 Brod1: 1,500 W (ok)" in user
     assert mock_openrouter.await_args.kwargs["steps"] == coordinator._power_steps()
+
+
+
+async def test_an_old_restart_of_ha_doesnt_disable_sunset_and_voltage(hass, add_hass_miner, monkeypatch) -> None:
+    # Review 2026-10-09 (P0): the unnamed change seeded at a restart of HA never expired, so
+    # "outside a ramp lock" was never true again: no production samples, no voltage count.
+    import time as time_module
+
+    from homeassistant.util import dt as dt_util
+
+    from custom_components.solar_smart_miner.config_flow import CONF_VOLTAGE_ENTITY
+
+    now = [1000.0]
+    monkeypatch.setattr(time_module, "monotonic", lambda: now[0])
+    add_hass_miner(MINER_IP, limit="1500", power="1500", temperature="55",
+                   limit_attrs={"min": 500.0, "max": 3500.0})
+    hass.states.async_set(SOLAR_ENTITY, "1200")
+    hass.states.async_set(GRID_ENTITY, "1500")  # importing 300 W
+    hass.states.async_set("sensor.voltage", "204")
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_SOLAR_ENTITY: SOLAR_ENTITY, CONF_GRID_ENTITY: GRID_ENTITY, CONF_BATTERY_ENTITY: None,
+              CONF_VOLTAGE_ENTITY: "sensor.voltage"},
+    )
+    entry.add_to_hass(hass)
+    coordinator = SolarMinerCoordinator(hass, entry)
+    coordinator.action_log.last_sent_ts = (dt_util.now() - timedelta(minutes=30)).isoformat()
+    coordinator.seed_activity()
+    samples: list = []
+    real_update = coordinator.transition.update
+    coordinator.transition.update = lambda t, p, **sun: (samples.append(p), real_update(t, p, **sun))
+
+    await coordinator._async_update_data()
+    now[0] += 61
+    decision = (await coordinator._async_update_data()).decision
+
+    assert samples and samples[-1] == pytest.approx(1200.0)
+    assert decision.summary.startswith("Safety: low voltage")
+
+
+async def test_the_step_down_delay_counts_again_from_the_last_change(hass) -> None:
+    import time as time_module
+    from unittest.mock import patch
+
+    now = [1000.0]
+    coordinator = SolarMinerCoordinator(hass, _make_entry(hass))
+    with patch.object(time_module, "monotonic", lambda: now[0]):
+        coordinator._minutes_import_high(600.0, 400.0, coordinator._minutes_since_last_change())
+        now[0] += 10 * 60
+        coordinator.controller.last_change_at = now[0] - 2 * 60  # a step down 2 minutes ago
+        lasted = coordinator._minutes_import_high(600.0, 400.0, coordinator._minutes_since_last_change())
+
+    assert lasted == pytest.approx(2)  # not 10: the next step down waits the delay again
+
+
+async def test_held_down_records_safety_and_limit_reductions_and_expires(hass, monkeypatch) -> None:
+    import time as time_module
+
+    from custom_components.solar_smart_miner.control import CommandEvent
+    from custom_components.solar_smart_miner.protocols import MinerPlan
+
+    now = [1000.0]
+    monkeypatch.setattr(time_module, "monotonic", lambda: now[0])
+    coordinator = SolarMinerCoordinator(hass, _make_entry(hass))
+
+    def event(reason: str, status: str = "pending") -> CommandEvent:
+        return CommandEvent("c1", "auto", "m1", "Miner 1", MinerPlan("set_limit", 1100.0, reason), status)
+
+    await coordinator._async_record_action(event("import above the maximum"))
+    await coordinator._async_record_action(event("too warm", status="refused"))
+    assert coordinator._held_down(5) == []
+
+    await coordinator._async_record_action(event("too warm"))
+    assert coordinator._held_down(5) == ["m1"]
+    now[0] += 5 * 60
+    assert coordinator._held_down(5) == []
+
+
+async def test_a_held_down_miner_is_not_started_again_after_the_ramp_lock(hass, add_hass_miner, monkeypatch) -> None:
+    import time as time_module
+
+    from custom_components.solar_smart_miner.config_flow import CONF_STEP_DOWN_DELAY
+    from custom_components.solar_smart_miner.const import CONF_CONTROL_MODE
+    from custom_components.solar_smart_miner.control import CommandEvent
+    from custom_components.solar_smart_miner.protocols import MinerPlan
+
+    now = [1000.0]
+    monkeypatch.setattr(time_module, "monotonic", lambda: now[0])
+    add_hass_miner(MINER_IP, limit="900", power="0", active="off", limit_attrs={"min": 500.0, "max": 3500.0})
+    hass.states.async_set(SOLAR_ENTITY, "3000")
+    hass.states.async_set(GRID_ENTITY, "500")  # 2,500 W spare: an increment is due
+    coordinator = SolarMinerCoordinator(
+        hass, _make_entry(hass, options={CONF_CONTROL_MODE: "manual", CONF_STEP_DOWN_DELAY: 10})
+    )
+    miner_id = (await coordinator._async_update_data()).miners[0].miner_id
+    await coordinator._async_record_action(
+        CommandEvent("c1", "auto", miner_id, "Brod1", MinerPlan("stop", reason="low voltage"), "pending")
+    )
+
+    now[0] += 6 * 60  # past the ramp lock, inside the 10-minute step-down delay
+    decision = (await coordinator._async_update_data()).decision
+    assert decision.plans[miner_id].action == "hold"
+    assert any("brought down by a safety or limit rule" in line for line in decision.trace)
+
+    now[0] += 5 * 60
+    assert (await coordinator._async_update_data()).decision.plans[miner_id].action == "start"
+
+
+async def test_a_failing_pending_check_or_log_write_doesnt_stop_the_cycle(hass, monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+
+    coordinator = SolarMinerCoordinator(hass, _make_entry(hass))
+    monkeypatch.setattr(coordinator.controller, "async_check_pending", AsyncMock(side_effect=TypeError("x")))
+    monkeypatch.setattr(coordinator.decision_log, "async_record", AsyncMock(side_effect=ValueError("y")))
+
+    snapshot = await coordinator._async_update_data()
+
+    assert snapshot.decision is not None
+
+
+async def test_the_owner_is_told_when_the_rules_fail_and_when_they_work_again(
+    hass, add_hass_miner, monkeypatch
+) -> None:
+    from custom_components.solar_smart_miner.decision import limits
+
+    add_hass_miner(MINER_IP, limit="1500", power="1500", temperature="55",
+                   limit_attrs={"min": 500.0, "max": 3500.0})
+    coordinator = SolarMinerCoordinator(hass, _make_entry(hass))
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    monkeypatch.setattr(limits, "check", lambda ctx: 1 / 0)
+    await coordinator._async_update_data()
+    await hass.async_block_till_done()
+    assert "solar_smart_miner_rules_failed" in hass.data["persistent_notification"]
+
+    monkeypatch.undo()
+    await coordinator._async_update_data()
+    await hass.async_block_till_done()
+    assert "solar_smart_miner_rules_failed" not in hass.data["persistent_notification"]
+
+
+async def test_a_bad_farm_file_never_stops_loading_the_knowledge(hass) -> None:
+    from custom_components.solar_smart_miner import jsonl_log
+
+    coordinator = SolarMinerCoordinator(hass, _make_entry(hass))
+    farm_file = Path(hass.config.path(jsonl_log.LOG_DIR, "farm.yaml"))
+    farm_file.parent.mkdir(parents=True, exist_ok=True)
+    farm_file.write_text("entries:\n  - {id: 5, title: x, statement: y, priority: P3, status: verified}\n")
+
+    await coordinator.async_load_knowledge()
+
+    assert coordinator.knowledge and not any(str(f.id) == "5" for f in coordinator.knowledge)

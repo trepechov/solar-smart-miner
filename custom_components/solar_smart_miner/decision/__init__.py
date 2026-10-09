@@ -35,7 +35,10 @@ from .allocation import _ladder, allocate, min_import_range_w
 from .context import Context
 from .describe import _describe_energy, _describe_miner, _describe_plan, describe_proposal
 
+HOLD_ALL_SUMMARY = "Error in the rules: every miner holds"
+
 __all__ = [
+    "HOLD_ALL_SUMMARY",
     "_describe_plan",
     "_ladder",
     "build_decision",
@@ -70,6 +73,7 @@ def build_decision(
     voltage_debounce_s: float = DEFAULT_VOLTAGE_DEBOUNCE_S,
     low_voltage_v: float = DEFAULT_LOW_VOLTAGE_V,
     held_down: list[str] | tuple[str, ...] = (),
+    estimate_used: bool = False,
 ) -> Decision:
     """One plan per miner. Apart from safety, at most one miner changes per decision.
 
@@ -88,7 +92,8 @@ def build_decision(
     downwards (safety.py). `voltage_low_seconds` is how long the voltage has been below
     `low_voltage_v` outside ramp locks; after `voltage_debounce_s` one miner stops. Miners in
     `held_down` were brought down by Safety or Limits within the step-down delay and aren't
-    raised or started again yet.
+    raised or started again yet. `estimate_used`: a change was already made on the estimated
+    import during this meter outage.
     """
     # One profile: an older stored name (before the migration ran) reads as Solar-follow.
     profile_def = PROFILES_BY_NAME.get(profile, PROFILES[0])
@@ -117,6 +122,7 @@ def build_decision(
         voltage_debounce_s=voltage_debounce_s,
         low_voltage_v=low_voltage_v,
         held_down=held_down,
+        estimate_used=estimate_used,
     )
     try:
         return _run(ctx)
@@ -134,6 +140,8 @@ def _run(ctx: Context) -> Decision:
         f"Profile: {ctx.profile_label}",
         f"Power steps: {', '.join(f'{x:,.0f}' for x in ctx.steps)} W",
         f"Temperature: target {ctx.temp_target:.0f} °C, step down at {ctx.too_warm_c:.0f} °C",
+        f"Restart time after a change: {ctx.ramp_lock_minutes:.0f} min; step-down delay "
+        f"{ctx.step_down_delay_minutes:.0f} min ({ctx.morning_step_down_delay_minutes:.0f} min during sunrise)",
     ]
     if not snapshot.miners:
         ctx.trace.append("No hass-miner miners found — nothing to decide.")
@@ -157,7 +165,7 @@ def _hold_all(snapshot: CoordinatorSnapshot, error: str) -> Decision:
         for m in snapshot.miners
     }
     return Decision(
-        summary="Error in the rules: every miner holds",
+        summary=HOLD_ALL_SUMMARY,
         trace=["ERROR", f"The decision failed ({error}) → every miner holds", "See the Home Assistant log."],
         plans=plans,
     )

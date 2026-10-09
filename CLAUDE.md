@@ -28,6 +28,11 @@ custom_components/solar_smart_miner/   # HA integration source
   decision/            # the rules, one module per group, run in order by __init__.build_decision:
                        #   safety → pacing → limits → profiles (target) → allocation (+ tidy);
                        #   context.py carries one decision through them, describe.py the words
+  control.py           # the one place that touches the miners: guards, service calls, and the
+                       #   Settling record per miner (a command is ok once the miner did it)
+  transition.py        # sunrise / sunset as periods of changing production (decision + kb)
+  action_log.py        # actions.jsonl: every command sent, refused or finished
+  jsonl_log.py         # the rotating JSONL file shared by the logs
   ai.py                # OpenRouter client: prompt, chat completion, JSON answer parsing, free-model list
   kb.py                # loads the knowledge base and picks the facts each AI request gets
   ai_log.py            # JSONL log of every AI request (inputs, rule proposal, AI actions) + widget history

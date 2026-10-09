@@ -186,6 +186,7 @@ class MinerController:
         self._get_ramp_lock_minutes = get_ramp_lock_minutes
         self._pending: dict[str, PendingCommand] = {}  # miner id -> command being verified
         self.settling: dict[str, Settling] = {}  # miner id -> its last change, until it is over
+        self.last_change_at: float | None = None  # time.monotonic() of the last change, kept
 
     def is_pending(self, miner_id: str) -> bool:
         return miner_id in self._pending
@@ -201,6 +202,7 @@ class MinerController:
         start to now and keeps what was already seen of the restart.
         """
         now = time.monotonic()
+        self.last_change_at = now
         record = self.settling.get(miner.miner_id)
         if record is not None and record.stopping == stopping and record.age_min(now) < self._ramp_lock():
             record.since = now
@@ -452,6 +454,10 @@ class MinerController:
         pending.entity_id = pending.limit_entity_id
         pending.expected = limit_w
         pending.deadline = self._deadline(APPLY_VERIFY_GRACE_S)
+        if (record := self.settling.get(pending.miner_id)) is not None:
+            # The new limit restarts the miner that just started: a restart from now on.
+            record.since = self.last_change_at = time.monotonic()
+            record.restarting, record.gap_seen = True, False
         if self._on_limit_applied:
             self._on_limit_applied(pending.miner_id, limit_w)
 

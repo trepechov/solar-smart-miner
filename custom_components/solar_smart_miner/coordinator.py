@@ -86,6 +86,7 @@ from .const import (
     HASS_MINER_PLATFORM,
     METER_GRACE_MIN,
     METER_LOST_ALERT_MIN,
+    SUNSET_GATE_MIN,
     MIN_AI_INTERVAL,
     SOLAR_ENTITY_TYPE_NET_IMPORT,
     SOLAR_ENTITY_TYPE_PRODUCTION,
@@ -101,7 +102,7 @@ from .control import (
     CommandResult,
     MinerController,
 )
-from .decision import _describe_plan, build_decision, describe_proposal
+from .decision import HOLD_ALL_SUMMARY, _describe_plan, build_decision, describe_proposal
 from .decision.rules import HELD_DOWN_REASONS
 from .decision.safety import estimated_import_w
 from .decision_log import DecisionLog
@@ -239,11 +240,14 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         self._stopped_seen: dict[str, bool] = {}  # miner id -> stopped at the last read
         # time.monotonic() of a change no miner can be named for (a failed send, a restart of HA)
         self._last_change: float | None = None
+        self._last_unnamed_change: float | None = None  # the same, kept after the ramp lock
         self._ramp_done: list[str] = []  # names of changed miners already at their new power
         self._import_high_since: float | None = None  # time.monotonic() the import went above the band
         self._import_high_frozen: float | None = None  # time.monotonic() the meter went (grace)
         self._grid_unknown_since: float | None = None  # time.monotonic() the grid balance went unknown
         self._meter_alerted = False  # the sensor.meter-lost notification is up
+        self._estimate_used = False  # a change was made on the estimate during this outage
+        self._rules_failed = False  # the "rules failed" notification is up
         self._voltage_low_since: float | None = None  # time.monotonic() it went low (outside locks)
         # miner id -> time.monotonic() a Safety or Limits rule brought it down (HELD_DOWN_REASONS)
         self._brought_down: dict[str, float] = {}
@@ -278,7 +282,10 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             await self.hass.async_add_executor_job(write_farm_header, farm_file)
         except OSError as err:
             _LOGGER.warning("Could not create %s: %s", farm_file, err)
-        self.knowledge += await self.hass.async_add_executor_job(load_farm_facts, farm_file)
+        try:
+            self.knowledge += await self.hass.async_add_executor_job(load_farm_facts, farm_file)
+        except Exception:  # noqa: BLE001 - the user's file must never stop setup
+            _LOGGER.exception("Farm file %s not loaded", farm_file)
 
     async def _async_read_energy(self) -> EnergySnapshot:
         options = self._entry.options
@@ -488,8 +495,18 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 continue
             ages.append(age)
         if self._last_change is not None:
-            ages.append((now - self._last_change) / 60)
+            age = (now - self._last_change) / 60
+            if age < ramp_lock:
+                ages.append(age)
+            else:
+                self._last_change = None  # over: "None" means no change is settling
         return min(ages, default=None)
+
+    def _minutes_since_last_change(self) -> float | None:
+        """Minutes since the last change of any kind (sent, seen, a failed send, a restart of HA),
+        however long ago: the step-down delay is counted again from it."""
+        times = [t for t in (self.controller.last_change_at, self._last_unnamed_change) if t is not None]
+        return (time.monotonic() - max(times)) / 60 if times else None
 
     def _seconds_voltage_low(
         self, energy: EnergySnapshot, threshold_v: float, since_change: float | None
@@ -512,7 +529,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 del self._brought_down[miner_id]
         return sorted(self._brought_down)
 
-    def _minutes_meter_lost(self, energy: EnergySnapshot) -> float | None:
+    def _minutes_meter_lost(self, energy: EnergySnapshot, can_estimate: bool) -> float | None:
         """Minutes the grid balance has been unknown (None while it is known), and the
         sensor.meter-lost alert: raised at METER_LOST_ALERT_MIN, dismissed when it is back."""
         now = time.monotonic()
@@ -521,6 +538,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 pn_dismiss(self.hass, f"{DOMAIN}_meter_lost")
                 self._meter_alerted = False
             self._grid_unknown_since = None
+            self._estimate_used = False
             return None
         if self._grid_unknown_since is None:
             self._grid_unknown_since = now
@@ -529,9 +547,15 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             self._meter_alerted = True
             pn_create(
                 self.hass,
-                f"The grid meter has read nothing for {lost:.0f} minutes. The miners are steered on "
-                "an import estimated from their draw, the house load and the actual PV, and can "
-                "only step down meanwhile. Check the meter and its connection.",
+                f"The grid meter has read nothing for {lost:.0f} minutes. "
+                + (
+                    "The import is estimated from the miners' draw, the house load and the actual "
+                    "PV; on it the miners can step down once, and otherwise hold."
+                    if can_estimate
+                    else "Every miner holds: an estimate needs the house load besides the miners "
+                    "(Configure → Farm) and an actual PV sensor (Configure → Sensors)."
+                )
+                + " Check the meter and its connection.",
                 title="Solar Smart Miner: grid meter lost",
                 notification_id=f"{DOMAIN}_meter_lost",
             )
@@ -581,13 +605,34 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             minutes_to_setting=None if setting is None else (setting - dt_util.now()).total_seconds() / 60,
         )
 
+    def _notify_rules_failed(self, decision) -> None:
+        """The rules raised and every miner holds (decision.HOLD_ALL_SUMMARY): say so once, and
+        take it back once a decision works again."""
+        failed = decision.summary == HOLD_ALL_SUMMARY
+        if failed and not self._rules_failed:
+            pn_create(
+                self.hass,
+                "The decision rules failed, so every miner holds as it is (safety included). "
+                "The Home Assistant log has the error; the decision log card shows it too.",
+                title="Solar Smart Miner: the rules failed",
+                notification_id=f"{DOMAIN}_rules_failed",
+            )
+        elif not failed and self._rules_failed:
+            pn_dismiss(self.hass, f"{DOMAIN}_rules_failed")
+        self._rules_failed = failed
+
     async def async_seed_transition(self) -> None:
         """After a reload during sunset, it stays sunset: the last decision line says so."""
         last = await self.decision_log.async_read_tail(1)
         if not last:
             return
         sun = self.hass.states.get("sun.sun")
-        if (last[-1].get("inputs") or {}).get("sunset") and not (sun and sun.attributes.get("rising")):
+        try:
+            age_s = (dt_util.now() - datetime.fromisoformat(str(last[-1].get("ts")))).total_seconds()
+        except (TypeError, ValueError):
+            return
+        recent = 0 <= age_s <= SUNSET_GATE_MIN * 60  # sunset lasts at most the gate before sunset
+        if recent and (last[-1].get("inputs") or {}).get("sunset") and not (sun and sun.attributes.get("rising")):
             self.transition.sunset = True
 
     def seed_activity(self) -> None:
@@ -601,7 +646,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         except (TypeError, ValueError):
             return
         if age_s >= 0:
-            self._last_change = time.monotonic() - age_s
+            self._last_change = self._last_unnamed_change = time.monotonic() - age_s
 
     @staticmethod
     def _farm_proposal(snapshot: CoordinatorSnapshot) -> tuple[str, str]:
@@ -643,12 +688,14 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         return self._farm_proposal(self.data)[1] if self.data is not None else NO_ACTION_TEXT
 
     async def _async_record_action(self, event: CommandEvent) -> None:
+        if event.status == RESULT_PENDING and self._grid_unknown_since is not None:
+            self._estimate_used = True  # one change per meter outage on an estimated import
         if event.status == RESULT_PENDING and event.plan.reason in HELD_DOWN_REASONS:
             self._brought_down[event.miner_id] = time.monotonic()
         if event.status == RESULT_FAILED and event.calls:
             # Tried to: the miner may restart. A failed send waits out the whole ramp lock, so
             # Automatic doesn't retry it every cycle.
-            self._last_change = time.monotonic()
+            self._last_change = self._last_unnamed_change = time.monotonic()
         # During a cycle, the plan came from the snapshot being built, not the previous one.
         await self.action_log.async_record(event, self._building or self.data)
         self.activity.appendleft({"kind": "applied", **self.action_log.history[0]})
@@ -964,7 +1011,10 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
     async def _async_update_data(self) -> CoordinatorSnapshot:
         energy = await self._async_read_energy()
         miners = await self._async_read_miners()
-        await self.controller.async_check_pending({m.miner_id: m for m in miners})
+        try:
+            await self.controller.async_check_pending({m.miner_id: m for m in miners})
+        except Exception:  # noqa: BLE001 - the decision and safety must still run
+            _LOGGER.exception("Checking the pending commands failed")
 
         miner_sum = self._sum_miner_power_w(miners)
         energy.miner_consumption_sum_w = miner_sum
@@ -988,11 +1038,11 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         since_change = self._minutes_since_change(miners)
         sun = self.hass.states.get("sun.sun")
         self._update_transition(energy, since_change, sun)
-        meter_lost = self._minutes_meter_lost(energy)
         low_voltage = float(options.get(CONF_LOW_VOLTAGE, DEFAULT_LOW_VOLTAGE_V))
         step_down_delay = float(options.get(CONF_STEP_DOWN_DELAY, DEFAULT_STEP_DOWN_DELAY_MINUTES))
         base_load = options.get(CONF_FARM_BASE_LOAD)
         base_load = float(base_load) if base_load not in (None, "") else None
+        meter_lost = self._minutes_meter_lost(energy, estimated_import_w(energy, base_load) is not None)
         if energy.grid_net_w is not None:
             import_now = -energy.grid_net_w
         elif meter_lost is not None and meter_lost >= METER_GRACE_MIN:
@@ -1011,7 +1061,9 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             "minutes_since_change": since_change,
             "ramp_lock_minutes": self._ramp_lock_minutes(),
             "ramp_done": list(self._ramp_done),
-            "minutes_import_high": self._minutes_import_high(import_now, import_max, since_change),
+            "minutes_import_high": self._minutes_import_high(
+                import_now, import_max, self._minutes_since_last_change()
+            ),
             "step_down_delay_minutes": step_down_delay,
             "morning_step_down_delay_minutes": float(
                 options.get(CONF_MORNING_STEP_DOWN_DELAY, DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES)
@@ -1021,13 +1073,18 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             "sunset": self.transition.sunset,
             "meter_lost_minutes": meter_lost,
             "base_load_w": base_load,
+            "estimate_used": self._estimate_used,
             "voltage_low_seconds": self._seconds_voltage_low(energy, low_voltage, since_change),
             "voltage_debounce_s": float(options.get(CONF_VOLTAGE_DEBOUNCE, DEFAULT_VOLTAGE_DEBOUNCE_S)),
             "low_voltage_v": low_voltage,
             "held_down": self._held_down(step_down_delay),
         }
         decision = build_decision(snapshot, **inputs)
-        await self.decision_log.async_record(snapshot, inputs, decision)
+        try:
+            await self.decision_log.async_record(snapshot, inputs, decision)
+        except Exception:  # noqa: BLE001 - a log line must never stop the cycle
+            _LOGGER.exception("Writing the decision log failed")
+        self._notify_rules_failed(decision)
         # Only record changes, so the history reads as a log of what shifted.
         if not self._history or self._history[0]["summary"] != decision.summary:
             self._history.appendleft(

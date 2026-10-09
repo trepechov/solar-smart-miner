@@ -249,8 +249,11 @@ async def test_the_last_send_in_the_action_log_seeds_the_ramp_lock(hass, clock, 
     coordinator.seed_activity()
 
     age = coordinator._minutes_since_change([])
-    assert age == pytest.approx(minutes_ago, abs=0.1)
-    assert (age < 4) is locked
+    if locked:
+        assert age == pytest.approx(minutes_ago, abs=0.1)
+    else:
+        assert age is None  # past the ramp lock: nothing settles any more (review fix, 0.8.0)
+    assert coordinator._minutes_since_last_change() == pytest.approx(minutes_ago, abs=0.1)
 
 
 async def test_no_send_in_the_action_log_leaves_no_ramp_lock(hass, clock) -> None:

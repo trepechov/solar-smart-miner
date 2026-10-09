@@ -13,7 +13,9 @@ house sensor, the balance derived from them. One path for both:
 - after that the import is estimated from the miners' draw, the house load besides the miners
   (Configure -> Farm) and the actual PV output (the reference PV sensor, never the lost meter):
   the normal rules decide on it, but it can only show a shortfall (with zero export PV equals the
-  load), so nothing starts or steps up on it. Without a base load or a PV reading, hold.
+  load), so nothing starts or steps up on it, and only one change is made on it per outage (after
+  a cut the estimate doesn't move, so a second one can't be checked). Without a base load or a PV
+  reading, hold.
 
 A fault of the actual-PV sensor alone holds nothing; it only makes the estimate unavailable.
 """
@@ -23,6 +25,7 @@ from ..const import METER_GRACE_MIN
 from ..protocols import Decision, EnergySnapshot
 from .context import Context
 from .describe import _w
+from .rules import REASON_BATTERY_LOW, REASON_LOW_VOLTAGE
 
 
 def estimated_import_w(energy: EnergySnapshot, base_load_w: float | None) -> float | None:
@@ -40,7 +43,7 @@ def check(ctx: Context) -> Decision | None:
             f"SAFETY: battery {energy.battery_soc_pct:.0f}% below floor "
             f"{ctx.battery_floor:.0f}% → stop all miners"
         )
-        ctx.plans.update({m.miner_id: ctx.stop(m, "battery low") for m in ctx.candidates})
+        ctx.plans.update({m.miner_id: ctx.stop(m, REASON_BATTERY_LOW) for m in ctx.candidates})
         return ctx.done("Safety: battery below floor", "rule.battery-floor")
     if (ctx.voltage_low_seconds or 0.0) >= ctx.voltage_debounce_s:
         running = [m for m in ctx.candidates if not m.is_stopped]
@@ -52,12 +55,21 @@ def check(ctx: Context) -> Decision | None:
                 f"SAFETY: voltage {_v(energy.voltage_v)} below {ctx.low_voltage_v:.0f} V for "
                 f"{ctx.voltage_low_seconds:.0f} s → stop {m.name}, the hungriest"
             )
-            ctx.plans[m.miner_id] = ctx.stop(m, "low voltage")
+            ctx.plans[m.miner_id] = ctx.stop(m, REASON_LOW_VOLTAGE)
             ctx.others_wait(m, "waits its turn")
             return ctx.done("Safety: low voltage", "rule.sustained-low-voltage")
     if energy.grid_net_w is None:
         lost = ctx.meter_lost_minutes or 0.0
         estimate = estimated_import_w(energy, ctx.base_load_w)
+        if ctx.estimate_used and estimate is not None:
+            # On zero export PV follows the load, so after a cut the estimate doesn't move: a
+            # second cut can't be checked against it. One change per outage, then hold.
+            ctx.trace.append(
+                f"SAFETY: grid meter unknown for {lost:.0f} min; one change was already made on the "
+                "estimate → every miner holds until the meter is back"
+            )
+            ctx.plans.update({m.miner_id: ctx.hold(m, "grid meter unknown") for m in ctx.candidates})
+            return ctx.done("Safety: grid meter unknown", "rule.required-inputs")
         if lost < METER_GRACE_MIN or estimate is None:
             why = (
                 f"for {lost * 60:.0f} s; a short gap must not re-tune the miners"

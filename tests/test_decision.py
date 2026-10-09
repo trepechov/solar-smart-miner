@@ -702,13 +702,22 @@ def test_limits_within_one_step_are_even_enough() -> None:
     assert decision.proposals == {}
 
 
-def test_the_hungriest_steps_down_when_the_weakest_cannot_step_up() -> None:
-    # c is warm (inside the band: no step up), so the load is evened from the top.
+def test_a_capped_weakest_miner_doesnt_make_the_hungriest_step_down_while_up_is_allowed() -> None:
+    # Review 2026-10-09: c is warm (capped), so even load used to step a down; that dropped the
+    # import under the range and the next increment raised a again, a slow up/down loop.
     miners = [_miner("a", limit=2500.0), _miner("b", limit=1900.0), _miner("c", limit=1100.0, temp=70.0)]
     decision = _decide(_metered(300.0, miners), import_min_w=200, import_max_w=400,
                        power_steps=DEFAULT_POWER_STEPS)
 
-    assert decision.proposals == {"a": 2300.0}
+    assert decision.proposals == {}
+
+
+def test_with_nothing_allowed_up_the_load_evens_down_only_if_the_import_isnt_low() -> None:
+    miners = [_miner("a", limit=1900.0), _miner("b", limit=900.0)]
+    kw = {"power_steps": DEFAULT_POWER_STEPS, "sunset": True}
+
+    assert _decide(_metered(INSIDE, miners), **kw).proposals == {"a": 1700.0}
+    assert _decide(_metered(BELOW, miners), **kw).proposals == {}  # don't throttle away more sun
 
 
 def test_after_sunset_the_load_is_evened_only_downwards() -> None:
@@ -815,3 +824,20 @@ def test_a_miner_brought_down_is_not_raised_or_started_again_within_the_delay() 
     assert any("M-b was brought down by a safety or limit rule" in line for line in decision.trace)
     # Another miner still takes the increment.
     assert _decide(_metered(BELOW, miners), held_down=["b"]).proposals == {"a": 1300.0}
+
+
+
+def test_after_one_change_on_an_estimate_the_farm_holds_until_the_meter_is_back() -> None:
+    # Review 2026-10-09: with zero export PV follows the load, so after a cut the estimate stays
+    # where it was; cutting again on it would stop every miner one by one.
+    decision = _decide(_lost(_three(), pv=3600.0), meter_lost_minutes=20, base_load_w=500, estimate_used=True)
+
+    assert set(_actions(decision).values()) == {ACTION_HOLD}
+    assert any("one change was already made on the estimate" in line for line in decision.trace)
+
+
+def test_the_trace_states_the_restart_time_and_the_delays() -> None:
+    decision = _decide(_metered(INSIDE, _three()), ramp_lock_minutes=6, step_down_delay_minutes=5,
+                       morning_step_down_delay_minutes=30)
+
+    assert "Restart time after a change: 6 min; step-down delay 5 min (30 min during sunrise)" in decision.trace

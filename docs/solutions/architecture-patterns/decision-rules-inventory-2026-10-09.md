@@ -32,8 +32,9 @@ An earlier group always wins. "Decided by: <group> / <rule>" ends every decision
 | # | Group | Rule (knowledge id) | Code | Tests | Added by |
 |---|---|---|---|---|---|
 | 1 | Safety | `rule.miner-range`: only the miner's own power steps | `allocation._ladder`; `control._limit_refusal` refuses, never clamps | `test_decision` (ranges), `test_control` (off-ladder refused) | requirements §3.1 |
-| 2 | Safety | `rule.required-inputs`: the grid import is required; a meter gap holds | `safety.check` (solar fault), `profiles.target` (balance unknown) | `test_decision` (sensor fault, grid unknown) | 10-05 dropouts; round 7 |
-| 3 | Safety | `rule.battery-floor`: below the floor every miner stops | `safety.check` | `test_decision` (battery floor) | first version (entry added in U9) |
+| 2 | Safety | `rule.battery-floor`: below the floor every miner stops | `safety.check` | `test_decision` (battery floor) | first version (entry added in U9) |
+| 3 | Safety | `rule.sustained-low-voltage`: one miner stops, outside ramp locks | `safety.check`; `coordinator._seconds_voltage_low` | `test_decision`, `test_coordinator` (low voltage) | U5, owner 10-09 |
+| 3b | Safety | `rule.required-inputs`: grid balance unknown holds 5 min, then one change on an estimate | `safety.check`, `safety.estimated_import_w`; `coordinator._minutes_meter_lost` | `test_decision` (meter lost), `test_coordinator` | U3, owner 10-09 |
 | 4 | Pacing | `rule.ramp-lock`: every miner holds until the changed one has settled | `pacing.check`; `control.Settling`; `coordinator._minutes_since_change` | `test_decision`, `test_control` (settling), `test_coordinator`, `test_farm_sim` | 10-07 16:02 bundle; fc69adc, 9b0b2c4, S11 |
 | 5 | Pacing | `rule.one-miner-per-change`: one change per proposal, a cut may skip steps | `allocation._one_change` returns one miner | `test_decision` (never more than one) | 10-07 16:02 |
 | 6 | Limits | `rule.sunset-one-by-one`: sunset or sun down, nothing starts or steps up | `limits.check` (`may_step_up`) | `test_decision` (sunset), `test_farm_sim` (10-08 evening) | 10-08 sunset loop (overlap 8) |
@@ -43,13 +44,12 @@ An earlier group always wins. "Decided by: <group> / <rule>" ends every decision
 | 10 | Target | `rule.small-import-target`: below the range up, above it down, inside hold | `profiles.target` | `test_decision` (Solar-follow section) | 05b2b27, 8003b62; overlap 1 |
 | 11 | Target | `rule.down-slowly-up-promptly`: down only after the delay (longer at sunrise) | `profiles.target`; `coordinator._minutes_import_high` | `test_decision`, `test_coordinator` | 8003b62 |
 | 12 | Target | `rule.forecast-reference-only`: the forecast never decides | (nothing reads it) | `test_decision` (forecast never changes the proposal) | 55e5f48 |
-| 13 | Allocation | `rule.step-down-allocation`: which miner moves (cut, increment, even load) | `allocation._one_change` | `test_decision` | 0955d09 (even load) |
+| 13 | Allocation | `rule.step-down-allocation`: which miner moves (cut, increment, even load; nothing raised within the delay after Safety or Limits brought it down) | `allocation._one_change`; `coordinator._held_down` | `test_decision`, `test_coordinator` (held down) | 0955d09 (even load), U5 |
 | 14 | Allocation | `rule.stop-below-lowest-step`: stop, don't idle | `allocation.allocate`, `context.stop` | `test_decision` (stop / start) | requirements §5.3 |
 | 15 | Tidy | `rule.power-steps`: a limit off the steps moves to the nearest one | `allocation._one_change` (off step) | `test_decision` (off the ladder) | owner, 10-05 |
 
 Outside the decision: `rule.guard-above-ai`, `rule.one-controller`, `rule.automatic-mode`, `rule.ai-is-advisor`
-(stage `control`, enforced in `control.py`); `rule.goal`, `rule.no-import-cap`, `rule.sustained-low-voltage`
-(stage `advice` until the voltage unit lands).
+(stage `control`, enforced in `control.py`); `rule.goal` and `rule.no-import-cap` (stage `advice`).
 
 ## What U9 removed or merged
 
@@ -61,6 +61,15 @@ Outside the decision: `rule.guard-above-ai`, `rule.one-controller`, `rule.automa
 | Ramp lock, tuning window, step-down delay after a change, restart-not-stopped override, echo-based "ok" | One settling record per miner (`control.Settling`) + the step-down delay | Overlaps 3 and 4, S11 |
 | No sunset rule; "sun down blocks starts" | `rule.sunset-one-by-one` (merged with `rule.stop-trigger-below-start`) | Overlap 8 |
 | 33 active knowledge-base rules | 22, each with a stage | Merges listed in each retired entry's note |
+
+## Collisions the code review of 0.8.0 found (2026-10-09)
+
+| Collision | Fix |
+|---|---|
+| The unnamed change seeded at a restart of HA never expired, so "outside a ramp lock" was never true again: no sunset samples, no low-voltage count | It counts only within the ramp lock; the step-down delay counts from the last change of any kind (`_minutes_since_last_change`) |
+| Even load stepped the hungriest down while the weakest was capped; the import fell under the range and the next increment raised it again | The hungriest steps down for even load only while nothing may step up and the import isn't low |
+| On zero export an estimated import doesn't move after a cut, so a too-high base load would stop every miner in turn | One change per meter outage on the estimate, then hold |
+| A sunset latch restored on reload from yesterday's log line | Restored only from a line under 2 hours old |
 
 ## Collisions in the farm's logs (2026-10-06 to 10-09)
 

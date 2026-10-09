@@ -45,6 +45,7 @@ class Context:
     voltage_debounce_s: float
     low_voltage_v: float
     held_down: list[str] | tuple[str, ...]
+    estimate_used: bool
     trace: list[str] = field(default_factory=list)
     plans: dict[str, MinerPlan] = field(default_factory=dict)
     candidates: list[MinerSnapshot] = field(default_factory=list)

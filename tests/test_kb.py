@@ -218,3 +218,18 @@ def test_the_farm_block_says_what_is_set_and_nothing_else() -> None:
         "- Export to the grid: zero export (the inverters hold output to the load)",
         "- House load besides the miners: about 500 W",
     ]
+
+
+
+def test_odd_farm_files_are_skipped_not_raised(tmp_path, caplog) -> None:
+    # Review 2026-10-09: a numeric id, a non-UTF-8 file or a non-list must never stop setup.
+    path = tmp_path / "farm.yaml"
+    path.write_text("entries:\n  - {id: 5, title: x, statement: y, priority: P3, status: verified}\n")
+    assert load_farm_facts(path) == []
+
+    path.write_bytes("entries: []\n# caf\xe9\n".encode("latin-1"))
+    assert load_farm_facts(path) == []
+
+    path.write_text("entries: {farm.x: 1}\n")
+    assert load_farm_facts(path) == []
+    assert "not loaded" in caplog.text

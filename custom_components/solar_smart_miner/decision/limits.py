@@ -14,6 +14,7 @@ from __future__ import annotations
 from ..protocols import Decision, MinerSnapshot
 from .allocation import _ladder, _nearest_level
 from .context import Context
+from .rules import REASON_TOO_WARM
 
 
 def check(ctx: Context) -> Decision | None:
@@ -48,7 +49,7 @@ def check(ctx: Context) -> Decision | None:
         m = max(too_warm, key=lambda x: x.temperature_c)
         ladder = _ladder(m, ctx.steps)
         ctx.plans[m.miner_id] = ctx.to_step(
-            m, ladder[_nearest_level(ladder, m.power_limit_w) - 1], "too warm"
+            m, ladder[_nearest_level(ladder, m.power_limit_w) - 1], REASON_TOO_WARM
         )
         ctx.others_wait(m, "waits its turn")
         if len(too_warm) > 1:

@@ -10,7 +10,8 @@ through its relay or its own pause switch (see MinerSnapshot).
 - Up: one increment. A stopped miner starts at its lowest step first, else the weakest running
   miner (of equals, the coolest) goes one step up.
 - Even load (once every miner runs, the import inside the range): two miners two or more steps
-  apart come one step closer, the weakest up, or the hungriest down when it can't.
+  apart come one step closer, the weakest up; the hungriest down only while nothing may step up
+  (sunset, the sun down, an estimated import) and the import isn't below the range.
 - Tidy: when nothing else changes, a limit that is off the steps moves onto the nearest one.
 """
 from __future__ import annotations
@@ -75,6 +76,7 @@ def _one_change(
     direction: str | None,
     excess_w: float = 0.0,
     may_step_up: bool = True,
+    import_low: bool = False,
 ) -> tuple[MinerSnapshot, int | None, str] | None:
     """The one miner to change, its new step (index; None = stop) and the reason.
 
@@ -143,8 +145,12 @@ def _one_change(
             if may_step_up and lv_low < top_of(low) and low.miner_id not in held_down:
                 trace.append(f"Even load: {spread} → {low.name} one step up")
                 return low, lv_low + 1, "even load"
-            trace.append(f"Even load: {spread} → {high.name} one step down")
-            return high, lv_high - 1, "even load"
+            if not may_step_up and not import_low:
+                # Only when nothing may step up (sunset, the sun down, an estimate): otherwise
+                # the step down drops the import under the range and the next increment raises
+                # the same miner again (a slow up/down loop when the weakest is capped).
+                trace.append(f"Even load: {spread} → {high.name} one step down")
+                return high, lv_high - 1, "even load"
     # Nothing else to change: move a limit that is off the steps onto the nearest one.
     for m in running:
         if m.power_limit_w is not None and m.power_limit_w != ladders[m.miner_id][level[m.miner_id]]:
@@ -164,6 +170,7 @@ def allocate(ctx: Context) -> Decision:
     change = _one_change(
         ctx.candidates, ladders, ctx.caps, ctx.trace, held_down=ctx.held_down,
         direction=ctx.direction, excess_w=ctx.excess_w, may_step_up=ctx.may_step_up,
+        import_low=ctx.import_w is not None and ctx.import_w < ctx.import_min_w,
     )
     summary = f"{ctx.profile_label}: import {_w(ctx.import_w)}"
     if change is None:

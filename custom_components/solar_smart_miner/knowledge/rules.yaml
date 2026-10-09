@@ -249,6 +249,9 @@ entries:
       timer is frozen during the gap and follows the estimate after it. The PV total itself drops
       out often in the evening (energy.pv-sum-unreliable), so a long meter gap then flips between
       "estimated" and "hold"; accepted, since no gap over 5 minutes has been seen yet.
+      Review 2026-10-09: with zero export PV follows the load, so after a cut the estimate
+      doesn't move; only one change is made on it per outage, then the miners hold until
+      the meter is back.
 
   - id: rule.jump-several-steps
     title: A change may skip steps
@@ -678,10 +681,10 @@ entries:
       A cut goes to the highest-power miner that stays at or above its lowest step after
       it; if none can, the lowest-power one stops. An increment starts a stopped miner at
       its lowest step first, else raises the weakest running miner (of equals, the
-      coolest) one step. Once every miner runs and nothing else changes, two limits two or
-      more steps apart come one step closer (the weakest up, else the hungriest down). Hot
-      miners step down through the temperature rule. A miner a safety or limit rule
-      brought down isn't raised or started again within the step-down delay.
+      coolest) one step. Once every miner runs, two limits two or more steps apart come
+      one step closer: the weakest up, or the hungriest down only while nothing may step
+      up and the import isn't low. A miner a safety or limit rule brought down isn't
+      raised or started again within the step-down delay.
     priority: P2
     status: decided
     stage: allocation
@@ -689,6 +692,10 @@ entries:
     date: "2026-10-09"
     tags: [cloud, sunset, allocation]
     note: >
+      Review 2026-10-09: with the weakest miner capped by temperature, stepping the
+      hungriest down dropped the import under the range and the next increment raised it
+      again (a slow loop); the down step is now only for when nothing may step up (sunset,
+      sun down, an estimate) and the import isn't below the range.
       Owner, 2026-10-07: for a big cut, pausing one miner is the efficient way. It is one change,
       and the other two keep running. Example: a 3.4 kW shortfall with three miners at 2,300 W
       pauses one miner (about 2.3 kW) and leaves the others; the next decision, after the ramp
