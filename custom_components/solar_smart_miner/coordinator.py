@@ -14,6 +14,7 @@ from pathlib import Path
 
 import yaml
 from homeassistant.components.persistent_notification import async_create as pn_create
+from homeassistant.components.persistent_notification import async_dismiss as pn_dismiss
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
@@ -55,6 +56,7 @@ from .config_flow import (
 )
 from .const import (
     CONTROL_MODE_AUTO,
+    CONF_FARM_BASE_LOAD,
     CONF_MOCK_CONSUMPTION_ENABLED,
     CONF_MOCK_SOLAR_ENABLED,
     CONF_MOCK_SOLAR_ENTITY,
@@ -77,6 +79,8 @@ from .const import (
     DOMAIN,
     FARM_FILE,
     HASS_MINER_PLATFORM,
+    METER_GRACE_MIN,
+    METER_LOST_ALERT_MIN,
     MIN_AI_INTERVAL,
     SOLAR_ENTITY_TYPE_NET_IMPORT,
     SOLAR_ENTITY_TYPE_PRODUCTION,
@@ -92,6 +96,7 @@ from .control import (
     MinerController,
 )
 from .decision import _describe_plan, build_decision, describe_proposal
+from .decision.safety import estimated_import_w
 from .decision_log import DecisionLog
 from . import jsonl_log
 from .kb import (
@@ -229,6 +234,9 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         self._last_change: float | None = None
         self._ramp_done: list[str] = []  # names of changed miners already at their new power
         self._import_high_since: float | None = None  # time.monotonic() the import went above the band
+        self._import_high_frozen: float | None = None  # time.monotonic() the meter went (grace)
+        self._grid_unknown_since: float | None = None  # time.monotonic() the grid balance went unknown
+        self._meter_alerted = False  # the sensor.meter-lost notification is up
         self.transition = Transition()  # sunrise and sunset, from how production changes
         self._building: CoordinatorSnapshot | None = None  # the snapshot of the cycle being worked out
         # miner id -> (plan fingerprint, reason) of the last automatic refusal, so it isn't repeated
@@ -472,20 +480,58 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             ages.append((now - self._last_change) / 60)
         return min(ages, default=None)
 
+    def _minutes_meter_lost(self, energy: EnergySnapshot) -> float | None:
+        """Minutes the grid balance has been unknown (None while it is known), and the
+        sensor.meter-lost alert: raised at METER_LOST_ALERT_MIN, dismissed when it is back."""
+        now = time.monotonic()
+        if energy.grid_net_w is not None:
+            if self._meter_alerted:
+                pn_dismiss(self.hass, f"{DOMAIN}_meter_lost")
+                self._meter_alerted = False
+            self._grid_unknown_since = None
+            return None
+        if self._grid_unknown_since is None:
+            self._grid_unknown_since = now
+        lost = (now - self._grid_unknown_since) / 60
+        if lost >= METER_LOST_ALERT_MIN and not self._meter_alerted:
+            self._meter_alerted = True
+            pn_create(
+                self.hass,
+                f"The grid meter has read nothing for {lost:.0f} minutes. The miners are steered on "
+                "an import estimated from their draw, the house load and the actual PV, and can "
+                "only step down meanwhile. Check the meter and its connection.",
+                title="Solar Smart Miner: grid meter lost",
+                notification_id=f"{DOMAIN}_meter_lost",
+            )
+        return lost
+
     def _minutes_import_high(
-        self, energy: EnergySnapshot, max_w: float, since_change: float | None
+        self, import_w: float | None, max_w: float, since_change: float | None
     ) -> float | None:
         """Minutes the grid import has stayed above the maximum (None while it isn't).
 
         Counted again from the last change: a step down that didn't cover the shortfall waits
-        the delay again before the next one.
+        the delay again before the next one. While the import can't be read (a meter gap) the
+        count is frozen, neither reset nor advanced; after the grace it follows the estimate.
         """
-        if energy.grid_net_w is None or -energy.grid_net_w <= max_w:
+        now = time.monotonic()
+        if import_w is None:
+            if self._import_high_since is None:
+                return None
+            if self._import_high_frozen is None:
+                self._import_high_frozen = now
+            lasted = (self._import_high_frozen - self._import_high_since) / 60
+            return lasted if since_change is None else min(lasted, since_change)
+        if self._import_high_frozen is not None:
+            if self._import_high_since is not None:
+                self._import_high_since += now - self._import_high_frozen  # the gap doesn't count
+            self._import_high_frozen = None
+        if import_w <= max_w:
             self._import_high_since = None
             return None
         if self._import_high_since is None:
-            self._import_high_since = time.monotonic()
-        lasted = (time.monotonic() - self._import_high_since) / 60
+            self._import_high_since = now
+        lasted = (now - self._import_high_since) / 60
         return lasted if since_change is None else min(lasted, since_change)
 
     def _update_transition(self, energy: EnergySnapshot, since_change: float | None, sun) -> None:
@@ -899,6 +945,15 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         since_change = self._minutes_since_change(miners)
         sun = self.hass.states.get("sun.sun")
         self._update_transition(energy, since_change, sun)
+        meter_lost = self._minutes_meter_lost(energy)
+        base_load = options.get(CONF_FARM_BASE_LOAD)
+        base_load = float(base_load) if base_load not in (None, "") else None
+        if energy.grid_net_w is not None:
+            import_now = -energy.grid_net_w
+        elif meter_lost is not None and meter_lost >= METER_GRACE_MIN:
+            import_now = estimated_import_w(energy, base_load)
+        else:
+            import_now = None
         # Everything the decision is given besides the readings; logged with them for replays.
         inputs = {
             "profile": options.get(CONF_PROFILE, DEFAULT_PROFILE),
@@ -911,7 +966,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             "minutes_since_change": since_change,
             "ramp_lock_minutes": self._ramp_lock_minutes(),
             "ramp_done": list(self._ramp_done),
-            "minutes_import_high": self._minutes_import_high(energy, import_max, since_change),
+            "minutes_import_high": self._minutes_import_high(import_now, import_max, since_change),
             "step_down_delay_minutes": float(
                 options.get(CONF_STEP_DOWN_DELAY, DEFAULT_STEP_DOWN_DELAY_MINUTES)
             ),
@@ -921,6 +976,8 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             "sun_up": None if sun is None else sun.state == "above_horizon",
             "sunrise": self.transition.sunrise,
             "sunset": self.transition.sunset,
+            "meter_lost_minutes": meter_lost,
+            "base_load_w": base_load,
         }
         decision = build_decision(snapshot, **inputs)
         await self.decision_log.async_record(snapshot, inputs, decision)

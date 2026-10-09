@@ -17,7 +17,9 @@ from .context import Context
 
 
 def check(ctx: Context) -> Decision | None:
-    if ctx.sun_up is False:
+    if ctx.import_estimated:
+        pass  # Safety already blocked starts and step-ups
+    elif ctx.sun_up is False:
         ctx.may_step_up, ctx.no_up_reason = False, "the sun is down"
     elif ctx.sunset:
         ctx.may_step_up, ctx.no_up_reason = False, "the sun is setting"

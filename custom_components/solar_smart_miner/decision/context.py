@@ -39,6 +39,8 @@ class Context:
     sun_up: bool | None
     sunrise: bool
     sunset: bool
+    meter_lost_minutes: float | None
+    base_load_w: float | None
     trace: list[str] = field(default_factory=list)
     plans: dict[str, MinerPlan] = field(default_factory=dict)
     candidates: list[MinerSnapshot] = field(default_factory=list)
@@ -46,6 +48,7 @@ class Context:
     # what the target asks of the allocation (up, down or None) and from what import.
     caps: dict[str, int] = field(default_factory=dict)
     import_w: float | None = None
+    import_estimated: bool = False  # the meter is lost: Safety estimated the import
     direction: str | None = None
     excess_w: float = 0.0
     may_step_up: bool = True

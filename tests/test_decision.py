@@ -337,18 +337,56 @@ def test_an_old_profile_name_decides_as_solar_follow(old) -> None:
         assert "Profile: Solar-follow" in legacy.trace
 
 
-def test_an_unknown_grid_import_holds_current_limits() -> None:
-    decision = _decide(_snapshot(None, _three()))
+# --- grid meter lost (U3) ----------------------------------------------------------------
 
+
+def _lost(miners, *, pv: float | None = 2000.0, **energy) -> CoordinatorSnapshot:
+    """The meter is gone: the grid balance is unknown (solar_fault on a net-type entity)."""
+    draw = sum(m.power_w or 0.0 for m in miners)
+    return _snapshot(None, miners, solar_fault=True, pv_power_w=pv, miner_consumption_sum_w=draw, **energy)
+
+
+def test_a_short_meter_gap_holds_every_miner() -> None:
+    # 2026-10-08: 42 meter gaps, the longest 214 s. A gap must not re-tune the miners.
+    for minutes in (None, 0.5, 4.9):
+        decision = _decide(_lost(_three()), meter_lost_minutes=minutes, base_load_w=500)
+        assert set(_actions(decision).values()) == {ACTION_HOLD}, minutes
+        assert decision.summary.startswith("Safety: grid meter unknown")
+        assert "Decided by: Safety / rule.required-inputs" in decision.trace
+
+
+def test_after_the_grace_an_estimated_shortfall_steps_down() -> None:
+    # Three miners at 1,300 W draw 3,870 W; with 500 W of house and 3,600 W of PV the import is
+    # about 770 W, 370 W over the maximum.
+    decision = _decide(_lost(_three(), pv=3600.0), meter_lost_minutes=6, base_load_w=500)
+
+    assert len(decision.proposals) == 1 and list(decision.proposals.values())[0] < 1300.0
+    assert any("estimated import 770 W" in line for line in decision.trace)
+    assert decision.summary.startswith("Solar-follow: import 770 W")
+
+
+def test_an_estimate_never_starts_or_steps_up() -> None:
+    # With zero export PV equals the load, so the estimate can't show spare sun.
+    miners = [_miner("a", limit=1100.0), _miner("b", stopped=True)]
+    decision = _decide(_lost(miners, pv=5000.0), meter_lost_minutes=6, base_load_w=500)
+
+    assert decision.proposals == {}
     assert set(_actions(decision).values()) == {ACTION_HOLD}
-    assert decision.summary.startswith("Solar-follow: grid import unknown")
+    assert any("but the import is estimated → nothing starts" in line for line in decision.trace)
 
 
-def test_solar_sensor_fault_holds_every_miner_instead_of_re_tuning_them() -> None:
-    decision = _decide(_metered(BELOW, _three(), solar_fault=True))
+def test_without_a_base_load_or_a_pv_reading_a_lost_meter_holds() -> None:
+    for kw in ({"base_load_w": None}, {"base_load_w": 500}):
+        pv = 3600.0 if kw["base_load_w"] is None else None
+        decision = _decide(_lost(_three(), pv=pv), meter_lost_minutes=20, **kw)
+        assert set(_actions(decision).values()) == {ACTION_HOLD}
+        assert any("no estimate" in line for line in decision.trace)
 
-    assert set(_actions(decision).values()) == {ACTION_HOLD}
-    assert decision.summary.startswith("Safety: solar sensor unavailable")
+
+def test_a_fault_of_the_pv_sensor_alone_holds_nothing() -> None:
+    decision = _decide(_metered(BELOW, _three(), pv_power_w=None), base_load_w=500)
+
+    assert decision.proposals  # steered on the measured import as usual
 
 
 def test_battery_below_floor_stops_all_miners() -> None:
@@ -717,7 +755,7 @@ def test_a_failing_rule_holds_every_miner_instead_of_failing_the_update(monkeypa
         raise ZeroDivisionError("a bug")
 
     monkeypatch.setattr(limits, "check", broken)
-    decision = _decide(_snapshot(3000.0, [_miner("a", limit=1300.0), _miner("b", stopped=True)]))
+    decision = _decide(_metered(INSIDE, [_miner("a", limit=1300.0), _miner("b", stopped=True)]))
 
     assert decision.summary == "Error in the rules: every miner holds"
     assert {mid: (p.action, p.limit_w) for mid, p in decision.plans.items()} == {
@@ -739,10 +777,8 @@ def test_the_trace_names_the_group_and_rule_that_decided() -> None:
 
 
 def test_the_groups_run_in_order_and_an_earlier_one_wins() -> None:
-    # Safety (sensor lost) wins over pacing (ramp lock) over limits (too warm).
+    # Safety (meter lost) wins over pacing (ramp lock) over limits (too warm).
     warm = [_miner("a", temp=90.0), _miner("b")]
-    assert _decide(_snapshot(3000.0, warm, solar_fault=True), minutes_since_change=1).summary.startswith(
-        "Safety:"
-    )
-    assert _decide(_snapshot(3000.0, warm), minutes_since_change=1).summary.startswith("Waiting")
-    assert _decide(_snapshot(3000.0, warm)).summary.startswith("Temperature:")
+    assert _decide(_lost(warm), minutes_since_change=1).summary.startswith("Safety:")
+    assert _decide(_metered(INSIDE, warm), minutes_since_change=1).summary.startswith("Waiting")
+    assert _decide(_metered(INSIDE, warm)).summary.startswith("Temperature:")

@@ -1426,3 +1426,64 @@ async def test_the_farm_file_is_created_and_its_facts_and_the_farm_block_reach_t
     system = mock_openrouter.await_args.kwargs["messages"][0]["content"]
     assert "- Battery: none" in system
     assert "East-west roof: Two slopes." in system
+
+
+async def test_a_meter_gap_freezes_the_step_down_clock_instead_of_restarting_it(hass) -> None:
+    import time as time_module
+    from unittest.mock import patch
+
+    now = [1000.0]
+    coordinator = SolarMinerCoordinator(hass, _make_entry(hass))
+    with patch.object(time_module, "monotonic", lambda: now[0]):
+        assert coordinator._minutes_import_high(600.0, 400.0, None) == 0.0
+        now[0] += 3 * 60
+        assert coordinator._minutes_import_high(None, 400.0, None) == pytest.approx(3)  # the gap
+        now[0] += 2 * 60
+        assert coordinator._minutes_import_high(None, 400.0, None) == pytest.approx(3)  # frozen
+        assert coordinator._minutes_import_high(650.0, 400.0, None) == pytest.approx(3)  # back
+        now[0] += 60
+        assert coordinator._minutes_import_high(650.0, 400.0, None) == pytest.approx(4)
+
+
+async def test_a_lost_meter_holds_then_estimates_and_raises_the_alert(hass, add_hass_miner, monkeypatch) -> None:
+    import time as time_module
+
+    from custom_components.solar_smart_miner.config_flow import CONF_PV_ENTITY, CONF_SOLAR_ENTITY_TYPE
+    from custom_components.solar_smart_miner.const import SOLAR_ENTITY_TYPE_NET_EXPORT
+
+    now = [1000.0]
+    monkeypatch.setattr(time_module, "monotonic", lambda: now[0])
+    add_hass_miner(MINER_IP, limit="1500", power="1500", temperature="55",
+                   limit_attrs={"min": 500.0, "max": 3500.0})
+    hass.states.async_set(SOLAR_ENTITY, "-300")  # the meter: importing 300 W
+    hass.states.async_set("sensor.pv", "1200")
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_SOLAR_ENTITY: SOLAR_ENTITY, CONF_SOLAR_ENTITY_TYPE: SOLAR_ENTITY_TYPE_NET_EXPORT,
+              CONF_GRID_ENTITY: None, CONF_BATTERY_ENTITY: None, CONF_PV_ENTITY: "sensor.pv"},
+        options={"farm_base_load": 500},
+    )
+    entry.add_to_hass(hass)
+    coordinator = SolarMinerCoordinator(hass, entry)
+    assert (await coordinator._async_update_data()).decision.summary.startswith("Solar-follow: import 300 W")
+
+    hass.states.async_set(SOLAR_ENTITY, "unavailable")
+    now[0] += 60
+    decision = (await coordinator._async_update_data()).decision
+    assert decision.summary.startswith("Safety: grid meter unknown")
+
+    now[0] += 5 * 60  # past the grace: 1,500 + 500 − 1,200 = 800 W estimated, 400 W over
+    decision = (await coordinator._async_update_data()).decision
+    assert any("estimated import 800 W" in line for line in decision.trace)
+    assert "solar_smart_miner_meter_lost" not in hass.data.get("persistent_notification", {})
+
+    now[0] += 5 * 60
+    decision = (await coordinator._async_update_data()).decision
+    await hass.async_block_till_done()
+    assert "solar_smart_miner_meter_lost" in hass.data["persistent_notification"]
+    assert list(decision.proposals.values()) == [1100.0]  # the estimate's shortfall, after the delay
+
+    hass.states.async_set(SOLAR_ENTITY, "-300")
+    await coordinator._async_update_data()
+    await hass.async_block_till_done()
+    assert "solar_smart_miner_meter_lost" not in hass.data["persistent_notification"]

@@ -216,25 +216,33 @@ entries:
       count, and Solar-follow doesn't need the solar sensor.
 
   - id: rule.required-inputs
-    title: Only the inputs the profile needs count
+    title: The grid import is the required input
     statement: >
-      Solar-follow needs the grid import, not the solar sensor. While the grid import is
-      unknown, nothing steps up and a short gap changes nothing. If it stays unknown, step down
-      or pause (alert sensor.meter-lost: warning at 10 minutes, step down at 30). A solar
-      sensor dropout changes nothing.
+      Solar-follow needs the grid import, not a solar sensor. While the grid balance is unknown,
+      every miner holds for a short grace period, since meter gaps of seconds to minutes are
+      normal. After it, the import is estimated from the miners' draw, the house load besides the
+      miners and the actual PV; the normal rules decide on the estimate, but only downwards,
+      because it can show a shortfall and never spare sun. Without the base load or a PV reading
+      the miners keep holding. A dropout of the PV sensor alone changes nothing.
     priority: P1
     status: decided
     stage: safety
-    source: "requirements doc §0.6 round 7; owner, 2026-10-07"
-    date: "2026-10-07"
+    source: "requirements doc §0.6 round 7; owner, 2026-10-07 and 2026-10-09"
+    date: "2026-10-09"
     situations: [situation.dropout]
     tags: [always, alerts, dropout]
     note: >
-      Replaces the code's "solar sensor unavailable → minimum", which watches the wrong sensor.
-      Not in the code yet (v0.7.1 still holds every miner on a solar dropout). Seen 2026-10-07:
-      it fired about 10 times from 09:32 to 13:30, each time turning the plan to hold all for one
-      cycle and back the next. The AI did the same at 17:33, holding "due to unknown solar
-      production".
+      Seen 2026-10-07: the old "solar sensor unavailable" hold fired about 10 times from 09:32 to
+      13:30. On the reference farm the configured solar entity is the grid meter, so that hold was
+      the meter-lost hold: all 27 such decisions on 2026-10-08 came within 60 s of a meter gap
+      (gaps per day 10, 20, 42 on 10-06 to 10-08, the longest 214 s). Until 2026-10-09 the
+      statement said "step down at 30 minutes". Owner, 2026-10-09: rare, usually a couple of
+      minutes; a 5-minute grace, then an estimate from solar production, no extra rules, and an
+      alert (sensor.meter-lost, Telegram later). In the code since 0.8.0 (decision/safety.py): 5
+      minutes, base load from Configure -> Farm, PV from the reference PV sensor; the step-down
+      timer is frozen during the gap and follows the estimate after it. The PV total itself drops
+      out often in the evening (energy.pv-sum-unreliable), so a long meter gap then flips between
+      "estimated" and "hold"; accepted, since no gap over 5 minutes has been seen yet.
 
   - id: rule.jump-several-steps
     title: A change may skip steps

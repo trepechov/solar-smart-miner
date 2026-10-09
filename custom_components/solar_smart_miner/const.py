@@ -44,6 +44,12 @@ DEFAULT_IMPORT_MAX_W = 400
 DEFAULT_STEP_DOWN_DELAY_MINUTES = 5
 DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES = 30
 
+# Grid meter lost (decision/safety.py): every miner holds this long, then an estimated import
+# decides (owner, 2026-10-09: gaps are usually a couple of minutes); the alert comes at
+# METER_LOST_ALERT_MIN. Fixed values, not settings.
+METER_GRACE_MIN = 5
+METER_LOST_ALERT_MIN = 10
+
 # Sunrise and sunset are periods of changing production (transition.py). Fixed values, from the
 # reference farm's history (2026-10-06 to 10-08: about +200 to +750 W per 15 minutes while the
 # sun rose, under 100 W either way at midday without clouds, falling steadily in the evening);

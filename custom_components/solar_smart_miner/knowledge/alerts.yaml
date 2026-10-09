@@ -120,7 +120,10 @@ alerts:
     related: [rule.required-inputs, energy.meter-dropouts]
     note: >
       Becomes critical at critical_minutes with step_down: the controller cannot see the grid
-      and shouldn't keep miners at full power forever.
+      and shouldn't keep miners at full power forever. Since 0.8.0 (owner, 2026-10-09) there is no
+      blind step-down: after a 5-minute grace the rules decide on an estimated import, only
+      downwards (rule.required-inputs). Raised as a persistent notification at 10 minutes and
+      dismissed when the meter reads again; pushed to Telegram once that channel exists.
 
   - id: sensor.inverter-fault
     title: An inverter is not in a normal state in daylight

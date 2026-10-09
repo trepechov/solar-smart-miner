@@ -62,6 +62,8 @@ def build_decision(
     sun_up: bool | None = None,
     sunrise: bool = False,
     sunset: bool = False,
+    meter_lost_minutes: float | None = None,
+    base_load_w: float | None = None,
 ) -> Decision:
     """One plan per miner. Apart from safety, at most one miner changes per decision.
 
@@ -75,7 +77,9 @@ def build_decision(
     above that it steps down once the import has been that high for `minutes_import_high` >=
     the step-down delay (the longer sunrise delay during `sunrise`). The sun down (`sun_up`
     False; None means unknown) or `sunset` blocks starts and step-ups. Sunrise and sunset come
-    from transition.py.
+    from transition.py. While the grid meter is unknown (`meter_lost_minutes`), every miner
+    holds for the grace period, then an import estimated with `base_load_w` decides, only
+    downwards (safety.py).
     """
     # One profile: an older stored name (before the migration ran) reads as Solar-follow.
     profile_def = PROFILES_BY_NAME.get(profile, PROFILES[0])
@@ -98,6 +102,8 @@ def build_decision(
         sun_up=sun_up,
         sunrise=sunrise,
         sunset=sunset,
+        meter_lost_minutes=meter_lost_minutes,
+        base_load_w=base_load_w,
     )
     try:
         return _run(ctx)

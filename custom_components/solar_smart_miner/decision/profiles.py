@@ -23,14 +23,9 @@ def target(ctx: Context) -> Decision | None:
     trace = ctx.trace
     label = ctx.profile_label
 
-    if energy.grid_net_w is None:
-        trace.append("Grid import unknown → keep current limits")
-        for m in ctx.candidates:
-            ctx.plans[m.miner_id] = ctx.hold(m, "grid import unknown")
-        return ctx.done(f"{label}: grid import unknown", "rule.required-inputs")
-
-    import_w = -energy.grid_net_w
-    ctx.import_w = import_w
+    if ctx.import_w is None:  # measured; Safety has set it when the meter is lost
+        ctx.import_w = -energy.grid_net_w
+    import_w = ctx.import_w
     import_min_w, import_max_w = ctx.import_min_w, ctx.import_max_w
     if import_max_w - import_min_w < (width := min_import_range_w(ctx.steps)):
         # Narrower than one step: a step up from below the minimum could land above

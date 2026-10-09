@@ -162,7 +162,7 @@ The following overrides run before every AI decision and cannot be bypassed — 
 
 - **Temperature band** — a miner at or above the target plus the tolerance (60 °C + 10 °C by default) steps down one step; between the target and target + tolerance it holds even with spare energy. A low temperature is never a reason to step up
 - **Battery SOC floor** — if battery drops below the configured %, all miners are stopped
-- **Solar fault** — if the solar entity is unavailable, every miner is held as it is: a short sensor drop must not make the miners re-tune
+- **Grid meter lost** — while the grid balance is unknown (the meter, or the solar and house sensors it is derived from), every miner holds for 5 minutes: short gaps are normal and must not re-tune the miners. After that the import is estimated as the miners' draw plus the house load besides them (Configure → Farm) minus the actual PV (the PV sensor under Configure → Sensors), and the normal rules decide on it, but only downwards: nothing starts or steps up on an estimate. Without a base load or a PV reading the miners keep holding. After 10 minutes a "grid meter lost" notification is raised; it goes away when the meter is back. A fault of the PV sensor alone changes nothing.
 
 ## Control mode
 
