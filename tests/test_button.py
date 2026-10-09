@@ -355,7 +355,8 @@ async def test_dashboard_card_has_an_ai_log_of_recent_answers_with_actions(hass)
     ai_entity = next(s.entity_id for s in hass.states.async_all("sensor") if "ai_advice" in s.entity_id)
     assert "AI log (latest first)" in message
     assert f"state_attr('{ai_entity}', 'history')" in message
-    assert "{{ a.miner }} {{ a.action }} ({{ a.reason }})" in message
+    assert "{{ a.miner }} {{ a.action }}" in message
+    assert "{% if a.target_w %} {{ a.target_w | int }} W{% endif %} ({{ a.reason }})" in message
 
 
 async def test_dashboard_card_renders_the_ai_log(hass) -> None:

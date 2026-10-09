@@ -49,7 +49,10 @@ def _ai_view(advice: AiAdvice | None, miner_name: str) -> dict[str, Any] | None:
         age_s = round((dt_util.now() - datetime.fromisoformat(advice.requested_at)).total_seconds())
     except (TypeError, ValueError):
         age_s = None
-    return {"action": action.get("action"), "reason": action.get("reason"), "age_s": age_s}
+    return {
+        "action": action.get("action"), "target_w": action.get("target_w"),
+        "reason": action.get("reason"), "age_s": age_s,
+    }
 
 
 def build_entry(

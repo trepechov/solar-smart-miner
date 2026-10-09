@@ -110,7 +110,8 @@ def summarise(entry: dict[str, Any]) -> dict[str, Any]:
         "time": ts[11:19] if len(ts) >= 19 else ts,
         "summary": ai.get("summary") or str(ai.get("raw") or "")[:160],
         "actions": [
-            {"miner": a.get("miner"), "action": a.get("action"), "reason": a.get("reason")}
+            {"miner": a.get("miner"), "action": a.get("action"), "target_w": a.get("target_w"),
+             "reason": a.get("reason")}
             for a in ai.get("actions") or []
         ],
         "error": entry.get("error"),

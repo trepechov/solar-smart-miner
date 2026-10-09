@@ -260,8 +260,8 @@ def test_parse_advice_reads_summary_and_actions() -> None:
 
     assert summary == "Sun is setting"
     assert actions == [
-        {"miner": "Brod1", "action": "reduce", "reason": "not_enough_energy", "note": "dusk"},
-        {"miner": "Brod2", "action": "increase", "reason": "excess_energy", "note": ""},
+        {"miner": "Brod1", "action": "reduce", "target_w": None, "reason": "not_enough_energy", "note": "dusk"},
+        {"miner": "Brod2", "action": "increase", "target_w": None, "reason": "excess_energy", "note": ""},
     ]
 
 
@@ -286,7 +286,7 @@ def test_parse_advice_skips_malformed_actions() -> None:
         '{"summary": "s", "actions": ["junk", {"action": "hold"}, {"miner": "A"}]}'
     )
 
-    assert actions == [{"miner": "A", "action": "hold", "reason": "other", "note": ""}]
+    assert actions == [{"miner": "A", "action": "hold", "target_w": None, "reason": "other", "note": ""}]
 
 
 def test_parse_advice_returns_nothing_for_plain_text_or_bad_json() -> None:
@@ -330,7 +330,7 @@ def test_system_prompt_defines_the_action_and_reason_vocabulary() -> None:
         assert word in SYSTEM_PROMPT
 
 
-def test_parse_advice_understands_stop_and_start_and_their_aliases() -> None:
+def test_parse_advice_reads_the_0_7_answer_stop_and_start_as_pause_and_resume() -> None:
     _, actions = parse_advice(
         '{"summary": "s", "actions": ['
         '{"miner": "A", "action": "stop", "reason": "not_enough_energy"},'
@@ -338,11 +338,11 @@ def test_parse_advice_understands_stop_and_start_and_their_aliases() -> None:
         '{"miner": "C", "action": "resume", "reason": "excess_energy"}]}'
     )
 
-    assert [a["action"] for a in actions] == ["stop", "stop", "start"]
+    assert [a["action"] for a in actions] == ["pause", "pause", "resume"]
 
 
 def test_system_prompt_explains_steps_restarts_and_stopping() -> None:
-    assert "stop" in SYSTEM_PROMPT and "start" in SYSTEM_PROMPT
+    assert "pause" in SYSTEM_PROMPT and "resume" in SYSTEM_PROMPT and "target_w" in SYSTEM_PROMPT
     assert "restarts the miner" in SYSTEM_PROMPT
     assert "configured power steps" in SYSTEM_PROMPT
     # The reference farm's ladder is an example, not something every farm is told.
@@ -383,3 +383,60 @@ def test_the_farm_block_goes_into_the_system_prompt_before_the_knowledge() -> No
     assert "THIS FARM" not in build_messages(
         _snapshot(), profile="solar_follow", temp_target=65, temp_tolerance=10, battery_floor=20,
     )[0]["content"]
+
+
+# --- the target step (U6; the decision is in rule.ai-is-advisor) -------------------------------------------
+
+STEPS = [900.0, 1100.0, 1300.0, 1500.0]
+
+
+def test_an_answer_names_a_target_step_per_miner() -> None:
+    _, actions = parse_advice(
+        '{"summary": "s", "actions": ['
+        '{"miner": "A", "action": "increase", "target_w": 1300, "reason": "excess_energy"},'
+        '{"miner": "B", "action": "hold", "target_w": null, "reason": "ramping"}]}',
+        STEPS,
+    )
+
+    assert [(a["action"], a["target_w"], a["reason"]) for a in actions] == [
+        ("increase", 1300.0, "excess_energy"), ("hold", None, "ramping"),
+    ]
+    assert "invalid" not in actions[0]
+    assert format_advice("s", actions) == "s | A: increase to 1,300 W (excess_energy) | B: hold (ramping)"
+
+
+def test_an_off_step_target_is_flagged_never_rounded() -> None:
+    _, actions = parse_advice(
+        '{"summary": "s", "actions": [{"miner": "A", "action": "reduce", "target_w": "1250"}]}', STEPS
+    )
+
+    assert actions[0]["target_w"] == 1250.0
+    assert actions[0]["invalid"] == "1250 W is not a power step"
+    assert "[1250 W is not a power step]" in format_advice("", actions)
+
+
+def test_a_target_that_is_not_a_number_is_none() -> None:
+    _, actions = parse_advice('{"summary": "s", "actions": [{"miner": "A", "target_w": "lots"}]}', STEPS)
+
+    assert actions[0]["target_w"] is None and "invalid" not in actions[0]
+
+
+def test_recent_changes_go_into_the_readings() -> None:
+    messages = build_messages(
+        _snapshot(), profile="solar_follow", temp_target=65, temp_tolerance=10, battery_floor=20,
+        recent=["(now 12:05:00)", "12:01:30 Brod1: 1,500 W (ok)"],
+    )
+
+    user = messages[1]["content"]
+    assert "RECENT CHANGES (newest first)\n(now 12:05:00)\n12:01:30 Brod1: 1,500 W (ok)" in user
+
+
+async def test_ask_checks_the_targets_against_the_steps(hass, aioclient_mock) -> None:
+    reply = '{"summary": "s", "actions": [{"miner": "A", "action": "increase", "target_w": 1400}]}'
+    aioclient_mock.post(OPENROUTER_API_URL, json={"choices": [{"message": {"content": reply}}]})
+
+    advice = await async_ask(
+        async_get_clientsession(hass), api_key="k", model="m", messages=MESSAGES, steps=STEPS
+    )
+
+    assert advice.actions[0]["invalid"] == "1400 W is not a power step"

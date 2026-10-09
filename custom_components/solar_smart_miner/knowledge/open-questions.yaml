@@ -117,25 +117,6 @@ entries:
       from the rule plan (including on hold plans) and how outcomes compare when the owner applied
       a plan the AI agreed with versus one it disagreed with.
 
-  - id: open.ai-answer-format
-    title: Should the AI answer name a step per miner?
-    statement: >
-      The requirements doc §7 decided a target wattage per miner in the AI answer; the prompt now
-      says "never suggest other wattages" and the answer is only increase/reduce/hold/stop/start.
-      An AI answer can only be applied (stage 2) if it names a target, most likely a power step.
-    priority: P3
-    status: open
-    source: "requirements doc §7 against ai.py prompt, 2026-10-06"
-    date: "2026-10-07"
-    tags: [ai]
-    note: >
-      Seen 2026-10-07 (mistralai/mistral-nemo): at 17:30 and 17:31 it said "reduce Brod2" while
-      Brod2 was at 1,100 W and the rules said stop, so the two can't be compared. Most reasons were
-      "other", and at 17:02 it gave temperature_limit for Brod1 at 40 deg C against a 60 deg C
-      target. At 17:00 and 17:02 it changed all three miners, on v0.7.0 before
-      rule.one-miner-per-change was in the knowledge base; from 17:04 it changed one at a time.
-      A step per miner and a checked reason would make each answer comparable.
-
   - id: open.west-shading
     title: Is the west slope shaded in the evening?
     statement: The evening forecast runs about twice the real output at 17:00. Is that shading from the neighbouring house and trees, a different tilt, or something else?

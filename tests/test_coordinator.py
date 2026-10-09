@@ -1551,3 +1551,16 @@ async def test_without_a_voltage_sensor_the_rule_does_nothing(hass, add_hass_min
 
     assert snapshot.energy.voltage_v is None
     assert not snapshot.decision.summary.startswith("Safety: low voltage")
+
+
+async def test_the_ai_is_told_the_recent_commands(hass, mock_openrouter) -> None:
+    coordinator = SolarMinerCoordinator(hass, _ai_entry(hass))
+    coordinator.action_log.history.appendleft(
+        {"time": "12:01:30", "miner": "Brod1", "plan": "1,500 W", "result": "ok"}
+    )
+
+    await _refresh(hass, coordinator)
+
+    user = mock_openrouter.await_args.kwargs["messages"][1]["content"]
+    assert "RECENT CHANGES (newest first)" in user and "12:01:30 Brod1: 1,500 W (ok)" in user
+    assert mock_openrouter.await_args.kwargs["steps"] == coordinator._power_steps()

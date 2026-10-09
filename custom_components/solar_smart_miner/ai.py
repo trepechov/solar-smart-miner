@@ -25,14 +25,15 @@ SYSTEM_PROMPT = (
     "change anything: you only say what you WOULD change.\n"
     "Reply with JSON only, no markdown, in exactly this shape:\n"
     '{"summary": "<one short sentence>", "actions": [{"miner": "<name>", '
-    '"action": "increase|reduce|hold|stop|start", '
-    '"reason": "excess_energy|not_enough_energy|voltage_limit|temperature_limit|battery_low|no_change|other", '
+    '"action": "increase|reduce|hold|pause|resume", "target_w": <a power step in W, or null>, '
+    '"reason": "excess_energy|not_enough_energy|voltage_limit|temperature_limit|battery_low|ramping|no_change|other", '
     '"note": "<few words>"}]}\n'
-    "Give one action per miner. increase = raise its power limit because there is surplus "
-    "energy. reduce = lower it because the available power is below what it draws, or "
-    "because of a limit (voltage, temperature, battery). hold = leave it. stop = switch it "
-    "off because even the lowest power step is more than the available power (e.g. after "
-    "sunset). start = switch a stopped miner back on because there is room for it.\n"
+    "Give one action per miner. increase = raise its power limit to target_w because there is "
+    "surplus energy. reduce = lower it to target_w because the import is too high, or because "
+    "of a limit (voltage, temperature, battery). hold = leave it (target_w null). pause = "
+    "switch it off because even the lowest power step is more than there is (e.g. after "
+    "sunset). resume = switch a paused miner back on at target_w. Use the reason ramping to "
+    "hold while a miner is still restarting after a change.\n"
     "Power limits only ever move between the configured power steps listed in the readings; "
     "never suggest other wattages. Every change restarts the miner: it draws almost nothing "
     "until the ramp lock has passed. So change ONE miner per answer (a change may skip steps) "
@@ -44,26 +45,28 @@ SYSTEM_PROMPT = (
     "the forecast is what the panels could give, not power that is available."
 )
 
-ACTIONS = ("increase", "reduce", "hold", "stop", "start")
+ACTIONS = ("increase", "reduce", "hold", "pause", "resume")
 REASONS = (
     "excess_energy",
     "not_enough_energy",
     "voltage_limit",
     "temperature_limit",
     "battery_low",
+    "ramping",
     "no_change",
     "other",
 )
+# Other words, and the 0.7 answer (stop / start), read as the current ones.
 _ACTION_ALIASES = {
     "raise": "increase",
     "lower": "reduce",
     "decrease": "reduce",
     "keep": "hold",
-    "pause": "stop",
-    "shutdown": "stop",
-    "off": "stop",
-    "resume": "start",
-    "on": "start",
+    "stop": "pause",
+    "shutdown": "pause",
+    "off": "pause",
+    "start": "resume",
+    "on": "resume",
 }
 
 MAX_RESPONSE_TOKENS = 800
@@ -83,6 +86,7 @@ def build_messages(
     battery_floor: float,
     knowledge: str = "",
     farm: str = "",
+    recent: list[str] | tuple[str, ...] = (),
 ) -> list[dict[str, str]]:
     """System prompt (plus this farm's description and the knowledge base, if any) and the readings."""
     profile_def = PROFILES_BY_NAME.get(profile)
@@ -93,14 +97,21 @@ def build_messages(
         f"Temperature target: {temp_target:.0f} °C, tolerance {temp_tolerance:.0f} °C\n"
         f"Battery floor: {battery_floor:.0f} %\n\n" + "\n".join(trace)
     )
+    if recent:
+        # What changed lately and when; the trace says whether a miner is still ramping.
+        user += "\n\nRECENT CHANGES (newest first)\n" + "\n".join(recent)
     return [
         {"role": "system", "content": "\n\n".join(part for part in (SYSTEM_PROMPT, farm, knowledge) if part)},
         {"role": "user", "content": user},
     ]
 
 
-def parse_advice(text: str) -> tuple[str, list[dict[str, str]]]:
+def parse_advice(text: str, steps: list[float] | None = None) -> tuple[str, list[dict]]:
     """Split the model's reply into (summary, actions).
+
+    Each action has a `target_w` (a number, or None). With the configured `steps`, a target that
+    isn't one of them is kept as given and flagged `invalid`, never rounded: an off-step answer
+    is a wrong answer, and the log should show it.
 
     Models sometimes wrap the JSON in a code fence or add prose (or a stray brace)
     around it, so the first complete {...} object is used. A reply that isn't the requested JSON gives
@@ -122,21 +133,33 @@ def parse_advice(text: str) -> tuple[str, list[dict[str, str]]]:
             continue
         action = str(item.get("action") or "hold").strip().lower()
         reason = str(item.get("reason") or "other").strip().lower()
-        actions.append(
-            {
-                "miner": str(item["miner"]),
-                "action": _ACTION_ALIASES.get(action, action),
-                "reason": reason if reason in REASONS else "other",
-                "note": str(item.get("note") or "")[:120],
-            }
-        )
+        entry = {
+            "miner": str(item["miner"]),
+            "action": _ACTION_ALIASES.get(action, action),
+            "target_w": _watts(item.get("target_w")),
+            "reason": reason if reason in REASONS else "other",
+            "note": str(item.get("note") or "")[:120],
+        }
+        if steps and entry["target_w"] is not None and entry["target_w"] not in steps:
+            entry["invalid"] = f"{entry['target_w']:g} W is not a power step"
+        actions.append(entry)
     return str(data.get("summary") or "").strip(), actions
 
 
-def format_advice(summary: str, actions: list[dict[str, str]]) -> str:
+def _watts(value) -> float | None:
+    try:
+        return float(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def format_advice(summary: str, actions: list[dict]) -> str:
     """One readable text for the sensor and dashboard."""
     parts = [summary] if summary else []
-    parts += [f"{a['miner']}: {a['action']} ({a['reason']})" for a in actions]
+    for a in actions:
+        target = f" to {a['target_w']:,.0f} W" if a.get("target_w") is not None else ""
+        flag = f" [{a['invalid']}]" if a.get("invalid") else ""
+        parts.append(f"{a['miner']}: {a['action']}{target} ({a['reason']}){flag}")
     return " | ".join(parts)
 
 
@@ -161,6 +184,7 @@ async def async_ask(
     model: str,
     messages: list[dict[str, str]],
     timeout: float = DEFAULT_AI_TIMEOUT,
+    steps: list[float] | None = None,
 ) -> AiAdvice:
     """Send one chat completion; always returns an AiAdvice (errors go in .error)."""
     started = time.monotonic()
@@ -211,7 +235,7 @@ async def async_ask(
         text = ""
     if not text:
         return _result(error="The model returned an empty answer")
-    summary, actions = parse_advice(text)
+    summary, actions = parse_advice(text, steps)
     advice = _result(text=format_advice(summary, actions) if (summary or actions) else text)
     advice.summary, advice.actions, advice.raw = summary, actions, text
     return advice

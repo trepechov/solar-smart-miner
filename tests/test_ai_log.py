@@ -126,7 +126,7 @@ def test_summarise_gives_the_short_widget_form() -> None:
     assert short == {
         "time": "18:30:15",
         "summary": "Sun is setting",
-        "actions": [{"miner": "Brod1", "action": "reduce", "reason": "not_enough_energy"}],
+        "actions": [{"miner": "Brod1", "action": "reduce", "target_w": None, "reason": "not_enough_energy"}],
         "error": None,
         "available_w": 3845.0,
         "pv_w": 3926.0,

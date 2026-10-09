@@ -456,6 +456,19 @@ entries:
     source: "requirements doc §0 point 1, §7"
     date: "2026-10-05"
     tags: [always, ai]
+    note: >
+      Answer format (was open.ai-answer-format, decided 2026-10-09, requirements doc §7):
+      each action is pause, resume, increase, reduce or hold with a target_w that must be
+      one of the configured power steps; an off-step target is kept and flagged invalid in
+      the log, never rounded, so a later stage can apply and score the answer. Reasons
+      gain ramping; the 0.7 words stop and start read as pause and resume; the prompt
+      lists the recent commands. Before: Seen 2026-10-07 (mistralai/mistral-nemo): at
+      17:30 and 17:31 it said "reduce Brod2" while Brod2 was at 1,100 W and the rules said
+      stop, so the two can't be compared. Most reasons were "other", and at 17:02 it gave
+      temperature_limit for Brod1 at 40 deg C against a 60 deg C target. At 17:00 and
+      17:02 it changed all three miners, on v0.7.0 before rule.one-miner-per-change was in
+      the knowledge base; from 17:04 it changed one at a time. A step per miner and a
+      checked reason would make each answer comparable.
 
   - id: rule.down-slowly-up-promptly
     title: Step down slowly, step up promptly

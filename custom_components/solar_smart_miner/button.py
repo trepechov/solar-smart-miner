@@ -241,7 +241,8 @@ def _decision_log_card(
             "      **AI log (latest first)**",
             f"      {{% for h in (state_attr('{ai_entity_id}', 'history') or [])[:8] %}}",
             "      - `{{ h.time }}` {{ h.error or h.summary }}"
-            "{% for a in h.actions %} · {{ a.miner }} {{ a.action }} ({{ a.reason }}){% endfor %}",
+            "{% for a in h.actions %} · {{ a.miner }} {{ a.action }}"
+            "{% if a.target_w %} {{ a.target_w | int }} W{% endif %} ({{ a.reason }}){% endfor %}",
             "      {% endfor %}",
         ]
         if ai_entity_id

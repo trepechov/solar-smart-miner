@@ -903,7 +903,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         facts = select_facts(self.knowledge, now)
         messages = build_messages(
             snapshot, **settings, knowledge=format_facts(facts, now),
-            farm=describe_farm(self._entry.options),
+            farm=describe_farm(self._entry.options), recent=self._recent_changes(),
         )
         record = build_record(
             snapshot,
@@ -917,6 +917,14 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             self.hass, self._async_run_ai(messages, record), name=f"{DOMAIN}_ai_advice"
         )
 
+    def _recent_changes(self) -> list[str]:
+        """The last commands, newest first, for the AI: when, which miner, what, the result."""
+        lines = [
+            f"{e.get('time') or '?'} {e.get('miner')}: {e.get('plan')} ({e.get('result')})"
+            for e in list(self.action_log.history)[:5]
+        ]
+        return [f"(now {dt_util.now():%H:%M:%S})", *lines] if lines else []
+
     async def _async_run_ai(self, messages: list[dict[str, str]], record: dict) -> None:
         data = self._entry.data
         try:
@@ -925,6 +933,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 api_key=(data.get(CONF_OPENROUTER_KEY) or "").strip(),
                 model=(data.get(CONF_OPENROUTER_MODEL) or DEFAULT_OPENROUTER_MODEL).strip(),
                 messages=messages,
+                steps=self._power_steps(),
             )
         finally:
             self._ai_busy = False
