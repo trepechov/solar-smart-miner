@@ -370,3 +370,16 @@ def test_parse_advice_ignores_a_stray_brace_or_prose_after_the_object() -> None:
 
 def test_parse_advice_still_rejects_truncated_json() -> None:
     assert parse_advice('{"summary": "cut off", "actions": [{"miner": "Brod1", "act') == ("", [])
+
+
+def test_the_farm_block_goes_into_the_system_prompt_before_the_knowledge() -> None:
+    messages = build_messages(
+        _snapshot(), profile="solar_follow", temp_target=65, temp_tolerance=10, battery_floor=20,
+        knowledge="KNOWLEDGE BASE ...", farm="THIS FARM (the owner's description):\n- Battery: none",
+    )
+
+    system = messages[0]["content"]
+    assert system.index("THIS FARM") < system.index("KNOWLEDGE BASE")
+    assert "THIS FARM" not in build_messages(
+        _snapshot(), profile="solar_follow", temp_target=65, temp_tolerance=10, battery_floor=20,
+    )[0]["content"]

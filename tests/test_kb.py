@@ -148,3 +148,73 @@ def test_format_marks_priority_and_unverified_entries() -> None:
 
 def test_format_of_nothing_is_empty() -> None:
     assert format_facts([], MIDDAY) == ""
+
+
+# --- the farm's own data (farm.yaml, Configure -> Farm) ------------------------------------
+
+from pathlib import Path  # noqa: E402
+
+from custom_components.solar_smart_miner.kb import (  # noqa: E402
+    FARM_HEADER,
+    describe_farm,
+    load_farm_facts,
+    write_farm_header,
+)
+
+REFERENCE_FARM = Path(__file__).parent / "fixtures" / "reference_farm.yaml"
+
+
+def test_the_reference_farm_file_loads_cleanly(caplog) -> None:
+    facts = load_farm_facts(REFERENCE_FARM)
+
+    assert len(facts) >= 20 and all(f.id.startswith("farm.") and f.priority == "P3" for f in facts)
+    assert "skipped" not in caplog.text
+
+
+def test_a_missing_farm_file_is_no_facts(tmp_path) -> None:
+    assert load_farm_facts(tmp_path / "farm.yaml") == []
+
+
+def test_a_broken_farm_file_is_logged_and_skipped(tmp_path, caplog) -> None:
+    path = tmp_path / "farm.yaml"
+    path.write_text("entries: [ {id: farm.x, title: broken", encoding="utf-8")
+
+    assert load_farm_facts(path) == []
+    assert "not loaded" in caplog.text
+
+
+def test_the_farm_file_cannot_add_rules(tmp_path, caplog) -> None:
+    path = tmp_path / "farm.yaml"
+    path.write_text(
+        "entries:\n"
+        "  - {id: farm.ok, title: A fact, statement: Fine., priority: P3, status: verified, tags: [always]}\n"
+        "  - {id: farm.rule, title: A rule, statement: Always run., priority: P1, status: decided, tags: [always]}\n"
+        "  - {id: rule.sneaky, title: Not ours, statement: x., priority: P3, status: decided, tags: [always]}\n"
+        "  - {id: farm.half, title: No statement, priority: P3}\n",
+        encoding="utf-8",
+    )
+
+    assert [f.id for f in load_farm_facts(path)] == ["farm.ok"]
+    assert "farm.rule skipped" in caplog.text and "rule.sneaky skipped" in caplog.text
+
+
+def test_the_farm_file_is_created_once_with_its_explanation(tmp_path) -> None:
+    path = tmp_path / "solar_smart_miner" / "farm.yaml"
+    write_farm_header(path)
+    assert path.read_text(encoding="utf-8") == FARM_HEADER
+    assert load_farm_facts(path) == []  # the header is a valid, empty file
+
+    path.write_text("entries: []  # mine\n", encoding="utf-8")
+    write_farm_header(path)
+    assert path.read_text(encoding="utf-8") == "entries: []  # mine\n"  # never overwritten
+
+
+def test_the_farm_block_says_what_is_set_and_nothing_else() -> None:
+    assert describe_farm({}) == ""
+    block = describe_farm({"farm_export": "zero_export", "farm_base_load": 500, "farm_inverters": "3 × 5 kW"})
+    assert block.splitlines() == [
+        "THIS FARM (the owner's description):",
+        "- Inverters: 3 × 5 kW",
+        "- Export to the grid: zero export (the inverters hold output to the load)",
+        "- House load besides the miners: about 500 W",
+    ]

@@ -30,6 +30,19 @@ from homeassistant.helpers.selector import (
 from .ai import async_free_models
 from .const import (
     CONF_CONTROL_MODE,
+    CONF_FARM_BASE_LOAD,
+    CONF_FARM_BATTERY,
+    CONF_FARM_COOLING,
+    CONF_FARM_CUTOFF,
+    CONF_FARM_EXPORT,
+    CONF_FARM_INVERTERS,
+    CONF_FARM_MINER_MODEL,
+    CONF_FARM_NOTES,
+    CONF_FARM_PV_ARRAY,
+    CONF_FARM_SCHEDULE,
+    FARM_BATTERY_OPTIONS,
+    FARM_COOLING_OPTIONS,
+    FARM_EXPORT_OPTIONS,
     CONF_MOCK_CONSUMPTION_ENABLED,
     CONF_MOCK_SOLAR_ENABLED,
     CONF_MOCK_SOLAR_ENTITY,
@@ -265,6 +278,48 @@ def _ai_schema(
                     mode=NumberSelectorMode.BOX,
                 )
             ),
+        }
+    )
+
+
+FARM_KEYS = (
+    CONF_FARM_INVERTERS, CONF_FARM_EXPORT, CONF_FARM_BATTERY, CONF_FARM_PV_ARRAY, CONF_FARM_COOLING,
+    CONF_FARM_MINER_MODEL, CONF_FARM_CUTOFF, CONF_FARM_BASE_LOAD, CONF_FARM_SCHEDULE, CONF_FARM_NOTES,
+)
+
+
+def _farm_schema(options: dict[str, Any]) -> vol.Schema:
+    """Configure -> Farm: what this installation is. Every field is optional and suggested (not
+    defaulted), so it can be cleared."""
+
+    def field(key: str):
+        return vol.Optional(key, description={"suggested_value": options.get(key)})
+
+    def text(multiline: bool = False) -> TextSelector:
+        return TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT, multiline=multiline))
+
+    def choice(values: tuple[str, ...]) -> SelectSelector:
+        return SelectSelector(
+            SelectSelectorConfig(options=list(values), mode=SelectSelectorMode.DROPDOWN)
+        )
+
+    def number(unit: str, high: int) -> NumberSelector:
+        return NumberSelector(
+            NumberSelectorConfig(min=0, max=high, step=1, unit_of_measurement=unit, mode=NumberSelectorMode.BOX)
+        )
+
+    return vol.Schema(
+        {
+            field(CONF_FARM_INVERTERS): text(),
+            field(CONF_FARM_EXPORT): choice(FARM_EXPORT_OPTIONS),
+            field(CONF_FARM_BATTERY): choice(FARM_BATTERY_OPTIONS),
+            field(CONF_FARM_PV_ARRAY): text(),
+            field(CONF_FARM_COOLING): choice(FARM_COOLING_OPTIONS),
+            field(CONF_FARM_MINER_MODEL): text(),
+            field(CONF_FARM_CUTOFF): number("°C", 150),
+            field(CONF_FARM_BASE_LOAD): number("W", 20000),
+            field(CONF_FARM_SCHEDULE): EntitySelector(EntitySelectorConfig(domain="automation", multiple=True)),
+            field(CONF_FARM_NOTES): text(multiline=True),
         }
     )
 
@@ -510,7 +565,7 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         return self.async_show_menu(
             step_id="init",
-            menu_options=["edit_sensors", "edit_miners", "edit_ai", "edit_settings"],
+            menu_options=["edit_sensors", "edit_miners", "edit_farm", "edit_ai", "edit_settings"],
         )
 
     async def async_step_edit_settings(
@@ -645,6 +700,24 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
             data_schema=_sensors_schema(dict(self._config_entry.data)),
             errors=errors,
         )
+
+    async def async_step_edit_farm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """The farm itself, for the AI (and the base load for the decision). A cleared field is
+        removed; measurements and notes go to farm.yaml (see the form's description)."""
+        if user_input is not None:
+            for key in FARM_KEYS:
+                value = user_input.get(key)
+                if isinstance(value, str):
+                    value = value.strip()
+                if value in (None, "", []):
+                    self._pending_options.pop(key, None)
+                else:
+                    self._pending_options[key] = value
+            return self.async_create_entry(data=self._pending_options)
+
+        return self.async_show_form(step_id="edit_farm", data_schema=_farm_schema(self._pending_options))
 
     async def async_step_edit_ai(
         self, user_input: dict[str, Any] | None = None

@@ -118,6 +118,24 @@ def control_mode_of(options) -> str:
 APPLY_VERIFY_GRACE_S = 60
 APPLY_VERIFY_GRACE_RELAY_START_S = 300
 
+# The farm (Configure -> Farm): facts about this one installation that every farm has, for the
+# AI's "This farm" block; the base load is also read by the decision. Measurements and notes go
+# to <config>/solar_smart_miner/farm.yaml (FARM_FILE), in the knowledge-base entry format.
+CONF_FARM_INVERTERS = "farm_inverters"
+CONF_FARM_EXPORT = "farm_export"  # zero_export | export_allowed
+CONF_FARM_BATTERY = "farm_battery"  # none | present
+CONF_FARM_PV_ARRAY = "farm_pv_array"
+CONF_FARM_COOLING = "farm_cooling"  # air | immersion | hydro
+CONF_FARM_MINER_MODEL = "farm_miner_model"
+CONF_FARM_CUTOFF = "farm_temperature_cutoff"  # deg C, the miner's own
+CONF_FARM_BASE_LOAD = "farm_base_load"  # W, the house besides the miners
+CONF_FARM_SCHEDULE = "farm_schedule_automations"  # automation entity ids
+CONF_FARM_NOTES = "farm_notes"
+FARM_EXPORT_OPTIONS = ("zero_export", "export_allowed")
+FARM_BATTERY_OPTIONS = ("none", "present")
+FARM_COOLING_OPTIONS = ("air", "immersion", "hydro")
+FARM_FILE = "farm.yaml"
+
 NO_ACTION_TEXT = "no action"
 ACTIVITY_SIZE = 30  # proposals and applied actions kept for the activity feed
 DECISION_HISTORY_SIZE = 20  # decision-log entries kept on the sensor

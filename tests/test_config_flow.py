@@ -954,3 +954,25 @@ async def test_options_flow_refuses_an_import_range_narrower_than_one_power_step
     )
     assert result["type"] == FlowResultType.FORM
     assert result["errors"] == {"import_max": "invalid_import_range"}
+
+
+async def test_the_farm_step_saves_and_clears_the_farm(hass: HomeAssistant) -> None:
+    entry = _make_entry(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert "edit_farm" in result["menu_options"]
+
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "edit_farm"})
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"farm_export": "zero_export", "farm_base_load": 500, "farm_notes": "  East-west roof  "},
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options["farm_export"] == "zero_export"
+    assert entry.options["farm_base_load"] == 500
+    assert entry.options["farm_notes"] == "East-west roof"
+    assert entry.options[CONF_POLLING_INTERVAL] == DEFAULT_POLLING_INTERVAL  # the rest is kept
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "edit_farm"})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"farm_export": "zero_export"})
+    assert "farm_base_load" not in entry.options and "farm_notes" not in entry.options

@@ -100,8 +100,18 @@ Open **Settings → Devices & services → Solar Smart Miner → Configure**. Sa
 |---|---|
 | **Sensors** | Solar / net-meter entity and what it measures, house consumption (optional), battery SOC (optional), and reference sensors for the AI log: actual PV output and the solar forecast (all optional) |
 | **Miner stop method** | Per miner: the relay switch that cuts it off (empty = use the miner's own pause switch) |
+| **Farm** | What your installation is: inverters, export to the grid, battery, PV array, cooling, miner model and firmware, the miners' own temperature cutoff, the house load besides the miners, schedule automations, notes (see [Your farm's data](#your-farms-data)) |
 | **AI (OpenRouter)** | Turn the AI on or off, API key (shown hidden), model, seconds between AI requests |
-| **Settings** | Power steps, polling interval, target temperature and tolerance, battery floor, control mode, Telegram, development mocks |
+| **Settings** | Power steps, restart time after a change, polling interval, target temperature and tolerance, battery floor, control mode, Telegram, development mocks |
+
+### Your farm's data
+
+The rules ship with the integration and are the same on every farm. What is true of **your** farm lives in two places that you own and that survive updates:
+
+- **Configure → Farm**: a few fields every farm has (inverters, export, battery, cooling, miner model, base load, schedule automations, notes). The AI gets them as a short "This farm" block with every request; the base load is also used by the rules.
+- **`<HA config>/solar_smart_miner/farm.yaml`**: measurements and longer notes, in the same entry format as the integration's knowledge base (`custom_components/solar_smart_miner/knowledge/README.md`), P3 only, ids starting with `farm.`. It is created on first setup with an example in its header. Its entries reach the AI by situation like the integration's own facts. A broken file or entry is logged and skipped; a P0 to P2 entry is refused (your file can't add rules). Edit it with the File editor add-on and reload the integration.
+
+The owner's farm (the reference farm the defaults come from) has such a file with about two dozen entries: its inverters, roof, miners, measured restart and tuning times, settled values per step, meter gaps and sunrise/sunset curves.
 
 ### AI advice (OpenRouter)
 

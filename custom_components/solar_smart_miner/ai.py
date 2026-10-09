@@ -82,8 +82,9 @@ def build_messages(
     temp_tolerance: float,
     battery_floor: float,
     knowledge: str = "",
+    farm: str = "",
 ) -> list[dict[str, str]]:
-    """System prompt (plus the knowledge base section, if any) and the readings."""
+    """System prompt (plus this farm's description and the knowledge base, if any) and the readings."""
     profile_def = PROFILES_BY_NAME.get(profile)
     label = profile_def["display_name"] if profile_def else profile
     trace = snapshot.decision.trace if snapshot.decision else ["No decision available."]
@@ -93,7 +94,7 @@ def build_messages(
         f"Battery floor: {battery_floor:.0f} %\n\n" + "\n".join(trace)
     )
     return [
-        {"role": "system", "content": f"{SYSTEM_PROMPT}\n\n{knowledge}" if knowledge else SYSTEM_PROMPT},
+        {"role": "system", "content": "\n\n".join(part for part in (SYSTEM_PROMPT, farm, knowledge) if part)},
         {"role": "user", "content": user},
     ]
 

@@ -1,0 +1,366 @@
+# Reference farm: facts about this one farm, for the AI (proposal, decision pipeline plan U7).
+# Not shipped with the integration. On a real install this file lives at
+#   <HA config>/solar_smart_miner/farm.yaml
+# and survives updates. Same format as the integration's knowledge base, P3 only (no rules).
+# Built on 2026-10-09 from the farm-specific entries in custom_components/solar_smart_miner/knowledge/;
+# the old id is in `moved_from`. When U7 lands, the shipped entries keep only the principle.
+entries:
+  - id: farm.location
+    title: Where the site is
+    statement: >
+      The site is in Brodilovo, Bulgaria (about 42.08 N, 27.86 E). Home Assistant runs in
+      local time, UTC+3 in summer and UTC+2 in winter. In early October the first PV output
+      appears around 07:00 and the sun is gone by about 18:20.
+    priority: P3
+    status: verified
+    source: "measured: HA history and sun.sun, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, sunrise, sunset]
+    moved_from: site.location
+
+  - id: farm.inverters
+    title: Three 5 kW inverters
+    statement: >
+      Three Huawei SUN2000-5KTL-L1 inverters (Invertor 071, 981 and 928), 5 kW AC each, 15 kW
+      in total. Home Assistant has one active-power sensor per inverter and a calculated sum,
+      sensor.active_power_total.
+    priority: P3
+    status: verified
+    source: "measured: HA entities, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, solar]
+    moved_from: site.inverters
+
+  - id: farm.array-orientation
+    title: East-west roof
+    statement: >
+      The panels sit on a two-slope roof, split about 50:50. The slopes face roughly 80 deg
+      (east-north-east) and 260 deg (west-south-west), compass degrees with 0 = north. The
+      forecast assumes 7.5 kWp per slope at 15 deg tilt.
+    priority: P3
+    status: assumed
+    source: "owner: satellite screenshot, 2026-10-05; angle measured from the arrows, about 10 deg uncertain; tilt not checked"
+    date: "2026-10-05"
+    tags: [solar, forecast]
+    note: >
+      Morning output was 1.5-3.6x the old west-only forecast, which is what an east-facing
+      half would give.
+    moved_from: site.array-orientation
+
+  - id: farm.no-battery
+    title: No battery, grid always there
+    statement: >
+      There is no battery. The grid is always connected and absorbs every swing: a miner
+      ramping, a cloud, or an inverter throttling.
+    priority: P3
+    status: decided
+    source: "requirements doc §4.3, §6.1"
+    date: "2026-10-05"
+    tags: [always, grid]
+    moved_from: site.no-battery
+
+  - id: farm.grid-meter-sign
+    title: Meter sign convention
+    statement: >
+      sensor.power_meter_active_power is the grid meter in W. Negative means importing from
+      the grid, positive means exporting. It sits close to 0 while the inverters cover the
+      load.
+    priority: P3
+    status: verified
+    source: "measured: meter read -3656 W while PV was 216 W, 2026-10-05 18:10"
+    date: "2026-10-05"
+    tags: [always, grid]
+    moved_from: site.grid-meter-sign
+
+  - id: farm.zero-export
+    title: Inverters hold output to the house load
+    statement: >
+      All three inverters report "Grid Connection: power limited" and produce only what the
+      house consumes. While that holds, measured solar equals the load, not the sun, and says
+      nothing about how much more the panels could give.
+    priority: P3
+    status: verified
+    source: "measured: flat 4.0 kWh per hour from 09:00 to 16:00 against a 9.9 kW forecast, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, midday, solar, curtailed]
+    moved_from: site.zero-export
+
+  - id: farm.base-load
+    title: Everything but the miners draws about 500 W
+    statement: >
+      The house load other than the miners is about 500 W. So an import well below that means
+      the solar covers part of the house, and near 0 W it covers all of it and the zero-export
+      inverters may be holding back (rule.small-import-target).
+    priority: P3
+    status: verified
+    source: "owner, 2026-10-08; measured: about 470 W import at night with all three miners paused, 2026-10-08 06:00 to 07:15"
+    date: "2026-10-08"
+    tags: [always, grid]
+    note: >
+      Paused miners may still draw for their control boards and fans, so part of the 470 W may
+      be them. It varies (energy.unseen-load).
+    moved_from: site.base-load
+
+  - id: farm.forecast-setup
+    title: How the solar forecast is set up
+    statement: >
+      Forecast.Solar runs as two entries, "East slope" (80 deg, 7.5 kWp) and "West slope" (260
+      deg, 7.5 kWp). Two template sensors add them: sensor.solar_forecast_power_now and
+      sensor.solar_forecast_energy_left_today. The free API allows 12 calls an hour.
+    priority: P3
+    status: verified
+    source: "measured: HA config entries, 2026-10-05"
+    date: "2026-10-05"
+    tags: [forecast, solar]
+    moved_from: site.forecast-setup
+
+  - id: farm.forecast-accuracy
+    title: Forecast against reality
+    statement: >
+      On 2026-10-05 the forecast said about 66 kWh and the inverters made 36 kWh, but the
+      inverters were throttled to the load, so the gap is mostly unused capacity. In the
+      unthrottled hours the new two-slope forecast fits the morning better than the old one
+      and still runs about twice too high at 17:00, possibly from shading on the west side.
+    priority: P3
+    status: assumed
+    source: "measured: hourly forecast vs hourly yield, 2026-10-05; the shading is a guess"
+    date: "2026-10-05"
+    tags: [forecast, sunset]
+    note: >
+      Check again on a day with no throttling at the edges, and compare the evening hours.
+    moved_from: site.forecast-accuracy
+
+  - id: farm.schedule-automation
+    title: Fixed-hour schedule still runs the miners
+    statement: >
+      Home Assistant automations pause and resume the miners at fixed hours: resume at 07:00,
+      07:05 and 07:10, pause at 19:00, 19:05 and 19:10 (Brod1, Brod2, Brod3). They are to be
+      switched off before the integration applies decisions automatically (rule.one-
+      controller); with manual Apply they may still run, and the owner is warned.
+    priority: P3
+    status: verified
+    source: "measured: switch history 2026-09-25 to 2026-10-05; handover decided in requirements doc §0 point 10"
+    date: "2026-10-05"
+    tags: [always, startup, sunset, sunrise]
+    moved_from: site.schedule-automation
+
+  - id: farm.fleet
+    title: Three Braiins miners
+    statement: >
+      Three miners, Brod1, Brod2 and Brod3, run Braiins OS and are read through hass-miner
+      (one config entry per miner). Each has a power limit (a number entity, range 500 to 3500
+      W in steps of 100 W) and a pause/resume switch (switch.brodN_active).
+    priority: P3
+    status: verified
+    source: "measured: HA entity registry, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always]
+    moved_from: miner.fleet
+
+  - id: farm.immersion
+    title: Immersion cooled, no fans
+    statement: >
+      The miners are immersion cooled and have no fans. Temperature follows power and the
+      cooling directly. The only Braiins OS temperature setting that matters is the cutoff,
+      about 80 deg C, which restarts the miner.
+    priority: P3
+    status: decided
+    source: "requirements doc §0 point 5, §3.2"
+    date: "2026-10-05"
+    tags: [always, temperature]
+    moved_from: miner.immersion
+
+  - id: farm.draw-vs-limit
+    title: A settled miner draws about its limit
+    statement: >
+      Once settled a miner draws within about 4 W of its limit (1697 W at 1700 W, 1899 W at
+      1900 W); one read 14 W over at 1900 W. Early readings differ: at 1300 W it drew 1280 to
+      1300 W, and a tuning miner is lower or higher until it settles. Budgets can treat the
+      limit as the draw.
+    priority: P3
+    status: verified
+    source: "measured: 1300 W on 2026-10-05, 1700 and 1900 W on 2026-10-06"
+    date: "2026-10-06"
+    tags: [always, midday]
+    moved_from: miner.draw-vs-limit
+
+  - id: farm.efficiency-range
+    title: Efficient between 1000 and 2000 W
+    statement: >
+      The miners have similar efficiency between about 1000 W and 2000 W. So 4000 W is better
+      used by three miners near 1330 W than by two at 2000 W.
+    priority: P3
+    status: assumed
+    source: "requirements doc §1; owner's belief, not measured"
+    date: "2026-10-05"
+    tags: [midday, allocation]
+    note: >
+      Measured 2026-10-06: J/TH is flat from 1300 to 1900 W (miner.settled-values). Nothing is
+      measured below 1300 W or above 1900 W, so the 1000 to 2000 W claim is checked for 1300
+      to 1900 W only.
+    moved_from: miner.efficiency-range
+
+  - id: farm.tuning-not-exposed
+    title: The tuning state isn't available
+    statement: >
+      hass-miner doesn't expose whether a miner is tuning or stable.
+      sensor.brodN_active_preset_name reads unknown even while the miner runs. The controller
+      estimates it as the time since the power limit last changed.
+    priority: P3
+    status: verified
+    source: "measured: HA states, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, allocation, tuning]
+    moved_from: miner.tuning-not-exposed
+
+  - id: farm.tuning-signature
+    title: What an untuned miner looks like
+    statement: >
+      Right after a limit change a miner draws the new power but hashes poorly: at 1300 W
+      Brod1 gave about 59 TH/s at 22 J/TH, and 3 to 9 minutes after moving to 1500 W it gave
+      47 to 50 TH/s at 30 to 32 J/TH. Efficiency (J/TH) is the clearest sign, because a tuned
+      miner at a higher power should do better, not worse, in TH/s.
+    priority: P3
+    status: verified
+    source: "measured: Brod1 history 09:20 to 09:40, 2026-10-06"
+    date: "2026-10-06"
+    tags: [allocation, alerts, tuning]
+    note: >
+      No sensor says "tuning"; efficiency is only a proxy. How long it lasts and what it
+      settles at are in miner.tuning-duration and miner.settled-values.
+    moved_from: miner.tuning-signature
+
+  - id: farm.tuning-duration
+    title: How long a tuning takes
+    statement: >
+      Five tunings (Brod1, Brod2 and Brod3 at 1500, 1700 and 1900 W) took the same time.
+      Efficiency was within 10% of its final value after 17 to 20 minutes (31 J/TH at 4
+      minutes, 28 at 8, 25 at 12, 22.5 at 16) and the miner showed about five short hashrate
+      dips between +7 and +46 minutes. After that it stayed steady for hours. So a change
+      means about 50 minutes of tuning.
+    priority: P3
+    status: verified
+    source: "measured: Brod1 (1500, 1700, 1900 W), Brod2 (1500, 1700, 1900 W) and Brod3 (1700 W), 2026-10-06 09:31 to 19:00; medians over rolling windows"
+    date: "2026-10-06"
+    tags: [allocation, tuning]
+    note: >
+      Matches the owner's 14 minutes to an hour. The 17 to 20 minute figure is when the
+      efficiency is near its final value; the dips and the last few percent take until about
+      +46. Always from a lower step to a higher one so far; stepping down is not measured. Per
+      the owner (2026-10-07) this is the cost of a step a miner has never run; a step tuned
+      before is only a restart (miner.revisit-is-a-restart).
+    moved_from: miner.tuning-duration
+
+  - id: farm.revisit-is-a-restart
+    title: Going back to a tuned step is only a restart
+    statement: >
+      A miner keeps the settings from its first tuning at a wattage. Changing to a step it has
+      run before costs only the restart, 2 to 3 minutes until it loads and settles at that
+      power (measured about 4 minutes to the new power); the long tuning (miner.tuning-
+      duration) is for a step it has never run. Every miner has run the steps from 900 to
+      2,500 W.
+    priority: P3
+    status: decided
+    source: "owner, 2026-10-07; restart time measured 2026-10-06 (miner.limit-change-cost)"
+    date: "2026-10-07"
+    tags: [always, allocation, tuning]
+    note: >
+      Not measured yet: check on the first applied change to a step tuned before that
+      efficiency is near miner.settled-values within about 5 minutes. Then raise to verified.
+      The steps up to 2,500 W confirmed by the owner on 2026-10-07 (conflict.power-steps-
+      config); settled values are measured only up to 1,900 W. Owner, 2026-10-08: the settle
+      after a change is usually about 5 minutes (the tuning time default).
+    moved_from: miner.revisit-is-a-restart
+
+  - id: farm.settled-values
+    title: What a tuned miner gives at each step
+    statement: >
+      Settled (median of the last 15 to 25 minutes): 1300 W gives about 59 TH/s at 21.9 J/TH,
+      1500 W about 68 TH/s at 22 J/TH, 1700 W 76 to 78 TH/s at 21.8 to 22.4 J/TH (Brod1,
+      Brod2, Brod3), and 1900 W 84 to 88 TH/s at 21.9 to 22.6 J/TH. Hashrate per kW is 44 to
+      46 TH/s at every step, so efficiency is flat from 1300 to 1900 W and hashrate grows with
+      power. Settled draw is within 4 W of the limit (Brod1 at 1900 W: 14 W over).
+    priority: P3
+    status: verified
+    source: "measured: five tunings 1500 to 1900 W plus the 1300 W baselines, 2026-10-06"
+    date: "2026-10-06"
+    tags: [allocation, tuning, midday]
+    note: >
+      Nothing is measured at 900 W or 1100 W, nor above 1900 W. Brod2 runs about 0.6 J/TH
+      worse than Brod1 and Brod3.
+    moved_from: miner.settled-values
+
+  - id: farm.hashrate-dips
+    title: Short hashrate dips during the tuning
+    statement: >
+      After a limit change a miner has about five short hashrate dips (1 to 3 minutes, below
+      85% of the settled value, power nearly unchanged, sometimes 60 W lower), the first at +7
+      to +8 minutes and the last at +43 to +46 minutes. They did this on three miners at 1700
+      and 1900 W and then never again in the following 6 to 7 hours. So a dip inside the first
+      50 minutes is the tuner probing; one much later is not.
+    priority: P3
+    status: verified
+    source: "measured: Brod3 at 1700 W, Brod1 and Brod2 at 1900 W, 2026-10-06 (5 episodes in the first hour each, none after)"
+    date: "2026-10-06"
+    tags: [alerts, tuning]
+    note: >
+      The dips are not at the same time on different miners. Earlier I read them as a separate
+      effect of running at 1500 W; the longer data shows they belong to the tuning.
+    moved_from: miner.hashrate-dips
+
+  - id: farm.evening-curve
+    title: What the sunset looked like
+    statement: >
+      On 2026-10-05, with three miners at 1300 W, PV fell from 3.0 kW at 17:02 to 1.45 kW at
+      17:41, 0.85 kW at 18:02 and 0.2 kW at 18:17. Grid import grew from 1.3 kW at 17:14 to
+      3.7 kW at 18:10 and reached 6.1 kWh between 17:00 and 19:12 (about 3.3 kWh after
+      sunset), until the schedule paused the miners at 19:00 to 19:10.
+    priority: P3
+    status: verified
+    source: "measured: HA history, 2026-10-05"
+    date: "2026-10-05"
+    tags: [sunset]
+    moved_from: energy.evening-curve
+
+  - id: farm.morning-curve
+    title: Morning rise
+    statement: >
+      On 2026-10-08 (clear, all miners paused) the inverters woke at about 07:15 (sun 0 deg),
+      PV covered the house and the meter reached 0 W at 07:45 (5 deg), and they reported power
+      limited from 07:50 (6 deg), steadily from about 08:15 (10 deg). How fast the real
+      potential rises after that is not known: throttled, PV only shows the load.
+    priority: P3
+    status: verified
+    source: "measured: HA history of the inverter status, PV and the meter, 2026-10-08"
+    date: "2026-10-08"
+    tags: [sunrise]
+    note: >
+      One clear morning in early October; the times move with the season. Starts at the import
+      floor (rule.small-import-target) will show when a 900 W miner can first be carried.
+    moved_from: energy.morning-curve
+
+  - id: farm.pv-sum-unreliable
+    title: The PV sum drops out
+    statement: >
+      sensor.active_power_total reads unknown every few minutes through the evening, for
+      seconds to minutes at a time, probably when an inverter doesn't answer. It is fine as a
+      reference value, not as a control signal.
+    priority: P3
+    status: verified
+    source: "measured: HA history 17:00 to 20:00, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, alerts, dropout]
+    moved_from: energy.pv-sum-unreliable
+
+  - id: farm.meter-dropouts
+    title: The meter drops out briefly
+    statement: >
+      sensor.power_meter_active_power was unavailable for about 35 seconds at 17:39 and again
+      around 18:43 on 2026-10-05. Such short gaps are normal and must not make the controller
+      act.
+    priority: P3
+    status: verified
+    source: "measured: HA history, 2026-10-05"
+    date: "2026-10-05"
+    tags: [always, alerts, dropout]
+    moved_from: energy.meter-dropouts

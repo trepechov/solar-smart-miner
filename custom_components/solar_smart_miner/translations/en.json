@@ -51,6 +51,7 @@
         "menu_options": {
           "edit_sensors": "Sensors",
           "edit_miners": "Miner stop method",
+          "edit_farm": "Farm",
           "edit_ai": "AI (OpenRouter)",
           "edit_settings": "Settings"
         },
@@ -100,6 +101,32 @@
           "forecast_power_now_entity": "Forecast: PV power now, W (optional)",
           "forecast_power_next_hour_entity": "Forecast: PV power next hour, W (optional)",
           "forecast_energy_remaining_entity": "Forecast: PV energy left today, kWh (optional)"
+        }
+      },
+      "edit_farm": {
+        "title": "Solar Smart Miner — Farm",
+        "description": "What this installation is. The AI is told these in every request (they are context, never rules), and the base load is used when the grid meter is lost. Leave a field empty if it doesn't apply. Measurements and notes go to the file solar_smart_miner/farm.yaml in your Home Assistant config folder (created on first setup, with an example); it survives updates. Saving reloads the integration.",
+        "data": {
+          "farm_inverters": "Inverters",
+          "farm_export": "Export to the grid",
+          "farm_battery": "Battery",
+          "farm_pv_array": "PV array",
+          "farm_cooling": "Cooling",
+          "farm_miner_model": "Miner model and firmware",
+          "farm_temperature_cutoff": "The miners' own temperature cutoff",
+          "farm_base_load": "House load besides the miners",
+          "farm_schedule_automations": "Schedule automations that also switch the miners",
+          "farm_notes": "Notes"
+        },
+        "data_description": {
+          "farm_inverters": "For example: 3 × 5 kW, 15 kW in total.",
+          "farm_export": "zero_export: the inverters hold their output to the load (the meter can't show spare sun). export_allowed: surplus goes to the grid.",
+          "farm_battery": "none or present. The battery profiles are not built yet.",
+          "farm_pv_array": "For example: east-west roof, 2 × 7.5 kWp.",
+          "farm_cooling": "air, immersion or hydro.",
+          "farm_temperature_cutoff": "The firmware's own limit; the integration doesn't manage it.",
+          "farm_base_load": "About how much the house draws besides the miners, in W.",
+          "farm_schedule_automations": "Automations that pause or resume the miners at fixed hours. Switch them off before Automatic mode: two controllers fight."
         }
       },
       "edit_ai": {

@@ -82,6 +82,12 @@ moving it in that list, replaying the farm's moments and releasing.
 | `situations.yaml` | Named states that nothing measures directly (sunrise, sunset, night, cloud, miner tuning, inverters throttled, sensor dropout) and the evidence for each. |
 | `alerts.yaml` | Edge cases that should not happen in normal operation, and what each one triggers. |
 
+**Not here: one farm's facts.** Every statement in these files holds for any farm, worded against the
+configuration; a reference farm's figures may sit in `note`. What is true of one farm is the user's:
+Configure → Farm, and `<HA config>/solar_smart_miner/farm.yaml` in this same entry format (P3 only,
+`farm.` ids), loaded after these files. The test refuses model, firmware, farm and entity names in a
+shipped statement.
+
 ## How the AI uses it
 
 1. **Always sent:** every P0 and P1 entry, kept short.

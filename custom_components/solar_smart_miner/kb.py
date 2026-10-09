@@ -1,4 +1,9 @@
-"""The knowledge base (knowledge/*.yaml) as the AI is given it.
+"""The knowledge base (knowledge/*.yaml) and the farm's own data, as the AI is given them.
+
+Two layers: the rules and principles ship with the integration (knowledge/); what is true of
+one farm is the user's: a few fields in Configure -> Farm (describe_farm, always sent) and
+measurements and notes in <config>/solar_smart_miner/farm.yaml (load_farm_facts, P3 only,
+picked by situation like the shipped P3 entries). Both survive updates.
 
 The facts are loaded once, off the event loop, and each AI request gets the ones that fit
 the moment, following knowledge/README.md: every P0 and P1 rule always, then P2 and P3
@@ -13,7 +18,18 @@ from pathlib import Path
 
 import yaml
 
-from .const import KB_PROMPT_BUDGET_CHARS
+from .const import (
+    CONF_FARM_BASE_LOAD,
+    CONF_FARM_BATTERY,
+    CONF_FARM_COOLING,
+    CONF_FARM_CUTOFF,
+    CONF_FARM_EXPORT,
+    CONF_FARM_INVERTERS,
+    CONF_FARM_MINER_MODEL,
+    CONF_FARM_NOTES,
+    CONF_FARM_PV_ARRAY,
+    KB_PROMPT_BUDGET_CHARS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,23 +61,101 @@ class Fact:
     tags: tuple[str, ...]
 
 
+def _fact(e: dict) -> Fact:
+    return Fact(
+        id=e["id"],
+        title=e["title"],
+        statement=" ".join(str(e["statement"]).split()),
+        priority=e["priority"],
+        status=e["status"],
+        tags=tuple(e.get("tags") or ()),
+    )
+
+
 def load_facts(directory: Path = KB_DIR) -> list[Fact]:
     """Every entry of the fact files, in file order. Blocking: run it in an executor."""
     facts: list[Fact] = []
     for name in FACT_FILES:
         data = yaml.safe_load((directory / name).read_text(encoding="utf-8")) or {}
-        for e in data.get("entries") or []:
-            facts.append(
-                Fact(
-                    id=e["id"],
-                    title=e["title"],
-                    statement=" ".join(str(e["statement"]).split()),
-                    priority=e["priority"],
-                    status=e["status"],
-                    tags=tuple(e.get("tags") or ()),
-                )
-            )
+        facts.extend(_fact(e) for e in data.get("entries") or [])
     return facts
+
+
+FARM_HEADER = """\
+# Facts about this farm, for the AI: what it is, what was measured on it, notes.
+# Same format as the integration's knowledge base (see its knowledge/README.md), but P3 only:
+# context for reasoning, never rules (a P0 to P2 entry here is skipped). Ids start with "farm.".
+# Edit freely; reload the integration to apply. Example entry:
+#
+#   - id: farm.meter-dropouts
+#     title: Grid meter gaps
+#     statement: The grid meter drops out for under a minute a few times an evening.
+#     priority: P3
+#     status: verified
+#     source: "measured: 2026-10-05"
+#     date: "2026-10-05"
+#     tags: [always]
+entries: []
+"""
+
+
+def load_farm_facts(path: Path) -> list[Fact]:
+    """The farm's own facts from farm.yaml (blocking). A missing file is no facts; a broken
+    file or entry is logged and skipped, never an error: the integration works without it."""
+    if not path.exists():
+        return []
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        entries = data.get("entries") or []
+    except (OSError, yaml.YAMLError, AttributeError) as err:
+        _LOGGER.warning("Farm file %s not loaded, the AI gets no farm facts from it: %s", path, err)
+        return []
+    facts: list[Fact] = []
+    for e in entries:
+        try:
+            fact = _fact(e)
+        except (KeyError, TypeError):
+            _LOGGER.warning("Farm file %s: an entry is missing a field, skipped: %s", path, e)
+            continue
+        if fact.priority != "P3" or not fact.id.startswith("farm."):
+            # The user's file can't add rules that would sit next to the code's.
+            _LOGGER.warning("Farm file %s: %s skipped (only P3 entries with farm. ids)", path, fact.id)
+            continue
+        facts.append(fact)
+    return facts
+
+
+def write_farm_header(path: Path) -> None:
+    """Create farm.yaml with its explanation on first setup (blocking); never overwrite it."""
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(FARM_HEADER, encoding="utf-8")
+
+
+_FARM_LINES = (
+    (CONF_FARM_INVERTERS, "Inverters: {}"),
+    (CONF_FARM_EXPORT, "Export to the grid: {}"),
+    (CONF_FARM_BATTERY, "Battery: {}"),
+    (CONF_FARM_PV_ARRAY, "PV array: {}"),
+    (CONF_FARM_COOLING, "Cooling: {}"),
+    (CONF_FARM_MINER_MODEL, "Miners: {}"),
+    (CONF_FARM_CUTOFF, "The miners' own temperature cutoff: {:.0f} deg C"),
+    (CONF_FARM_BASE_LOAD, "House load besides the miners: about {:.0f} W"),
+    (CONF_FARM_NOTES, "Notes: {}"),
+)
+_WORDS = {"zero_export": "zero export (the inverters hold output to the load)",
+          "export_allowed": "allowed", "none": "none", "present": "present"}
+
+
+def describe_farm(options) -> str:
+    """The "This farm" block of the system prompt, from Configure -> Farm (empty if unset)."""
+    lines = []
+    for key, text in _FARM_LINES:
+        value = options.get(key)
+        if value in (None, ""):
+            continue
+        lines.append("- " + text.format(_WORDS.get(value, value) if isinstance(value, str) else value))
+    return "THIS FARM (the owner's description):\n" + "\n".join(lines) if lines else ""
 
 
 def situation(sun_state, transition: str | None = None) -> str | None:

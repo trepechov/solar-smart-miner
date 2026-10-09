@@ -10,6 +10,7 @@ import logging
 import time
 from collections import deque
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import yaml
 from homeassistant.components.persistent_notification import async_create as pn_create
@@ -74,6 +75,7 @@ from .const import (
     DEFAULT_TEMP_TOLERANCE,
     DEFAULT_RAMP_LOCK_MINUTES,
     DOMAIN,
+    FARM_FILE,
     HASS_MINER_PLATFORM,
     MIN_AI_INTERVAL,
     SOLAR_ENTITY_TYPE_NET_IMPORT,
@@ -91,7 +93,17 @@ from .control import (
 )
 from .decision import _describe_plan, build_decision, describe_proposal
 from .decision_log import DecisionLog
-from .kb import Fact, format_facts, load_facts, select_facts, situation
+from . import jsonl_log
+from .kb import (
+    Fact,
+    describe_farm,
+    format_facts,
+    load_facts,
+    load_farm_facts,
+    select_facts,
+    situation,
+    write_farm_header,
+)
 from .transition import Transition
 from .protocols import (
     ACTION_HOLD,
@@ -236,12 +248,19 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         return control_mode_of(self._entry.options)
 
     async def async_load_knowledge(self) -> None:
-        """Read the knowledge base for the AI prompt. Without it the AI still works, just knows less."""
+        """Read the knowledge base, then the farm's own facts after it (farm.yaml, created with
+        its explanation on first setup). Without either the AI still works, just knows less."""
         try:
             self.knowledge = await self.hass.async_add_executor_job(load_facts)
         except (OSError, yaml.YAMLError, KeyError, TypeError) as err:
             _LOGGER.error("Knowledge base not loaded, the AI gets no facts: %s", err)
             self.knowledge = []
+        farm_file = Path(self.hass.config.path(jsonl_log.LOG_DIR, FARM_FILE))
+        try:
+            await self.hass.async_add_executor_job(write_farm_header, farm_file)
+        except OSError as err:
+            _LOGGER.warning("Could not create %s: %s", farm_file, err)
+        self.knowledge += await self.hass.async_add_executor_job(load_farm_facts, farm_file)
 
     async def _async_read_energy(self) -> EnergySnapshot:
         options = self._entry.options
@@ -802,7 +821,10 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         }
         now = situation(self.hass.states.get("sun.sun"), self.transition.name)
         facts = select_facts(self.knowledge, now)
-        messages = build_messages(snapshot, **settings, knowledge=format_facts(facts, now))
+        messages = build_messages(
+            snapshot, **settings, knowledge=format_facts(facts, now),
+            farm=describe_farm(self._entry.options),
+        )
         record = build_record(
             snapshot,
             messages,

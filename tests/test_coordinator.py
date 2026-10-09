@@ -1,6 +1,8 @@
 """Tests for SolarMinerCoordinator — U11 (entity reads + power limit apply) and U10 (miner sum + mock consumption)."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -1399,3 +1401,28 @@ async def test_the_restart_time_setting_is_used_everywhere(hass, add_hass_miner,
     snapshot = await coordinator._async_update_data()
     assert snapshot.miners[0].is_stopped is True
     assert not coordinator.controller.is_pending(miner.miner_id)  # never came back: failed
+
+
+async def test_the_farm_file_is_created_and_its_facts_and_the_farm_block_reach_the_ai(
+    hass, mock_openrouter
+) -> None:
+    from custom_components.solar_smart_miner import jsonl_log
+
+    coordinator = SolarMinerCoordinator(hass, _ai_entry(hass))
+    hass.config_entries.async_update_entry(
+        coordinator._entry, options={**coordinator._entry.options, "farm_battery": "none"}
+    )
+    farm_file = Path(hass.config.path(jsonl_log.LOG_DIR, "farm.yaml"))
+    await coordinator.async_load_knowledge()
+    assert farm_file.read_text().startswith("# Facts about this farm")
+
+    farm_file.write_text(
+        "entries:\n  - {id: farm.roof, title: East-west roof, statement: Two slopes., priority: P3,"
+        " status: verified, tags: [always]}\n"
+    )
+    await coordinator.async_load_knowledge()
+    await _refresh(hass, coordinator)
+
+    system = mock_openrouter.await_args.kwargs["messages"][0]["content"]
+    assert "- Battery: none" in system
+    assert "East-west roof: Two slopes." in system
