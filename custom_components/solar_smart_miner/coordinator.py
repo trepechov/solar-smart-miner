@@ -49,7 +49,6 @@ from .config_flow import (
     CONF_STEP_DOWN_DELAY,
     CONF_TEMP_TARGET,
     CONF_TEMP_TOLERANCE,
-    CONF_TUNING_SETTLE,
     DEFAULT_OPENROUTER_MODEL,
 )
 from .const import (
@@ -72,7 +71,6 @@ from .const import (
     DEFAULT_STEP_DOWN_DELAY_MINUTES,
     DEFAULT_TEMP_TARGET,
     DEFAULT_TEMP_TOLERANCE,
-    DEFAULT_TUNING_SETTLE_MINUTES,
     DEFAULT_RAMP_LOCK_MINUTES,
     DOMAIN,
     HASS_MINER_PLATFORM,
@@ -880,9 +878,6 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             "temp_tolerance": float(options.get(CONF_TEMP_TOLERANCE, DEFAULT_TEMP_TOLERANCE)),
             "battery_floor": float(options.get(CONF_BATTERY_FLOOR, DEFAULT_BATTERY_FLOOR)),
             "power_steps": self._power_steps(),
-            "tuning_settle_minutes": float(
-                options.get(CONF_TUNING_SETTLE, DEFAULT_TUNING_SETTLE_MINUTES)
-            ),
             "import_min_w": import_min,
             "import_max_w": import_max,
             "minutes_since_change": since_change,

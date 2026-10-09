@@ -101,7 +101,7 @@ Open **Settings → Devices & services → Solar Smart Miner → Configure**. Sa
 | **Sensors** | Solar / net-meter entity and what it measures, house consumption (optional), battery SOC (optional), and reference sensors for the AI log: actual PV output and the solar forecast (all optional) |
 | **Miner stop method** | Per miner: the relay switch that cuts it off (empty = use the miner's own pause switch) |
 | **AI (OpenRouter)** | Turn the AI on or off, API key (shown hidden), model, seconds between AI requests |
-| **Settings** | Power steps, tuning time, polling interval, target temperature and tolerance, battery floor, control mode, Telegram, development mocks |
+| **Settings** | Power steps, polling interval, target temperature and tolerance, battery floor, control mode, Telegram, development mocks |
 
 ### AI advice (OpenRouter)
 
@@ -125,23 +125,24 @@ There is one profile, **Solar-follow**, for setups without a battery: a small st
 
 Without a battery the inverters hold their output to the load (zero export), so at 0 W on the meter you can't tell 500 W of sun from 5 kW. A small steady **import** is the only proof all the solar is used. Solar-follow steers on it:
 
-- **Below the minimum import** (Configure → Settings, 200 W by default): the solar covers the house and the inverters are probably holding back, so it adds one increment: it **starts a stopped miner** at its lowest step first, otherwise it raises the weakest running miner one step. The ramp lock then waits 4 minutes, and the import shows whether the sun carried it. This is also how the miners start in the morning. Nothing starts while the sun is below the horizon (`sun.sun`).
+- **Below the minimum import** (Configure → Settings, 200 W by default): the solar covers the house and the inverters are probably holding back, so it adds one increment: it **starts a stopped miner** at its lowest step first, otherwise it raises the weakest running miner one step. The ramp lock then waits until the miner has restarted, and the import shows whether the sun carried it. This is also how the miners start in the morning.
 - **Between the minimum and the maximum import** (400 W by default): hold. Keep the range at least one power step wide, so a step from just outside lands inside.
-- **Above the maximum:** step down, as far as brings the import back under it, but only once the import has stayed that high for the **step-down delay** (5 minutes), so a passing cloud costs no restart. While the sun is rising (until solar noon) the delay is the **morning step-down delay** (30 minutes): a miner started early may import for a while, the sun catches up.
+- **Above the maximum:** step down, as far as brings the import back under it, but only once the import has stayed that high for the **step-down delay** (5 minutes), so a passing cloud costs no restart. During **sunrise** the delay is the **sunrise step-down delay** (30 minutes): a miner started early may import for a while, the sun catches up.
+- **Sunset and night:** nothing starts or steps up; miners only step down and stop, one at a time. Starting or stopping a miner moves the import by a whole lowest step, more than the range is wide, so otherwise every evening stop would be followed by a start. An evening cloud that clears starts nothing until the morning.
+
+**Sunrise and sunset** are periods, not times of day: production (what the miners draw plus the grid balance, read outside ramp locks while there is some import) rising by more than 150 W over 15 minutes while the sun rises is sunrise; falling by as much in the last two hours before the sun sets is sunset, which lasts until the next sunrise. `sun.sun` only opens the window.
 
 The solar forecast is shown in the decision log and the AI log for reference only; it never decides.
 
-## Power steps, stopping and tuning
+## Power steps and stopping
 
-Every power-limit change restarts a miner: it draws almost nothing for 2 to 4 minutes while it loads. A miner tunes itself the first time it runs a wattage (up to an hour) and keeps those settings, so going back to a step it has run before is only the restart and settles in about 5 minutes. So the controller never asks for an arbitrary wattage: limits move only between **power steps**, **900 to 2,500 W in 200 W steps** by default (Configure → Settings; each miner uses the steps inside its own range).
+Every power-limit change restarts a miner: it stops mining for a minute or two, comes back below its new limit, overshoots a little and settles in about 5 minutes. A miner tunes itself the first time it runs a wattage (up to an hour) and keeps those settings, so going back to a step it has run before is only the restart. So the controller never asks for an arbitrary wattage: limits move only between **power steps**, **900 to 2,500 W in 200 W steps** by default (Configure → Settings; each miner uses the steps inside its own range).
 
-- **One miner per proposal.** Apart from safety, a proposal changes one miner. If several restarted together the farm's load would drop to almost 0 W, the zero-export inverters would throttle down, and the grid would cover the gap when the miners came back. A shortfall goes to the hungriest miner that can take all of it and keep running; if none can, the lowest-power miner is stopped. Spare power starts a stopped miner at its lowest step first, otherwise it raises the weakest running miner.
-- **Even load (secondary).** Once every miner runs, their limits are kept within one step of each other, so no miner runs much hotter than the others. Spare power raises the weakest (of equals, the coolest) no further than its even share. When nothing else needs to change and two limits are two or more steps apart, the weakest steps up one step, or, if it can't, the hungriest (of equals, the hottest) steps down one. The import range, temperature, tuning and ramp lock rules always come first.
-- **A change may skip steps.** That one change goes straight to the step that fits (1,500 → 1,100 W is one restart, not two).
-- **Ramp lock.** After any change (a command sent, or a limit, stop or start seen on a miner, also by hand) every miner holds for up to 4 minutes, and while a command is still being checked. The readings are misleading while a miner restarts. It ends early once the changed miner draws within 5% of its new limit (after at least 1 minute), even while its hashrate is still settling, so on a rising morning the next miner can follow sooner. Safety doesn't wait.
-- **Starting from where the miner is.** The plan begins at each miner's current step. A shortfall of up to 150 W keeps the current step, and stepping up needs 100 W of spare power on top of the step's cost, so small wobbles in the budget change nothing.
-- **Stopping.** When the budget is below the lowest step the miner is **stopped**, not just turned down to a minimum. How is configured per miner under Configure → Miner stop method: a **relay** switch (for miners cut off with a relay) or, when none is set, the miner's own **pause** switch (`switch.<miner>_active` from hass-miner). A stopped miner is started again when its lowest step plus the margin fits. A miner with neither is dropped to its lowest step instead. A limit change restarts a miner and hass-miner shows its pause switch off for a minute or two; within the ramp lock that reads as restarting, not stopped.
-- **Tuning.** 5 minutes by default: every configured step has been tuned before, so a change only needs to settle. Only if you add a step a miner has never run, raise the tuning time (Configure → Settings) for its first tuning: for that long after its limit changed a miner is not stepped up and its temperature is ignored. hass-miner doesn't report the tuning state, so it is estimated from the time since the limit last changed.
+- **One miner per proposal.** Apart from safety, a proposal changes one miner. If several restarted together the farm's load would drop to almost 0 W, the zero-export inverters would throttle down, and the grid would cover the gap when the miners came back. A shortfall goes to the hungriest miner that can take all of it and keep running; if none can, the lowest-power miner is stopped. An increment starts a stopped miner at its lowest step first, otherwise it raises the weakest running miner one step.
+- **Even load (secondary).** Once every miner runs, their limits are kept within one step of each other, so no miner runs much hotter than the others. When nothing else needs to change and two limits are two or more steps apart, the weakest steps up one step, or, if it can't, the hungriest (of equals, the hottest) steps down one. The import range, temperature, sunset and ramp lock rules always come first.
+- **A cut may skip steps.** A step down goes straight to the step that fits (1,500 → 1,100 W is one restart, not two). A step up is always one step.
+- **Ramp lock.** After any change (a command sent, or a limit, stop or start seen on a miner, also by hand) every miner holds for up to 4 minutes, and while a command is still being checked. The readings are misleading while a miner restarts, and its temperature fell with it. It ends early once the changed miner has been seen to restart and draws within 5% of its new limit, even while its hashrate is still settling, so on a rising morning the next miner can follow sooner. This is the only wait after a change (the separate tuning time is gone since 0.8.0). Safety doesn't wait.
+- **Stopping.** When the import is too high and no miner can cut enough at a configured step, one miner is **stopped**, not just turned down to a minimum. How is configured per miner under Configure → Miner stop method: a **relay** switch (for miners cut off with a relay) or, when none is set, the miner's own **pause** switch (`switch.<miner>_active` from hass-miner). A stopped miner is started again, at its lowest step, as the next increment. A miner with neither is dropped to its lowest step instead. A limit change restarts a miner and hass-miner shows its pause switch off for a minute or two; within the ramp lock that reads as restarting, not stopped.
 
 The rules work out one plan per miner every cycle and bundle them into one proposal. In **Manual** mode you apply it with a button; in **Automatic** mode it is applied at the end of the cycle (see [Control mode](#control-mode)).
 
@@ -173,7 +174,7 @@ How Automatic is paced:
 
 How Apply works:
 
-- **One proposal for the whole farm.** The plans come from one shared power budget, so they are applied as a bundle: if any part changed since you looked, nothing is sent. Normally the bundle changes one miner (see [Power steps](#power-steps-stopping-and-tuning)); only safety changes several.
+- **One proposal for the whole farm.** The plans are worked out together, so they are applied as a bundle: if any part changed since you looked, nothing is sent. Normally the bundle changes one miner (see [Power steps](#power-steps-stopping-and-tuning)); only safety changes several.
 - **What you saw is what runs.** On press the integration reads everything again. If the proposal changed in the meantime, nothing is sent and a notification says "the proposal changed, check again". A failed update refuses too: stale readings are worse than no action.
 - **Only the rule plan is applied**, never the AI answer. The AI's view of each miner is recorded in the action log.
 - **Guards.** A limit that is not one of the miner's power steps is refused, never clamped. A second press for a miner is refused while its previous command is still being checked.
@@ -196,7 +197,7 @@ Every time the proposal changes, `<config>/solar_smart_miner/decisions.jsonl` ge
 ### First-run checklist
 
 1. Control mode **Manual** (the default)
-2. Midday, a step-down the rules propose: press Apply proposal, watch the number change, check `actions.jsonl` has a `pending` then an `ok` line, and that the next cycle treats the miner as tuning.
+2. Midday, a step-down the rules propose: press Apply proposal, watch the number change, check `actions.jsonl` has a `pending` then an `ok` line, and that the farm holds until the miner has restarted.
 3. A step-up on the same miner after it has settled.
 4. A stop with the pause method, then a start: note whether the limit can be set while paused and how long until it is back.
 5. Let a plan change between looking and pressing (change a setting): confirm the "proposal changed" notification.

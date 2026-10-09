@@ -10,14 +10,13 @@ from .const import (  # noqa: F401
     CONF_CONTROL_MODE,
     DOMAIN,
     LEGACY_CONTROL_MODE_PREVIEW,
-    DEFAULT_TUNING_SETTLE_MINUTES,
     DEFAULT_PROFILE,
     LEGACY_IMPORT_TARGET,
     LEGACY_PROFILES,
-    LEGACY_TUNING_SETTLE_MINUTES,
+    RETIRED_OPTIONS,
     control_mode_of,
 )
-from .config_flow import CONF_PROFILE, CONF_TUNING_SETTLE
+from .config_flow import CONF_PROFILE
 from .coordinator import SolarMinerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -40,7 +39,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # First, before the reload listener exists: rewriting the options later would reload at once.
     _migrate_control_mode(hass, entry)
     _drop_legacy_import_target(hass, entry)
-    _migrate_tuning_settle(hass, entry)
+    _drop_retired_options(hass, entry)
     _migrate_profile(hass, entry)
     _remove_retired_entities(hass, entry)
     coordinator = SolarMinerCoordinator(hass, entry)
@@ -97,15 +96,13 @@ def _drop_legacy_import_target(hass: HomeAssistant, entry: ConfigEntry) -> None:
     _LOGGER.info("Dropped the old grid import target; the import range settings apply")
 
 
-def _migrate_tuning_settle(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """The old one-hour tuning default, stored when the settings were saved, becomes the
-    5-minute settle (0.7.7): every step has a tuned profile, and an hour held the farm back."""
-    if entry.options.get(CONF_TUNING_SETTLE) != LEGACY_TUNING_SETTLE_MINUTES:
+def _drop_retired_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Settings that no longer exist (RETIRED_OPTIONS) are removed from the stored options."""
+    if not any(key in entry.options for key in RETIRED_OPTIONS):
         return
-    hass.config_entries.async_update_entry(
-        entry, options={**entry.options, CONF_TUNING_SETTLE: DEFAULT_TUNING_SETTLE_MINUTES}
-    )
-    _LOGGER.info("Tuning time of 60 minutes replaced by the %s-minute default", DEFAULT_TUNING_SETTLE_MINUTES)
+    options = {k: v for k, v in entry.options.items() if k not in RETIRED_OPTIONS}
+    hass.config_entries.async_update_entry(entry, options=options)
+    _LOGGER.info("Dropped settings that no longer exist: %s", ", ".join(RETIRED_OPTIONS))
 
 
 def _migrate_profile(hass: HomeAssistant, entry: ConfigEntry) -> None:

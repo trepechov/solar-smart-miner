@@ -120,11 +120,13 @@ def test_the_agreed_decisions_are_in_the_base() -> None:
         "rule.ai-is-advisor",
         "rule.down-slowly-up-promptly",
         "rule.temperature-band",
-        "rule.temperature-after-change",
         "rule.transition-by-agreement",
         "rule.sunset-one-by-one",
     ):
         assert by_id[rule_id]["status"] == "decided", rule_id
+    # Merged into the ramp lock in 0.8.0 (one wait after a change): kept for the record.
+    assert by_id["rule.temperature-after-change"]["status"] == "retired"
+    assert "rule.ramp-lock" in by_id["rule.temperature-after-change"]["note"]
     # Round 5 reversed "down quickly, up slowly"; the old rule must not be sent as a fact.
     assert by_id["rule.asymmetric-reaction"]["status"] == "retired"
     # Round 6 dropped Full power as a profile.

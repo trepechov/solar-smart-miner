@@ -1079,7 +1079,7 @@ async def test_limit_change_time_is_unknown_until_a_change_is_seen(hass, add_has
     assert (await coordinator._async_update_data()).miners[0].minutes_since_limit_change == pytest.approx(15)
 
 
-async def test_applied_limit_counts_as_tuning_from_the_next_cycle(hass, add_hass_miner, monkeypatch) -> None:
+async def test_applied_limit_counts_as_a_change_from_the_next_cycle(hass, add_hass_miner, monkeypatch) -> None:
     import time as time_module
 
     from pytest_homeassistant_custom_component.common import async_mock_service
@@ -1106,23 +1106,22 @@ async def test_applied_limit_counts_as_tuning_from_the_next_cycle(hass, add_hass
     now[0] += 120
 
     snapshot = await coordinator._async_update_data()
-    # The number still reads the old limit, yet the miner already counts as tuning.
+    # The number still reads the old limit, yet the miner already counts as changed.
     assert snapshot.miners[0].minutes_since_limit_change == pytest.approx(2)
     assert next(iter(snapshot.decision.plans.values())).action != "set_limit"
 
 
-async def test_power_steps_and_tuning_options_drive_the_decision(hass, add_hass_miner) -> None:
+async def test_power_steps_and_options_drive_the_decision(hass, add_hass_miner) -> None:
     from custom_components.solar_smart_miner.config_flow import (
         CONF_IMPORT_MAX,
         CONF_IMPORT_MIN,
         CONF_POWER_STEPS,
         CONF_TEMP_TARGET,
-        CONF_TUNING_SETTLE,
     )
 
     add_hass_miner(MINER_IP, limit="700", power="690", limit_attrs={"min": 500.0, "max": 3500.0})
     # The miner reads 65 °C: at the default target it would hold, under a 70 °C target it may step up.
-    options = {CONF_POWER_STEPS: [700, 1000], CONF_TUNING_SETTLE: 30, CONF_TEMP_TARGET: 70,
+    options = {CONF_POWER_STEPS: [700, 1000], CONF_TEMP_TARGET: 70,
                CONF_IMPORT_MIN: 250, CONF_IMPORT_MAX: 600}
     entry = _make_entry(hass, options=options)
 

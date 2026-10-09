@@ -47,10 +47,11 @@ situations:
       never tuned has no settled value, so the first time only the time, restart, climbing and dip signals can
       fire; record the settled values afterwards.
     in_code: >
-      partial: only recent-change is used (decision._tuning_left, coordinator._minutes_since_limit_change),
-      with a 5 minute default (owner, 2026-10-08: every configured step has a tuned profile); a first
-      tuning of a new step is about 50 minutes. A limit that was already set when
-      Home Assistant started counts as settled.
+      partial: since 0.8.0 the settling after a restart stands in for it (control.Settling: the
+      miner has restarted and draws its new limit, at most the ramp lock; decision/pacing.py holds
+      every miner meanwhile). The separate 5-minute tuning window is gone; a first tuning of a new
+      step (about 50 minutes) is left to the miner. A limit that was already set when Home
+      Assistant started counts as settled.
     status: in_use
 
   - id: situation.sunrise

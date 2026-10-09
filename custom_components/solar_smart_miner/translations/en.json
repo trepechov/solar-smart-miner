@@ -68,14 +68,13 @@
           "import_min": "Grid import minimum (Solar-follow)",
           "import_max": "Grid import maximum (Solar-follow)",
           "step_down_delay_minutes": "Step-down delay (Solar-follow)",
-          "morning_step_down_delay_minutes": "Step-down delay while the sun is rising (Solar-follow)",
+          "morning_step_down_delay_minutes": "Step-down delay during sunrise (Solar-follow)",
           "telegram_bot_token": "Telegram bot token (optional)",
           "telegram_chat_id": "Telegram chat ID (optional)",
           "mock_solar_enabled": "Use Forecast.Solar as mock solar data (development only)",
           "mock_solar_entity": "Forecast.Solar power sensor (mock source)",
           "mock_consumption_enabled": "Use total miner power as mock grid consumption (development only)",
-          "power_steps": "Power steps, W (comma separated)",
-          "tuning_settle_minutes": "Minutes a miner is assumed to be settling after a limit change (default 5)"
+          "power_steps": "Power steps, W (comma separated)"
         },
         "data_description": {
           "temp_target": "Below this a miner may step up if there is energy. From here up to target + tolerance it holds, even with spare energy.",
@@ -83,9 +82,8 @@
           "import_min": "Without a battery, a small steady grid import is the only proof that all the solar is used: at 0 W a throttled inverter hides what the panels could give. Below this import Solar-follow adds one increment (starts a stopped miner at its lowest step first, else raises one miner one step). Default 200 W.",
           "import_max": "Between the minimum and this, Solar-follow holds; above it, it steps down (after the step-down delay). Keep the range at least one power step (200 W) wide. Default 400 W.",
           "step_down_delay_minutes": "How long the import must stay above the maximum before Solar-follow steps down, so a passing cloud costs no restart. Default 5.",
-          "morning_step_down_delay_minutes": "The same while the sun is rising (until solar noon): a miner started early may import for a while, the sun catches up. Default 30.",
-          "power_steps": "Every power-limit change restarts the miner, and a wattage it has never run takes up to an hour to tune, so limits only ever move between these steps. Each miner uses the steps inside its own range. Default: 900 to 2500 in 200 W steps.",
-          "tuning_settle_minutes": "About 5 minutes: the miners keep a tuned profile for every configured step, so a change settles quickly. Raise it only for a step a miner has never run (its first tuning takes up to an hour). The miners don't report their tuning state, so it is estimated as the time since the limit last changed. While a miner is tuning it is not stepped up and its temperature is ignored (stepping down and stopping are still allowed). Every change also holds the whole farm for 4 minutes while the miner restarts."
+          "morning_step_down_delay_minutes": "The same during sunrise, while production is still rising (not a time of day): a miner started early may import for a while, the sun catches up. Default 30.",
+          "power_steps": "Every power-limit change restarts the miner, and a wattage it has never run takes up to an hour to tune, so limits only ever move between these steps. Each miner uses the steps inside its own range. Default: 900 to 2500 in 200 W steps."
         }
       },
       "edit_sensors": {

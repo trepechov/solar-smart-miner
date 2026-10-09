@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.solar_smart_miner.const import DEFAULT_POWER_STEPS, DEFAULT_TUNING_SETTLE_MINUTES
+from custom_components.solar_smart_miner.const import DEFAULT_POWER_STEPS
 from custom_components.solar_smart_miner.decision import build_decision, min_import_range_w
 from custom_components.solar_smart_miner.protocols import (
     ACTION_HOLD,
@@ -276,46 +276,21 @@ def test_unreachable_miners_are_skipped() -> None:
     assert "M-a: unavailable" in decision.trace
 
 
-# --- tuning ----------------------------------------------------------------------
+# --- settling: the ramp lock is the only wait after a change ---------------------------
 
 
-def test_a_miner_that_is_still_tuning_is_not_stepped_up() -> None:
-    tuning = [_miner("a", limit=1100.0, since=10.0)]
-    decision = _decide(_metered(BELOW, tuning), tuning_settle_minutes=60)
+def test_once_the_ramp_lock_is_over_a_just_changed_miner_may_move_again() -> None:
+    # 0.8.0: the tuning window (no step-up for 5 minutes, temperature ignored) measured the
+    # same thing as the settling after a restart (S11); the ramp lock alone covers it.
+    decision = _decide(_metered(BELOW, [_miner("a", limit=1100.0, since=2.0)]))
 
-    assert decision.plans["a"].action == ACTION_HOLD
-    assert decision.plans["a"].reason == "tuning"
-    assert any("still tuning" in line and "50 min left" in line for line in decision.trace)
-
-
-def test_a_settled_miner_is_stepped_up() -> None:
-    for since in (None, 90.0):
-        decision = _decide(_metered(BELOW, [_miner("a", limit=1100.0, since=since)]))
-        assert decision.proposals == {"a": 1300.0}
+    assert decision.proposals == {"a": 1300.0}
 
 
-def test_by_default_a_changed_miner_settles_in_five_minutes() -> None:
-    # Owner, 2026-10-08: every step has a tuned profile, so a change settles in about 5 minutes;
-    # a stored hour let each miner step up only once an hour while the import sat near 0 W.
-    assert DEFAULT_TUNING_SETTLE_MINUTES == 5
-    still = build_decision(
-        _metered(BELOW, [_miner("a", limit=1100.0, since=3.0)]), "solar_follow", 65, 10, 20,
-        power_steps=STEPS,
-    )
-    assert still.plans["a"].reason == "tuning"
-    settled = build_decision(
-        _metered(BELOW, [_miner("a", limit=1100.0, since=6.0)]), "solar_follow", 65, 10, 20,
-        power_steps=STEPS,
-    )
-    assert settled.proposals == {"a": 1300.0}
+def test_a_settled_miners_temperature_counts_at_once() -> None:
+    decision = _decide(_metered(INSIDE, [_miner("a", limit=1300.0, temp=80.0, since=2.0)]))
 
-
-def test_tuning_never_blocks_stepping_down_or_stopping() -> None:
-    down = _decide(_metered(_over(150.0), [_miner("a", limit=1500.0, since=5.0)]))
-    assert down.proposals == {"a": 1300.0}
-
-    stop = _decide(_metered(_over(150.0), [_miner("a", limit=900.0, since=5.0)]))
-    assert stop.plans["a"].action == ACTION_STOP
+    assert decision.proposals == {"a": 1100.0}
 
 
 # --- ramp lock: the whole farm waits while a miner restarts ----------------------------
@@ -345,12 +320,6 @@ def test_safety_does_not_wait_for_the_ramp_lock() -> None:
     decision = _decide(_metered(BELOW, _three(), battery_soc_pct=10.0), minutes_since_change=0.0)
 
     assert set(_actions(decision).values()) == {ACTION_STOP}  # safety may change every miner
-
-
-def test_tuning_is_off_by_default_so_a_change_is_only_a_restart() -> None:
-    decision = _decide(_metered(BELOW, [_miner("a", limit=1100.0, since=5.0)]))
-
-    assert decision.proposals == {"a": 1300.0}
 
 
 # --- profiles and safety -------------------------------------------------------------
@@ -447,14 +416,6 @@ def test_too_warm_at_the_lowest_step_is_left_to_the_miner() -> None:
     assert decision.plans["a"].action == ACTION_HOLD
     assert decision.plans["a"].limit_w == 900.0
     assert any("lowest step" in line and "cutoff" in line for line in decision.trace)
-
-
-def test_temperature_is_ignored_while_the_miner_is_tuning() -> None:
-    miners = [_miner("a", limit=1300.0, temp=80.0, since=5.0)]
-    decision = _decide(_metered(INSIDE, miners), tuning_settle_minutes=60)
-
-    assert decision.plans["a"].action == ACTION_HOLD
-    assert decision.plans["a"].limit_w == 1300.0
 
 
 def test_no_miners() -> None:

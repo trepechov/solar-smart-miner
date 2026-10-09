@@ -340,7 +340,7 @@ class MinerController:
             miner, stopping=plan.action == ACTION_STOP, restarting=plan.action == ACTION_SET_LIMIT
         )
         if plan.action in (ACTION_SET_LIMIT, ACTION_START) and self._on_limit_applied:
-            # The miner re-tunes now: the next cycle already counts it as tuning.
+            # The miner restarts now: its limit-change clock starts at once.
             self._on_limit_applied(miner.miner_id, plan.limit_w)
         result = CommandResult(RESULT_PENDING, "sent, waiting for the miner", [call], command_id)
         await self._emit(command_id, trigger, miner.miner_id, miner.name, plan, result)

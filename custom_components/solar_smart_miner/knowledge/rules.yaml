@@ -135,9 +135,9 @@ entries:
       A miner is not stepped up while it is still tuning after its last change. Stepping down and
       stopping are always allowed.
     priority: P1
-    status: decided
+    status: retired
     source: "owner, 2026-10-05; scope from round 7, 2026-10-07"
-    date: "2026-10-07"
+    date: "2026-10-09"
     situations: [situation.tuning]
     tags: [always, allocation, tuning]
     note: >
@@ -148,6 +148,10 @@ entries:
       the miners have tuned profiles for every configured step, and an hour is far too long. On
       2026-10-08 a stored 60-minute setting let each miner step up only once an hour, so the
       farm lagged the rising sun until about 14:30 with the import near 0 W all midday.
+      Retired 2026-10-09 (0.8.0): merged into rule.ramp-lock. Since S11 the ramp lock ends when
+      the changed miner has restarted and draws its new limit, which is what the 5-minute tuning
+      window measured too; the setting is dropped. A first tuning (a step never run) is left to
+      the miner.
 
   - id: rule.stop-below-lowest-step
     title: Stop, don't idle
@@ -280,6 +284,8 @@ entries:
       miner has been seen to restart (stop mining) and mines again within 5% of its limit; a stop
       once it no longer mines. A miner that reads stopped after a limit change no longer ends the
       lock early. The same record makes a command "ok" (miner.hass-miner-optimistic).
+      Since 0.8.0 it is the only wait after a change: it absorbs rule.no-step-up-while-tuning and
+      rule.temperature-after-change (the tuning window measured the same settling).
       Without it (v0.7.0, 2026-10-07) a restarting miner reports nothing and is read as stopped:
       right after Brod1 went to 2,100 W the rules proposed Brod2 up as if Brod1 drew 0 W, and after
       the 16:02 bundle they proposed starting all three at 1,900 W. Still open: a miner that is
@@ -440,7 +446,7 @@ entries:
       then climbs again. Until the miner has ramped back up, its temperature is not a reason
       to step it up or down, and it is not a step-up candidate.
     priority: P1
-    status: decided
+    status: retired
     source: "requirements doc §0.3 point 3, §0.4 round 5 point 3"
     date: "2026-10-06"
     tags: [always, temperature, allocation]
@@ -448,6 +454,8 @@ entries:
       How long "ramped back up" is: about 4 minutes for a step the miner has run before
       (miner.revisit-is-a-restart). The ramp lock covers that; the tuning time setting (5 minutes by
       default since 2026-10-08) adds a short settle, raised only for a step a miner has never run.
+      Retired 2026-10-09 (0.8.0): merged into rule.ramp-lock, which holds every miner, and so every
+      temperature reading, until the changed miner has restarted and draws its new limit.
 
   - id: rule.transition-by-agreement
     title: Sunrise and sunset are periods of changing production

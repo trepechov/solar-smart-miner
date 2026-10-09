@@ -7,7 +7,7 @@ The rules run in groups, in a fixed order; an earlier group always wins and a la
 undoes it (CLAUDE.md, "Fewer Rules"):
 
 1. Safety (safety.py): may end the decision and change several miners at once.
-2. Pacing (pacing.py): after a change every miner holds while it restarts (the ramp lock).
+2. Pacing (pacing.py): after a change every miner holds while it settles (the ramp lock).
 3. Limits (limits.py): the sun down or setting (nothing starts or steps up), the temperature band.
 4. Target (profiles.py): up, down or hold, from the measured grid import.
 5. Allocation and 6. Tidy (allocation.py): which one miner moves, and to which step.
@@ -24,7 +24,6 @@ from ..const import (
     DEFAULT_IMPORT_MIN_W,
     DEFAULT_POWER_STEPS,
     DEFAULT_RAMP_LOCK_MINUTES,
-    DEFAULT_TUNING_SETTLE_MINUTES,
     PROFILES,
     PROFILES_BY_NAME,
 )
@@ -52,7 +51,6 @@ def build_decision(
     temp_tolerance: float,
     battery_floor: float,
     power_steps: list[float] | None = None,
-    tuning_settle_minutes: float = DEFAULT_TUNING_SETTLE_MINUTES,
     import_min_w: float = DEFAULT_IMPORT_MIN_W,
     import_max_w: float = DEFAULT_IMPORT_MAX_W,
     minutes_since_change: float | None = None,
@@ -89,7 +87,6 @@ def build_decision(
         temp_target=temp_target,
         temp_tolerance=temp_tolerance,
         battery_floor=battery_floor,
-        tuning_settle_minutes=tuning_settle_minutes,
         import_min_w=import_min_w,
         import_max_w=import_max_w,
         minutes_since_change=minutes_since_change,

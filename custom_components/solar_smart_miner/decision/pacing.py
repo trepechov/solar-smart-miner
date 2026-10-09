@@ -1,16 +1,14 @@
-"""Group 2, Pacing: after a change every miner holds while it restarts (the ramp lock)."""
+"""Group 2, Pacing: after a change every miner holds while it settles (the ramp lock).
+
+A change restarts the miner; it has settled once it is seen to have restarted and draws its new
+limit (control.Settling), at most the ramp lock after the change. While any miner settles,
+every miner holds: its readings are misleading, and its temperature fell with the restart. This
+is the only "wait after a change" (the separate tuning window went in 0.8.0).
+"""
 from __future__ import annotations
 
-from ..protocols import Decision, MinerSnapshot
+from ..protocols import Decision
 from .context import Context
-
-
-def tuning_left(m: MinerSnapshot, settle_minutes: float) -> float | None:
-    """Minutes the miner is still assumed to be tuning, or None if it has settled."""
-    since = m.minutes_since_limit_change
-    if since is None or since >= settle_minutes:
-        return None
-    return settle_minutes - since
 
 
 def check(ctx: Context) -> Decision | None:

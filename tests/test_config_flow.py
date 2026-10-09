@@ -780,7 +780,7 @@ async def test_options_flow_edit_sensors_saves_and_clears_reference_sensors(hass
 
 
 # ---------------------------------------------------------------------------
-# Power steps, tuning time and the miner stop method
+# Power steps and the miner stop method
 # ---------------------------------------------------------------------------
 
 
@@ -793,8 +793,8 @@ def test_parse_power_steps() -> None:
         assert parse_power_steps(bad) is None, bad
 
 
-async def test_settings_save_power_steps_and_tuning_time(hass: HomeAssistant) -> None:
-    from custom_components.solar_smart_miner.config_flow import CONF_POWER_STEPS, CONF_TUNING_SETTLE
+async def test_settings_save_power_steps(hass: HomeAssistant) -> None:
+    from custom_components.solar_smart_miner.config_flow import CONF_POWER_STEPS
 
     entry = _make_entry(hass)
     result = await _get_options_flow_result(
@@ -807,23 +807,21 @@ async def test_settings_save_power_steps_and_tuning_time(hass: HomeAssistant) ->
             CONF_TEMP_TOLERANCE: DEFAULT_TEMP_TOLERANCE,
             CONF_BATTERY_FLOOR: 20,
             CONF_POWER_STEPS: "1000, 1200 1400",
-            CONF_TUNING_SETTLE: 20,
         },
     )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert entry.options[CONF_POWER_STEPS] == [1000, 1200, 1400]
-    assert entry.options[CONF_TUNING_SETTLE] == 20
+    assert "tuning_settle_minutes" not in entry.options  # merged into the ramp lock in 0.8.0
 
 
 async def test_settings_default_to_the_agreed_steps(hass: HomeAssistant) -> None:
-    from custom_components.solar_smart_miner.config_flow import CONF_POWER_STEPS, CONF_TUNING_SETTLE
+    from custom_components.solar_smart_miner.config_flow import CONF_POWER_STEPS
 
     entry = _make_entry(hass)
     await _get_options_flow_result(hass, entry, options_input={})
 
     assert entry.options[CONF_POWER_STEPS] == [900, 1100, 1300, 1500, 1700, 1900, 2100, 2300, 2500]
-    assert entry.options[CONF_TUNING_SETTLE] == 5  # owner, 2026-10-08: every step is tuned, a change settles in ~5 min
 
 
 def test_temperature_defaults_are_the_agreed_band() -> None:

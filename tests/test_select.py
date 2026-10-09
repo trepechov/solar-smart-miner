@@ -135,19 +135,16 @@ async def test_the_old_import_target_is_dropped_at_setup(hass) -> None:
     assert entry.options[CONF_POLLING_INTERVAL] == 15  # the other options are kept
 
 
-@pytest.mark.parametrize(("stored", "after"), [(60, 5), (20, 20)])
-async def test_the_old_one_hour_tuning_time_becomes_five_minutes_at_setup(hass, stored, after) -> None:
-    # 2026-10-08: a stored 60 let each miner step up only once an hour; the owner wants about 5.
-    # A value chosen on purpose (not the old default) is kept.
-    from custom_components.solar_smart_miner.config_flow import CONF_TUNING_SETTLE
-
+@pytest.mark.parametrize("stored", [60, 5, 20])
+async def test_the_retired_tuning_time_is_dropped_at_setup(hass, stored) -> None:
+    # 0.8.0: the tuning window is merged into the settling after a restart (the ramp lock).
     hass.states.async_set(SOLAR_ENTITY, "2000")
     hass.states.async_set(GRID_ENTITY, "1500")
     entry = _make_entry(hass)
-    hass.config_entries.async_update_entry(entry, options={**entry.options, CONF_TUNING_SETTLE: stored})
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "tuning_settle_minutes": stored})
 
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.options[CONF_TUNING_SETTLE] == after
+    assert "tuning_settle_minutes" not in entry.options
     assert entry.options[CONF_POLLING_INTERVAL] == 15  # the other options are kept

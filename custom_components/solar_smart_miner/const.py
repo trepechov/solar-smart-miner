@@ -22,10 +22,6 @@ KB_PROMPT_BUDGET_CHARS = 6000
 # tune, so the limit only ever moves between these steps (900 to 2,500 W, every one tuned on
 # every miner). W; each miner uses the ones inside its own range.
 DEFAULT_POWER_STEPS = [900, 1100, 1300, 1500, 1700, 1900, 2100, 2300, 2500]
-# Minutes a miner counts as tuning after a limit change (no step up, temperature ignored).
-# The miners keep a tuned profile for every configured step, so a change settles in about
-# 5 minutes; an hour would hold the farm back all midday (owner, 2026-10-08).
-DEFAULT_TUNING_SETTLE_MINUTES = 5
 DEFAULT_RAMP_LOCK_MINUTES = 4  # after any change every miner holds while it restarts
 # A changed miner is done ramping early once it draws within this fraction of its new limit
 # (its hashrate may still be settling), but not before RAMP_MIN_MINUTES: right after a step
@@ -102,8 +98,10 @@ CONTROL_MODE_LABELS = {CONTROL_MODE_MANUAL: "Manual", CONTROL_MODE_AUTO: "Automa
 # it as the minimum. Its value means something else now, so it is dropped, not migrated.
 LEGACY_IMPORT_TARGET = "import_target"
 LEGACY_CONTROL_MODE_PREVIEW = "preview"  # removed in 0.7.2; a stored value reads as Manual
-# The old tuning time default (minutes): saved with the settings, it held every step up for an hour.
-LEGACY_TUNING_SETTLE_MINUTES = 60
+# Settings that no longer exist; a stored value is dropped at setup. "tuning_settle_minutes" (up
+# to 0.7): a window after a change with no step-up and the temperature ignored, merged into the
+# settling after a restart in 0.8.0 (decision/pacing.py).
+RETIRED_OPTIONS = ("tuning_settle_minutes",)
 
 
 def control_mode_of(options) -> str:

@@ -47,7 +47,6 @@ from .const import (
     DEFAULT_STEP_DOWN_DELAY_MINUTES,
     DEFAULT_TEMP_TARGET,
     DEFAULT_TEMP_TOLERANCE,
-    DEFAULT_TUNING_SETTLE_MINUTES,
     DOMAIN,
     HASS_MINER_PLATFORM,
     MIN_AI_INTERVAL,
@@ -91,7 +90,6 @@ CONF_TELEGRAM_CHAT_ID = "telegram_chat_id"
 CONF_AI_ENABLED = "ai_enabled"
 CONF_AI_INTERVAL = "ai_interval"
 CONF_POWER_STEPS = "power_steps"  # list[int] in options; typed as "900, 1100, 1300, 1500"
-CONF_TUNING_SETTLE = "tuning_settle_minutes"
 CONF_MINER_RELAYS = "miner_relays"  # options: {miner id (its IP): relay switch entity id}
 CONF_MINER = "miner"  # form field: which miner the relay below belongs to
 CONF_RELAY_ENTITY = "relay_entity"
@@ -370,14 +368,6 @@ def _options_schema(options: dict) -> vol.Schema:
         vol.Required(
             CONF_POWER_STEPS, default=_format_power_steps(options.get(CONF_POWER_STEPS))
         ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT)),
-        vol.Required(
-            CONF_TUNING_SETTLE,
-            default=options.get(CONF_TUNING_SETTLE, DEFAULT_TUNING_SETTLE_MINUTES),
-        ): NumberSelector(
-            NumberSelectorConfig(
-                min=0, max=240, step=1, unit_of_measurement="min", mode=NumberSelectorMode.BOX
-            )
-        ),
         # Suggested, not defaulted: a blank field is stored as None, and None as a default
         # fails the text selector, so the form could never be saved again.
         vol.Optional(
@@ -529,7 +519,6 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
             self._pending_options.update(
                 {
                     CONF_POWER_STEPS: steps,
-                    CONF_TUNING_SETTLE: int(user_input[CONF_TUNING_SETTLE]),
                     CONF_CONTROL_MODE: user_input[CONF_CONTROL_MODE],
                     CONF_POLLING_INTERVAL: int(user_input[CONF_POLLING_INTERVAL]),
                     CONF_TEMP_TARGET: int(user_input[CONF_TEMP_TARGET]),

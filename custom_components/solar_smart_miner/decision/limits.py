@@ -7,15 +7,13 @@ Even load may still step down. Sunset lasts until the next sunrise (transition.p
 cloud that clears starts nothing until the morning (owner, 2026-10-09).
 
 The temperature band: below the target a miner may step up; up to target + tolerance it holds
-(its step becomes its cap); at or above that it steps down one step. A miner still tuning is
-skipped, since the restart cooled it.
+(its step becomes its cap); at or above that it steps down one step.
 """
 from __future__ import annotations
 
 from ..protocols import Decision, MinerSnapshot
 from .allocation import _ladder, _nearest_level
 from .context import Context
-from .pacing import tuning_left
 
 
 def check(ctx: Context) -> Decision | None:
@@ -27,9 +25,6 @@ def check(ctx: Context) -> Decision | None:
     too_warm: list[MinerSnapshot] = []
     for m in ctx.candidates:
         if m.is_stopped or m.temperature_c is None:
-            continue
-        if tuning_left(m, ctx.tuning_settle_minutes) is not None:
-            # The change restarted it: its temperature fell and says nothing yet.
             continue
         ladder = _ladder(m, ctx.steps)
         lv = _nearest_level(ladder, m.power_limit_w)

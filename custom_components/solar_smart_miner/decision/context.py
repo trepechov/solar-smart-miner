@@ -27,7 +27,6 @@ class Context:
     temp_target: float
     temp_tolerance: float
     battery_floor: float
-    tuning_settle_minutes: float
     import_min_w: float
     import_max_w: float
     minutes_since_change: float | None
