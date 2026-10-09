@@ -33,7 +33,7 @@ def check(ctx: Context) -> Decision | None:
             continue
         if m.temperature_c < ctx.too_warm_c or lv == 0:
             if m.temperature_c >= ctx.too_warm_c:
-                # Not the plugin's job: the Braiins OS cutoff is the last defense.
+                # Not the plugin's job: the miner's own temperature cutoff is the last defense.
                 ctx.trace.append(f"{m.name}: {temp} at its lowest step → left to the miner's own cutoff")
             else:
                 ctx.trace.append(f"{m.name}: {temp}, within the target band → no step up")

@@ -1357,3 +1357,45 @@ async def test_a_reload_during_sunset_stays_sunset(hass) -> None:
     fresh = SolarMinerCoordinator(hass, _make_entry(hass))
     await fresh.async_seed_transition()
     assert not fresh.transition.sunset
+
+
+async def test_the_restart_time_setting_is_used_everywhere(hass, add_hass_miner, monkeypatch) -> None:
+    # U8: the ramp lock is a setting (miner type), threaded through the farm-wide hold, the
+    # "restarting, not stopped" reading and the command's deadline.
+    import time as time_module
+
+    from pytest_homeassistant_custom_component.common import async_mock_service
+
+    from custom_components.solar_smart_miner.config_flow import CONF_RAMP_LOCK
+    from custom_components.solar_smart_miner.const import CONF_CONTROL_MODE
+
+    now = [1000.0]
+    monkeypatch.setattr(time_module, "monotonic", lambda: now[0])
+    reg = add_hass_miner(MINER_IP, limit="1100", power="1100", temperature="55", active="on",
+                         limit_attrs={"min": 500.0, "max": 3500.0})
+    hass.states.async_set(SOLAR_ENTITY, "9000")
+    hass.states.async_set(GRID_ENTITY, "1100")
+    calls = async_mock_service(hass, "number", "set_value")
+    entry = _make_entry(hass, options={CONF_CONTROL_MODE: "manual", CONF_RAMP_LOCK: 8})
+    coordinator = SolarMinerCoordinator(hass, entry)
+    snapshot = await coordinator._async_update_data()
+    miner = snapshot.miners[0]
+    await coordinator.controller.async_apply(
+        miner, snapshot.decision.plans[miner.miner_id], trigger="manual", steps=coordinator._power_steps()
+    )
+    hass.states.async_set(reg["power_limit"].entity_id, str(calls[0].data["value"]), {"min": 500.0, "max": 3500.0})
+    hass.states.async_set(reg["active"].entity_id, "off")  # the restart
+    hass.states.async_set(reg["miner_consumption"].entity_id, "0")
+    await coordinator._async_update_data()  # the next poll sees the new limit
+
+    now[0] += 6 * 60  # past the default 4 minutes, inside the configured 8
+    snapshot = await coordinator._async_update_data()
+    assert snapshot.miners[0].is_stopped is False  # still read as restarting
+    assert snapshot.decision.summary.startswith("Waiting for a miner to restart")
+    assert coordinator.controller.is_pending(miner.miner_id)  # the deadline is 8 minutes + 60 s
+    assert any("~8 min more" in line for line in snapshot.decision.trace)  # a command still checked
+
+    now[0] += 3 * 60 + 5
+    snapshot = await coordinator._async_update_data()
+    assert snapshot.miners[0].is_stopped is True
+    assert not coordinator.controller.is_pending(miner.miner_id)  # never came back: failed

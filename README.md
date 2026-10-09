@@ -184,7 +184,7 @@ How Apply works:
 
 ### Activity log card
 
-**Add to dashboard** builds the card for this. Under the settings list it has an **Activity log**: the line **Proposal now** (for example `Brod2 1,300 W (from 1,500 W) · Brod1 1,500 W (from 900 W)`, or `no action`), then a newest-first feed of proposals (`Proposal: … ◀ current`) and applied actions (`Brod1 applied 1,500 W: ok`). Directly under it is the **Apply proposal** button, which asks to confirm. A proposal is marked **◀ current** only while it is still what the rules propose. The feed is kept in memory (30 entries); after a restart it starts again from the applied actions in the action log. It is also on the **Activity** sensor (`proposal` and `feed` attributes).
+**Add to dashboard** builds the card for this. Under the settings list it has an **Activity log**: the line **Proposal now** (for example `Miner 2 1,300 W (from 1,500 W) · Miner 1 1,500 W (from 900 W)`, or `no action`), then a newest-first feed of proposals (`Proposal: … ◀ current`) and applied actions (`Miner 1 applied 1,500 W: ok`). Directly under it is the **Apply proposal** button, which asks to confirm. A proposal is marked **◀ current** only while it is still what the rules propose. The feed is kept in memory (30 entries); after a restart it starts again from the applied actions in the action log. It is also on the **Activity** sensor (`proposal` and `feed` attributes).
 
 ### Action log
 

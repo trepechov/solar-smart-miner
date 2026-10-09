@@ -43,6 +43,7 @@ from .config_flow import (
     CONF_MINER_RELAYS,
     CONF_POWER_STEPS,
     CONF_PROFILE,
+    CONF_RAMP_LOCK,
     CONF_PV_ENTITY,
     CONF_SOLAR_ENTITY,
     CONF_SOLAR_ENTITY_TYPE,
@@ -225,6 +226,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             get_mode=lambda: self.control_mode,
             on_limit_applied=self._mark_limit_changed,
             on_event=self._async_record_action,
+            get_ramp_lock_minutes=self._ramp_lock_minutes,
         )
         self.knowledge: list[Fact] = []  # the knowledge base, loaded by async_load_knowledge
 
@@ -437,7 +439,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         if any(self.controller.is_pending(m.miner_id) for m in miners):
             return 0.0
         now = time.monotonic()
-        ramp_lock = DEFAULT_RAMP_LOCK_MINUTES
+        ramp_lock = self._ramp_lock_minutes()
         ages: list[float] = []
         for m in miners:
             record = self.controller.settling.get(m.miner_id)
@@ -552,6 +554,10 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         await self.action_log.async_record(event, self._building or self.data)
         self.activity.appendleft({"kind": "applied", **self.action_log.history[0]})
         self.async_update_listeners()  # the "Last action" sensor and the buttons' availability
+
+    def _ramp_lock_minutes(self) -> float:
+        """The restart time after a change (a setting: it depends on the miner type)."""
+        return float(self._entry.options.get(CONF_RAMP_LOCK, DEFAULT_RAMP_LOCK_MINUTES))
 
     def _power_steps(self) -> list[float]:
         return list(self._entry.options.get(CONF_POWER_STEPS) or DEFAULT_POWER_STEPS)
@@ -881,7 +887,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             "import_min_w": import_min,
             "import_max_w": import_max,
             "minutes_since_change": since_change,
-            "ramp_lock_minutes": float(DEFAULT_RAMP_LOCK_MINUTES),
+            "ramp_lock_minutes": self._ramp_lock_minutes(),
             "ramp_done": list(self._ramp_done),
             "minutes_import_high": self._minutes_import_high(energy, import_max, since_change),
             "step_down_delay_minutes": float(

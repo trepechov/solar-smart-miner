@@ -82,15 +82,20 @@ entries:
   - id: rule.temperature-is-braiins
     title: The miner's cutoff is the last defense
     statement: >
-      The Braiins OS cutoff is the final line of defense and the plugin does not track it. The
-      plugin only follows a target temperature plus a tolerance. A miner too hot at its lowest
-      step is not the plugin's job; at most it is noted in the decision trace.
+      The miner's own temperature cutoff (its firmware's) is the final line of defense and the
+      plugin does not track it. The plugin only follows a target temperature plus a tolerance. A
+      miner too hot at its lowest step is not the plugin's job; at most it is noted in the
+      decision trace.
     priority: P0
     status: decided
     stage: limits
     source: "requirements doc §0.3"
-    date: "2026-10-05"
+    date: "2026-10-09"
     tags: [always, temperature]
+    note: >
+      The id is kept (ids are never reused). On the reference farm the cutoff is Braiins OS's, at
+      about 80 deg C; the statement was made generic on 2026-10-09 (the integration is for any
+      farm).
 
   # --- P1: operating rules --------------------------------------------------
   - id: rule.apply-by-hand-first

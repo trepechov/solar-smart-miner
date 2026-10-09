@@ -813,6 +813,16 @@ async def test_settings_save_power_steps(hass: HomeAssistant) -> None:
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert entry.options[CONF_POWER_STEPS] == [1000, 1200, 1400]
     assert "tuning_settle_minutes" not in entry.options  # merged into the ramp lock in 0.8.0
+    assert entry.options["ramp_lock_minutes"] == 4  # the restart time, default from the reference farm
+
+
+async def test_settings_save_the_restart_time(hass: HomeAssistant) -> None:
+    from custom_components.solar_smart_miner.config_flow import CONF_RAMP_LOCK
+
+    entry = _make_entry(hass)
+    await _get_options_flow_result(hass, entry, options_input={CONF_RAMP_LOCK: 7})
+
+    assert entry.options[CONF_RAMP_LOCK] == 7
 
 
 async def test_settings_default_to_the_agreed_steps(hass: HomeAssistant) -> None:

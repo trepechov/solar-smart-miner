@@ -18,14 +18,17 @@ OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 # Knowledge base in the AI prompt (kb.py). P0 and P1 are always sent; this caps the rest.
 KB_PROMPT_BUDGET_CHARS = 6000
 
-# Every limit change restarts a miner, and a wattage it has never run takes much longer to
-# tune, so the limit only ever moves between these steps (900 to 2,500 W, every one tuned on
-# every miner). W; each miner uses the ones inside its own range.
+# Defaults are the reference farm's values (the owner's first farm); on another farm they are
+# settings. Every limit change restarts a miner, and a wattage it has never run takes much
+# longer to tune, so the limit only ever moves between these steps. W; each miner uses the ones
+# inside its own range.
 DEFAULT_POWER_STEPS = [900, 1100, 1300, 1500, 1700, 1900, 2100, 2300, 2500]
-DEFAULT_RAMP_LOCK_MINUTES = 4  # after any change every miner holds while it restarts
-# A changed miner is done ramping early once it draws within this fraction of its new limit
-# (its hashrate may still be settling), but not before RAMP_MIN_MINUTES: right after a step
-# down the old, higher draw would otherwise read as already there.
+# Setting "restart time after a change" (it depends on the miner type): the longest every miner
+# holds after a change while the changed one restarts; it ends earlier once that one has settled.
+DEFAULT_RAMP_LOCK_MINUTES = 4
+# Generic, not settings: a changed miner is done ramping early once it draws within this
+# fraction of its new limit (its hashrate may still be settling), but not before
+# RAMP_MIN_MINUTES: right after a change the old reading could otherwise look done.
 RAMP_DONE_FRACTION = 0.05
 RAMP_MIN_MINUTES = 1
 

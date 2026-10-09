@@ -74,15 +74,17 @@
           "mock_solar_enabled": "Use Forecast.Solar as mock solar data (development only)",
           "mock_solar_entity": "Forecast.Solar power sensor (mock source)",
           "mock_consumption_enabled": "Use total miner power as mock grid consumption (development only)",
-          "power_steps": "Power steps, W (comma separated)"
+          "power_steps": "Power steps, W (comma separated)",
+          "ramp_lock_minutes": "Restart time after a change"
         },
         "data_description": {
           "temp_target": "Below this a miner may step up if there is energy. From here up to target + tolerance it holds, even with spare energy.",
-          "temp_tolerance": "At or above target + tolerance a miner steps down one step. The Braiins OS cutoff on the miner stays the last line of defense.",
+          "temp_tolerance": "At or above target + tolerance a miner steps down one step. The miner's own temperature cutoff stays the last line of defense.",
           "import_min": "Without a battery, a small steady grid import is the only proof that all the solar is used: at 0 W a throttled inverter hides what the panels could give. Below this import Solar-follow adds one increment (starts a stopped miner at its lowest step first, else raises one miner one step). Default 200 W.",
           "import_max": "Between the minimum and this, Solar-follow holds; above it, it steps down (after the step-down delay). Keep the range at least one power step (200 W) wide. Default 400 W.",
           "step_down_delay_minutes": "How long the import must stay above the maximum before Solar-follow steps down, so a passing cloud costs no restart. Default 5.",
           "morning_step_down_delay_minutes": "The same during sunrise, while production is still rising (not a time of day): a miner started early may import for a while, the sun catches up. Default 30.",
+          "ramp_lock_minutes": "After any change every miner holds at most this long while the changed one restarts; it ends earlier once that one mines again at its new limit. Depends on the miner type. Default 4 minutes.",
           "power_steps": "Every power-limit change restarts the miner, and a wattage it has never run takes up to an hour to tune, so limits only ever move between these steps. Each miner uses the steps inside its own range. Default: 900 to 2500 in 200 W steps."
         }
       },
