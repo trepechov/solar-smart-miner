@@ -326,7 +326,7 @@ def test_the_tuning_measurements_are_recorded_as_verified_facts() -> None:
                     "miner.limit-change-cost"):
         assert by_id[fact_id]["status"] == "verified", fact_id
         assert "situation.tuning" in by_id[fact_id]["situations"], fact_id
-        assert by_id[fact_id]["date"] == "2026-10-06"
+        assert by_id[fact_id]["date"] >= "2026-10-06"  # measured then; made generic 2026-10-09
 
 
 def test_every_situation_tag_is_used_by_some_fact() -> None:
@@ -386,3 +386,20 @@ def test_the_decisions_rule_list_and_the_knowledge_base_agree() -> None:
 def test_fewer_rules_than_before_the_audit() -> None:
     # 2026-10-09 (U9): 33 active rules before the audit. A new rule should replace one.
     assert len(ACTIVE_RULES) <= 22
+
+
+# --- the shipped base holds principles, not one farm ------------------------------------
+
+# Farm data (Configure -> Farm, <config>/solar_smart_miner/farm.yaml) is the user's; the shipped
+# statements must hold for any farm. Notes may keep the reference farm's figures.
+FARM_SPECIFIC = re.compile(
+    r"\b(S9s?|Antminer|Braiins|Huawei|SUN2000|Brod\d?|Brodilovo)\b"
+    r"|\b(?:sensor|switch|number|automation)\.[a-z0-9_]+(?![-\w])"
+)
+
+
+@pytest.mark.parametrize("item", [i for i in FACTS if i[1]["status"] != "retired"], ids=_label)
+def test_shipped_statements_name_no_farm_model_or_entity(item) -> None:
+    _, e = item
+    found = sorted({m.group(0) for m in FARM_SPECIFIC.finditer(" ".join(str(e["statement"]).split()))})
+    assert not found, f"{e['id']}: {found} belongs in the farm data or the note"

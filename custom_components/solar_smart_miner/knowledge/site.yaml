@@ -7,10 +7,13 @@ entries:
       local time, UTC+3 in summer and UTC+2 in winter. In early October the first PV output
       appears around 07:00 and the sun is gone by about 18:20.
     priority: P3
-    status: verified
+    status: retired
     source: "measured: HA history and sun.sun, 2026-10-05"
-    date: "2026-10-05"
+    date: "2026-10-09"
     tags: [always, sunrise, sunset]
+    note: >
+      Retired 2026-10-09: a fact about one farm, not a principle. It is farm data now:
+      HA's location, farm.location (the reference farm's farm.yaml).
 
   - id: site.inverters
     title: Three 5 kW inverters
@@ -19,10 +22,13 @@ entries:
       15 kW in total. Home Assistant has one active-power sensor per inverter and a
       calculated sum, sensor.active_power_total.
     priority: P3
-    status: verified
+    status: retired
     source: "measured: HA entities, 2026-10-05"
-    date: "2026-10-05"
+    date: "2026-10-09"
     tags: [always, solar]
+    note: >
+      Retired 2026-10-09: a fact about one farm, not a principle. It is farm data now:
+      Configure, Farm: Inverters; farm.inverters (the reference farm's farm.yaml).
 
   - id: site.array-orientation
     title: East-west roof
@@ -31,33 +37,48 @@ entries:
       (east-north-east) and 260 deg (west-south-west), compass degrees with 0 = north.
       The forecast assumes 7.5 kWp per slope at 15 deg tilt.
     priority: P3
-    status: assumed
+    status: retired
     source: "owner: satellite screenshot, 2026-10-05; angle measured from the arrows, about 10 deg uncertain; tilt not checked"
-    date: "2026-10-05"
+    date: "2026-10-09"
     tags: [solar, forecast]
-    note: Morning output was 1.5-3.6x the old west-only forecast, which is what an east-facing half would give.
+    note: >
+      Morning output was 1.5-3.6x the old west-only forecast, which is what an east-facing
+      half would give.
+      Retired 2026-10-09: a fact about one farm, not a principle. It is farm data now:
+      Configure, Farm: PV array; farm.array-orientation (the reference farm's farm.yaml).
 
   - id: site.no-battery
-    title: No battery, grid always there
+    title: Without a battery the grid takes every swing
     statement: >
-      There is no battery. The grid is always connected and absorbs every swing: a miner
+      Without a battery the grid is always connected and absorbs every swing: a miner
       ramping, a cloud, or an inverter throttling.
     priority: P3
     status: decided
     source: "requirements doc §4.3, §6.1"
-    date: "2026-10-05"
+    date: "2026-10-09"
     tags: [always, grid]
+    note: >
+      Made a principle 2026-10-09 (the integration is for any farm). The farm's own
+      figures are farm data (Configure, Farm: Battery). Reference farm, the statement
+      until then: There is no battery. The grid is always connected and absorbs every
+      swing: a miner ramping, a cloud, or an inverter throttling.
 
   - id: site.grid-meter-sign
-    title: Meter sign convention
+    title: The grid meter's sign
     statement: >
-      sensor.power_meter_active_power is the grid meter in W. Negative means importing from
-      the grid, positive means exporting. It sits close to 0 while the inverters cover the load.
+      The grid meter's sign follows the type chosen for it in Configure (export positive
+      or import positive); the integration turns it into import and export. With zero-
+      export inverters it sits close to 0 W while they cover the load.
     priority: P3
     status: verified
     source: "measured: meter read -3656 W while PV was 216 W, 2026-10-05 18:10"
-    date: "2026-10-05"
+    date: "2026-10-09"
     tags: [always, grid]
+    note: >
+      Made a principle 2026-10-09 (the integration is for any farm). Reference farm, the
+      statement until then: sensor.power_meter_active_power is the grid meter in W.
+      Negative means importing from the grid, positive means exporting. It sits close to 0
+      while the inverters cover the load.
 
   - id: site.zero-export
     title: Inverters hold output to the house load
@@ -66,10 +87,14 @@ entries:
       house consumes. While that holds, measured solar equals the load, not the sun, and
       says nothing about how much more the panels could give.
     priority: P3
-    status: verified
+    status: retired
     source: "measured: flat 4.0 kWh per hour from 09:00 to 16:00 against a 9.9 kW forecast, 2026-10-05"
-    date: "2026-10-05"
+    date: "2026-10-09"
     tags: [always, midday, solar, curtailed]
+    note: >
+      Retired 2026-10-09: a fact about one farm, not a principle. It is farm data now:
+      Configure, Farm: Export to the grid; farm.zero-export. The principle is
+      energy.throttle-hides-headroom (the reference farm's farm.yaml).
 
   - id: site.load-is-miners
     title: The house load is the miners
@@ -84,19 +109,25 @@ entries:
     note: Retired 2026-10-08 for site.base-load (the owner puts the rest of the house at about 500 W).
 
   - id: site.base-load
-    title: Everything but the miners draws about 500 W
+    title: The house load besides the miners
     statement: >
-      The house load other than the miners is about 500 W. So an import well below that means the
-      solar covers part of the house, and near 0 W it covers all of it and the zero-export
-      inverters may be holding back (rule.small-import-target).
+      The house load other than the miners decides how low the import can go: an import
+      well below it means the solar covers part of the house, and near 0 W it covers all
+      of it and zero-export inverters may be holding back (rule.small-import-target).
     priority: P3
     status: verified
     source: "owner, 2026-10-08; measured: about 470 W import at night with all three miners paused, 2026-10-08 06:00 to 07:15"
-    date: "2026-10-08"
+    date: "2026-10-09"
     tags: [always, grid]
     note: >
       Paused miners may still draw for their control boards and fans, so part of the 470 W may be
       them. It varies (energy.unseen-load).
+      Made a principle 2026-10-09 (the integration is for any farm). The farm's own
+      figures are farm data (Configure, Farm: Base load; farm.base-load). Reference farm,
+      the statement until then: The house load other than the miners is about 500 W. So an
+      import well below that means the solar covers part of the house, and near 0 W it
+      covers all of it and the zero-export inverters may be holding back (rule.small-
+      import-target).
 
   - id: site.forecast-setup
     title: How the solar forecast is set up
@@ -105,10 +136,13 @@ entries:
       (260 deg, 7.5 kWp). Two template sensors add them: sensor.solar_forecast_power_now and
       sensor.solar_forecast_energy_left_today. The free API allows 12 calls an hour.
     priority: P3
-    status: verified
+    status: retired
     source: "measured: HA config entries, 2026-10-05"
-    date: "2026-10-05"
+    date: "2026-10-09"
     tags: [forecast, solar]
+    note: >
+      Retired 2026-10-09: a fact about one farm, not a principle. It is farm data now:
+      farm.forecast-setup (the reference farm's farm.yaml).
 
   - id: site.forecast-accuracy
     title: Forecast against reality
@@ -118,11 +152,14 @@ entries:
       unthrottled hours the new two-slope forecast fits the morning better than the old one
       and still runs about twice too high at 17:00, possibly from shading on the west side.
     priority: P3
-    status: assumed
+    status: retired
     source: "measured: hourly forecast vs hourly yield, 2026-10-05; the shading is a guess"
-    date: "2026-10-05"
+    date: "2026-10-09"
     tags: [forecast, sunset]
-    note: Check again on a day with no throttling at the edges, and compare the evening hours.
+    note: >
+      Check again on a day with no throttling at the edges, and compare the evening hours.
+      Retired 2026-10-09: a fact about one farm, not a principle. It is farm data now:
+      farm.forecast-accuracy (the reference farm's farm.yaml).
 
   - id: site.schedule-automation
     title: Fixed-hour schedule still runs the miners
@@ -132,10 +169,14 @@ entries:
       to be switched off before the integration applies decisions automatically (rule.one-controller);
       with manual Apply they may still run, and the owner is warned.
     priority: P3
-    status: verified
+    status: retired
     source: "measured: switch history 2026-09-25 to 2026-10-05; handover decided in requirements doc §0 point 10"
-    date: "2026-10-05"
+    date: "2026-10-09"
     tags: [always, startup, sunset, sunrise]
+    note: >
+      Retired 2026-10-09: a fact about one farm, not a principle. It is farm data now:
+      Configure, Farm: Schedule automation; farm.schedule-automation. The principle is
+      rule.one-controller (the reference farm's farm.yaml).
 
   - id: site.profiles-planned
     title: The profiles being moved to

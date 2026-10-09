@@ -1,40 +1,60 @@
 # How the miners behave. Read the README for the format.
 entries:
   - id: miner.fleet
-    title: Three Braiins miners
+    title: Miners as hass-miner shows them
     statement: >
-      Three miners, Brod1, Brod2 and Brod3, run Braiins OS and are read through hass-miner
-      (one config entry per miner). Each has a power limit (a number entity, range 500 to
-      3500 W in steps of 100 W) and a pause/resume switch (switch.brodN_active).
+      The miners are read through hass-miner, one config entry per miner. Each has a power
+      limit (a number entity with the miner's own range) and a pause/resume switch.
     priority: P3
     status: verified
     source: "measured: HA entity registry, 2026-10-05"
-    date: "2026-10-05"
+    date: "2026-10-09"
     tags: [always]
+    note: >
+      Made a principle 2026-10-09 (the integration is for any farm). The farm's own
+      figures are farm data (Configure, Farm: Miner model and firmware; farm.miners).
+      Reference farm, the statement until then: Three miners, Brod1, Brod2 and Brod3, run
+      Braiins OS and are read through hass-miner (one config entry per miner). Each has a
+      power limit (a number entity, range 500 to 3500 W in steps of 100 W) and a
+      pause/resume switch (switch.brodN_active).
 
   - id: miner.immersion
-    title: Immersion cooled, no fans
+    title: Temperature follows power and cooling
     statement: >
-      The miners are immersion cooled and have no fans. Temperature follows power and the
-      cooling directly. The only Braiins OS temperature setting that matters is the cutoff,
-      about 80 deg C, which restarts the miner.
+      A miner's temperature follows its power and its cooling directly. Its own firmware
+      cutoff restarts it when too hot; the integration doesn't manage that cutoff
+      (rule.temperature-is-braiins).
     priority: P3
     status: decided
     source: "requirements doc §0 point 5, §3.2"
-    date: "2026-10-05"
+    date: "2026-10-09"
     tags: [always, temperature]
+    note: >
+      Made a principle 2026-10-09 (the integration is for any farm). The farm's own
+      figures are farm data (Configure, Farm: Cooling, the miner's own temperature cutoff;
+      farm.cooling). Reference farm, the statement until then: The miners are immersion
+      cooled and have no fans. Temperature follows power and the cooling directly. The
+      only Braiins OS temperature setting that matters is the cutoff, about 80 deg C,
+      which restarts the miner.
 
   - id: miner.draw-vs-limit
     title: A settled miner draws about its limit
     statement: >
-      Once settled a miner draws within about 4 W of its limit (1697 W at 1700 W, 1899 W at 1900 W); one
-      read 14 W over at 1900 W. Early readings differ: at 1300 W it drew 1280 to 1300 W, and a tuning miner
-      is lower or higher until it settles. Budgets can treat the limit as the draw.
+      Once settled a miner draws about its power limit, within a few watts. While it
+      restarts and tunes the reading is lower or higher, so the limit stands for the draw
+      only once it has settled.
     priority: P3
     status: verified
     source: "measured: 1300 W on 2026-10-05, 1700 and 1900 W on 2026-10-06"
-    date: "2026-10-06"
+    date: "2026-10-09"
     tags: [always, midday]
+    note: >
+      Made a principle 2026-10-09 (the integration is for any farm). The farm's own
+      figures are farm data (farm.draw-vs-limit). Reference farm, the statement until
+      then: Once settled a miner draws within about 4 W of its limit (1697 W at 1700 W,
+      1899 W at 1900 W); one read 14 W over at 1900 W. Early readings differ: at 1300 W it
+      drew 1280 to 1300 W, and a tuning miner is lower or higher until it settles. Budgets
+      can treat the limit as the draw.
 
   - id: miner.hashrate-noise
     title: Hashrate is noisy
@@ -50,16 +70,21 @@ entries:
   - id: miner.efficiency-range
     title: Efficient between 1000 and 2000 W
     statement: >
-      The miners have similar efficiency between about 1000 W and 2000 W. So 4000 W is
-      better used by three miners near 1330 W than by two at 2000 W.
+      Miners of one model have about the same efficiency (J/TH) over the middle of their
+      range, so power spread over several miners there is used as well as on fewer pushed
+      harder.
     priority: P3
     status: assumed
     source: "requirements doc §1; owner's belief, not measured"
-    date: "2026-10-05"
+    date: "2026-10-09"
     tags: [midday, allocation]
     note: >
       Measured 2026-10-06: J/TH is flat from 1300 to 1900 W (miner.settled-values). Nothing is measured
       below 1300 W or above 1900 W, so the 1000 to 2000 W claim is checked for 1300 to 1900 W only.
+      Made a principle 2026-10-09 (the integration is for any farm). The farm's own
+      figures are farm data (farm.efficiency-range). Reference farm, the statement until
+      then: The miners have similar efficiency between about 1000 W and 2000 W. So 4000 W
+      is better used by three miners near 1330 W than by two at 2000 W.
 
   - id: miner.retune
     title: A limit change starts a long tuning
@@ -79,15 +104,20 @@ entries:
   - id: miner.tuning-not-exposed
     title: The tuning state isn't available
     statement: >
-      hass-miner doesn't expose whether a miner is tuning or stable. sensor.brodN_active_preset_name
-      reads unknown even while the miner runs. The controller estimates it as the time since
-      the power limit last changed.
+      hass-miner doesn't expose whether a miner is tuning or stable (its preset entity
+      reads unknown even while the miner runs). The controller tells it from the time
+      since the power limit last changed and from the restart it sees.
     priority: P3
     status: verified
     source: "measured: HA states, 2026-10-05"
-    date: "2026-10-05"
+    date: "2026-10-09"
     situations: [situation.tuning]
     tags: [always, allocation, tuning]
+    note: >
+      Made a principle 2026-10-09 (the integration is for any farm). Reference farm, the
+      statement until then: hass-miner doesn't expose whether a miner is tuning or stable.
+      sensor.brodN_active_preset_name reads unknown even while the miner runs. The
+      controller estimates it as the time since the power limit last changed.
 
   - id: miner.limit-change-cost
     title: Cost of a limit change
@@ -165,31 +195,35 @@ entries:
   - id: miner.tuning-signature
     title: What an untuned miner looks like
     statement: >
-      Right after a limit change a miner draws the new power but hashes poorly: at 1300 W
-      Brod1 gave about 59 TH/s at 22 J/TH, and 3 to 9 minutes after moving to 1500 W it gave
-      47 to 50 TH/s at 30 to 32 J/TH. Efficiency (J/TH) is the clearest sign, because a
-      tuned miner at a higher power should do better, not worse, in TH/s.
+      Right after a limit change a miner draws the new power but hashes poorly. Efficiency
+      (J/TH) is the clearest sign of tuning: a tuned miner at a higher power should do
+      better in TH/s, not worse.
     priority: P3
     status: verified
     source: "measured: Brod1 history 09:20 to 09:40, 2026-10-06"
-    date: "2026-10-06"
+    date: "2026-10-09"
     situations: [situation.tuning]
     tags: [allocation, alerts, tuning]
     note: >
       No sensor says "tuning"; efficiency is only a proxy. How long it lasts and what it settles at
       are in miner.tuning-duration and miner.settled-values.
+      Made a principle 2026-10-09 (the integration is for any farm). The farm's own
+      figures are farm data (farm.tuning-signature). Reference farm, the statement until
+      then: Right after a limit change a miner draws the new power but hashes poorly: at
+      1300 W Brod1 gave about 59 TH/s at 22 J/TH, and 3 to 9 minutes after moving to 1500
+      W it gave 47 to 50 TH/s at 30 to 32 J/TH. Efficiency (J/TH) is the clearest sign,
+      because a tuned miner at a higher power should do better, not worse, in TH/s.
 
   - id: miner.tuning-duration
     title: How long a tuning takes
     statement: >
-      Five tunings (Brod1, Brod2 and Brod3 at 1500, 1700 and 1900 W) took the same time. Efficiency
-      was within 10% of its final value after 17 to 20 minutes (31 J/TH at 4 minutes, 28 at 8, 25 at 12,
-      22.5 at 16) and the miner showed about five short hashrate dips between +7 and +46 minutes. After
-      that it stayed steady for hours. So a change means about 50 minutes of tuning.
+      A first tuning at a wattage takes long, tens of minutes; efficiency gets close to
+      its final value well before the end, with a few short hashrate dips meanwhile.
+      Afterwards the miner stays steady.
     priority: P3
     status: verified
     source: "measured: Brod1 (1500, 1700, 1900 W), Brod2 (1500, 1700, 1900 W) and Brod3 (1700 W), 2026-10-06 09:31 to 19:00; medians over rolling windows"
-    date: "2026-10-06"
+    date: "2026-10-09"
     tags: [allocation, tuning]
     situations: [situation.tuning]
     note: >
@@ -197,18 +231,25 @@ entries:
       its final value; the dips and the last few percent take until about +46. Always from a lower step
       to a higher one so far; stepping down is not measured. Per the owner (2026-10-07) this is the cost
       of a step a miner has never run; a step tuned before is only a restart (miner.revisit-is-a-restart).
+      Made a principle 2026-10-09 (the integration is for any farm). The farm's own
+      figures are farm data (farm.tuning-duration). Reference farm, the statement until
+      then: Five tunings (Brod1, Brod2 and Brod3 at 1500, 1700 and 1900 W) took the same
+      time. Efficiency was within 10% of its final value after 17 to 20 minutes (31 J/TH
+      at 4 minutes, 28 at 8, 25 at 12, 22.5 at 16) and the miner showed about five short
+      hashrate dips between +7 and +46 minutes. After that it stayed steady for hours. So
+      a change means about 50 minutes of tuning.
 
   - id: miner.revisit-is-a-restart
     title: Going back to a tuned step is only a restart
     statement: >
-      A miner keeps the settings from its first tuning at a wattage. Changing to a step it has run
-      before costs only the restart, 2 to 3 minutes until it loads and settles at that power (measured
-      about 4 minutes to the new power); the long tuning (miner.tuning-duration) is for a step it has
-      never run. Every miner has run the steps from 900 to 2,500 W.
+      A miner keeps the settings from its first tuning at a wattage. Changing to a step it
+      has run before costs only the restart (rule.ramp-lock); the long tuning
+      (miner.tuning-duration) is for a step it has never run. The configured power steps
+      are meant to be steps every miner has run.
     priority: P3
     status: decided
     source: "owner, 2026-10-07; restart time measured 2026-10-06 (miner.limit-change-cost)"
-    date: "2026-10-07"
+    date: "2026-10-09"
     situations: [situation.tuning]
     tags: [always, allocation, tuning]
     note: >
@@ -217,22 +258,36 @@ entries:
       2,500 W confirmed by the owner on 2026-10-07 (conflict.power-steps-config); settled values are
       measured only up to 1,900 W. Owner, 2026-10-08: the settle after a change is usually about
       5 minutes (the tuning time default).
+      Made a principle 2026-10-09 (the integration is for any farm). The farm's own
+      figures are farm data (farm.revisit-is-a-restart). Reference farm, the statement
+      until then: A miner keeps the settings from its first tuning at a wattage. Changing
+      to a step it has run before costs only the restart, 2 to 3 minutes until it loads
+      and settles at that power (measured about 4 minutes to the new power); the long
+      tuning (miner.tuning-duration) is for a step it has never run. Every miner has run
+      the steps from 900 to 2,500 W.
 
   - id: miner.settled-values
-    title: What a tuned miner gives at each step
+    title: Settled hashrate grows with power
     statement: >
-      Settled (median of the last 15 to 25 minutes): 1300 W gives about 59 TH/s at 21.9 J/TH, 1500 W about
-      68 TH/s at 22 J/TH, 1700 W 76 to 78 TH/s at 21.8 to 22.4 J/TH (Brod1, Brod2, Brod3), and 1900 W 84 to
-      88 TH/s at 21.9 to 22.6 J/TH. Hashrate per kW is 44 to 46 TH/s at every step, so efficiency is flat
-      from 1300 to 1900 W and hashrate grows with power. Settled draw is within 4 W of the limit
-      (Brod1 at 1900 W: 14 W over).
+      Once settled, hashrate grows with power while efficiency stays about flat over the
+      middle of the range, and the draw is within a few watts of the limit.
     priority: P3
     status: verified
     source: "measured: five tunings 1500 to 1900 W plus the 1300 W baselines, 2026-10-06"
-    date: "2026-10-06"
+    date: "2026-10-09"
     tags: [allocation, tuning, midday]
     situations: [situation.tuning]
-    note: Nothing is measured at 900 W or 1100 W, nor above 1900 W. Brod2 runs about 0.6 J/TH worse than Brod1 and Brod3.
+    note: >
+      Nothing is measured at 900 W or 1100 W, nor above 1900 W. Brod2 runs about 0.6 J/TH
+      worse than Brod1 and Brod3.
+      Made a principle 2026-10-09 (the integration is for any farm). The farm's own
+      figures are farm data (farm.settled-values). Reference farm, the statement until
+      then: Settled (median of the last 15 to 25 minutes): 1300 W gives about 59 TH/s at
+      21.9 J/TH, 1500 W about 68 TH/s at 22 J/TH, 1700 W 76 to 78 TH/s at 21.8 to 22.4
+      J/TH (Brod1, Brod2, Brod3), and 1900 W 84 to 88 TH/s at 21.9 to 22.6 J/TH. Hashrate
+      per kW is 44 to 46 TH/s at every step, so efficiency is flat from 1300 to 1900 W and
+      hashrate grows with power. Settled draw is within 4 W of the limit (Brod1 at 1900 W:
+      14 W over).
 
   - id: miner.hashrate-dips
     title: Short hashrate dips during the tuning

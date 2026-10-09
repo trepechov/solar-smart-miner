@@ -810,7 +810,7 @@ async def test_ai_gets_the_knowledge_for_the_moment_and_the_log_names_it(hass, m
     system = mock_openrouter.await_args.kwargs["messages"][0]["content"]
     assert "KNOWLEDGE BASE (situation: sunset)" in system
     assert "Move between fixed steps" in system  # a P1 rule
-    assert "What the sunset looked like" in system  # a sunset-only fact
+    assert "Pausing a miner" in system  # a sunset-only fact
     entry = json.loads(coordinator.ai_log.path.read_text().splitlines()[0])
     assert entry["knowledge"]["situation"] == "sunset"
     assert "rule.power-steps" in entry["knowledge"]["facts"]

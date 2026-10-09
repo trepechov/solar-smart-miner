@@ -87,8 +87,8 @@ def test_conflicts_retired_entries_are_never_sent() -> None:
 def test_situation_facts_go_only_to_their_situation() -> None:
     sunset = {f.id for f in select_facts(FACTS, SUNSET)}
     midday = {f.id for f in select_facts(FACTS, MIDDAY)}
-    assert "energy.evening-curve" in sunset
-    assert "energy.evening-curve" not in midday
+    assert "miner.pause-cost" in sunset  # tagged sunset only
+    assert "miner.pause-cost" not in midday
     assert "energy.throttle-hides-headroom" in midday
 
 

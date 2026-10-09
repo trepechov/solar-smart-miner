@@ -19,17 +19,21 @@ entries:
   - id: open.tuning-state-source
     title: Can the tuning state be read?
     statement: >
-      Is there a Braiins OS field (through its API or pyasic) that says whether a miner is
-      tuning or stable, so the controller doesn't have to guess from time since the last change?
+      Can the miner's firmware report its tuning state (through hass-miner or its own
+      API), so the controller doesn't have to estimate it?
     priority: P3
     status: open
     source: "owner, 2026-10-05; hass-miner exposes nothing, see miner.tuning-not-exposed"
-    date: "2026-10-06"
+    date: "2026-10-09"
     tags: [allocation]
     note: >
       Without a field, efficiency (J/TH) is a candidate proxy (see miner.tuning-signature): call a
       miner settled when its efficiency stops improving over about 10 minutes and is near the value
       it had when last stable at that step. Needs the settled values per step to compare against.
+      Made a principle 2026-10-09 (the integration is for any farm). Reference farm, the
+      statement until then: Is there a Braiins OS field (through its API or pyasic) that
+      says whether a miner is tuning or stable, so the controller doesn't have to guess
+      from time since the last change?
 
   - id: open.temperature-settle-time
     title: How long until the temperature means something again?
@@ -185,14 +189,20 @@ entries:
   - id: open.model-scoped-facts
     title: Which miner facts belong to one model or firmware?
     statement: >
-      The miner facts (tuning time, ramp, efficient range, hashrate band, "every change
-      restarts") were measured on the reference farm's S9s with Braiins OS but read as true for
-      every miner. Should they carry a model or firmware scope, so another model gets its own?
+      Every miner fact here was measured on one model and firmware (the reference farm's).
+      Should facts carry the model they apply to, so a farm with mixed models gets the
+      right ones?
     priority: P3
     status: open
     source: "genericity review, 2026-10-07 (deferred by the owner)"
-    date: "2026-10-07"
+    date: "2026-10-09"
     tags: [allocation, tuning]
+    note: >
+      Made a principle 2026-10-09 (the integration is for any farm). Reference farm, the
+      statement until then: The miner facts (tuning time, ramp, efficient range, hashrate
+      band, "every change restarts") were measured on the reference farm's S9s with
+      Braiins OS but read as true for every miner. Should they carry a model or firmware
+      scope, so another model gets its own?
 
   - id: open.cooling-type
     title: Do air-cooled miners need other temperature defaults?
