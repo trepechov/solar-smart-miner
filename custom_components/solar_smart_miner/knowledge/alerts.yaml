@@ -101,7 +101,10 @@ alerts:
     cooldown_min: 30
     resolves_when: Average back above the limit for 5 minutes.
     related: [rule.sustained-low-voltage, energy.voltage-source]
-    note: Becomes critical with pause_all below critical_volts. Needs the voltage sensor (open.voltage-sensor).
+    note: >
+      Needs the voltage sensor (Configure, Sensors). Since 0.8.0 the rules act on it themselves,
+      one miner at a time (rule.sustained-low-voltage); the alert itself is not raised yet. No
+      pause_all below a critical level (owner, 2026-10-09).
 
   # ---- sensors --------------------------------------------------------------
   - id: sensor.meter-lost

@@ -76,7 +76,9 @@
           "mock_solar_entity": "Forecast.Solar power sensor (mock source)",
           "mock_consumption_enabled": "Use total miner power as mock grid consumption (development only)",
           "power_steps": "Power steps, W (comma separated)",
-          "ramp_lock_minutes": "Restart time after a change"
+          "ramp_lock_minutes": "Restart time after a change",
+          "low_voltage_v": "Low voltage",
+          "voltage_debounce_s": "Low voltage must last"
         },
         "data_description": {
           "temp_target": "Below this a miner may step up if there is energy. From here up to target + tolerance it holds, even with spare energy.",
@@ -85,18 +87,21 @@
           "import_max": "Between the minimum and this, Solar-follow holds; above it, it steps down (after the step-down delay). Keep the range at least one power step (200 W) wide. Default 400 W.",
           "step_down_delay_minutes": "How long the import must stay above the maximum before Solar-follow steps down, so a passing cloud costs no restart. Default 5.",
           "morning_step_down_delay_minutes": "The same during sunrise, while production is still rising (not a time of day): a miner started early may import for a while, the sun catches up. Default 30.",
+          "low_voltage_v": "Only with a voltage sensor (Configure → Sensors). Low voltage means too much load on the supply: below this for the time below, one miner stops (the hungriest), then the next only after it has stopped and the voltage is still low. Default 210 V (a 230 V supply).",
+          "voltage_debounce_s": "So a single dip changes nothing. Counted again after every change. Default 60 s.",
           "ramp_lock_minutes": "After any change every miner holds at most this long while the changed one restarts; it ends earlier once that one mines again at its new limit. Depends on the miner type. Default 4 minutes.",
           "power_steps": "Every power-limit change restarts the miner, and a wattage it has never run takes up to an hour to tune, so limits only ever move between these steps. Each miner uses the steps inside its own range. Default: 900 to 2500 in 200 W steps."
         }
       },
       "edit_sensors": {
         "title": "Solar Smart Miner — Sensors",
-        "description": "Change the entities chosen during setup. Leave the house consumption sensor empty if you only have a net grid meter. The last four are reference sensors: they are shown to the AI and written to its log, and the rules don't use them. Saving reloads the integration.",
+        "description": "Change the entities chosen during setup. Leave the house consumption sensor empty if you only have a net grid meter. The battery and forecast sensors are shown to the AI and written to its log. The actual PV output is also used to estimate the import when the grid meter is lost, and the voltage sensor (optional) by the low-voltage rule. Saving reloads the integration.",
         "data": {
           "solar_production_entity": "Solar production or net grid power sensor",
           "solar_entity_type": "What does that sensor measure?",
           "grid_consumption_entity": "House consumption sensor (optional)",
           "battery_soc_entity": "Battery SOC sensor (optional)",
+          "voltage_entity": "Supply voltage sensor (optional)",
           "pv_power_entity": "Actual PV output, W (optional)",
           "forecast_power_now_entity": "Forecast: PV power now, W (optional)",
           "forecast_power_next_hour_entity": "Forecast: PV power next hour, W (optional)",

@@ -57,7 +57,9 @@ from .const import (
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_POWER_STEPS,
     DEFAULT_PROFILE,
+    DEFAULT_LOW_VOLTAGE_V,
     DEFAULT_RAMP_LOCK_MINUTES,
+    DEFAULT_VOLTAGE_DEBOUNCE_S,
     DEFAULT_STEP_DOWN_DELAY_MINUTES,
     DEFAULT_TEMP_TARGET,
     DEFAULT_TEMP_TOLERANCE,
@@ -78,8 +80,10 @@ CONF_GRID_ENTITY = "grid_consumption_entity"  # house consumption, miners includ
 CONF_OPENROUTER_KEY = "openrouter_api_key"
 CONF_OPENROUTER_MODEL = "openrouter_model"
 CONF_BATTERY_ENTITY = "battery_soc_entity"
-# Reference sensors: shown to the AI and written to its log, never used by the rules.
+# Optional sensors. The forecast and battery are shown to the AI and logged; the actual PV also
+# feeds the estimate when the grid meter is lost, and the voltage the low-voltage rule.
 CONF_PV_ENTITY = "pv_power_entity"
+CONF_VOLTAGE_ENTITY = "voltage_entity"
 CONF_FORECAST_NOW_ENTITY = "forecast_power_now_entity"
 CONF_FORECAST_NEXT_HOUR_ENTITY = "forecast_power_next_hour_entity"
 CONF_FORECAST_REMAINING_ENTITY = "forecast_energy_remaining_entity"
@@ -89,6 +93,7 @@ REFERENCE_ENTITY_KEYS = (
     CONF_FORECAST_NOW_ENTITY,
     CONF_FORECAST_NEXT_HOUR_ENTITY,
     CONF_FORECAST_REMAINING_ENTITY,
+    CONF_VOLTAGE_ENTITY,
 )
 CONF_TEMP_TARGET = "temp_target"
 CONF_TEMP_TOLERANCE = "temp_tolerance"
@@ -105,6 +110,8 @@ CONF_AI_ENABLED = "ai_enabled"
 CONF_AI_INTERVAL = "ai_interval"
 CONF_POWER_STEPS = "power_steps"  # list[int] in options; typed as "900, 1100, 1300, 1500"
 CONF_RAMP_LOCK = "ramp_lock_minutes"  # the restart time after a change (miner type)
+CONF_LOW_VOLTAGE = "low_voltage_v"  # below this for the debounce: stop one miner
+CONF_VOLTAGE_DEBOUNCE = "voltage_debounce_s"
 CONF_MINER_RELAYS = "miner_relays"  # options: {miner id (its IP): relay switch entity id}
 CONF_MINER = "miner"  # form field: which miner the relay below belongs to
 CONF_RELAY_ENTITY = "relay_entity"
@@ -432,6 +439,21 @@ def _options_schema(options: dict) -> vol.Schema:
                 min=1, max=30, step=1, unit_of_measurement="min", mode=NumberSelectorMode.BOX
             )
         ),
+        vol.Required(
+            CONF_LOW_VOLTAGE, default=options.get(CONF_LOW_VOLTAGE, DEFAULT_LOW_VOLTAGE_V)
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=90, max=260, step=1, unit_of_measurement="V", mode=NumberSelectorMode.BOX
+            )
+        ),
+        vol.Required(
+            CONF_VOLTAGE_DEBOUNCE,
+            default=options.get(CONF_VOLTAGE_DEBOUNCE, DEFAULT_VOLTAGE_DEBOUNCE_S),
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=10, max=600, step=5, unit_of_measurement="s", mode=NumberSelectorMode.BOX
+            )
+        ),
         # Suggested, not defaulted: a blank field is stored as None, and None as a default
         # fails the text selector, so the form could never be saved again.
         vol.Optional(
@@ -584,6 +606,10 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
                 {
                     CONF_POWER_STEPS: steps,
                     CONF_RAMP_LOCK: int(user_input.get(CONF_RAMP_LOCK, DEFAULT_RAMP_LOCK_MINUTES)),
+                    CONF_LOW_VOLTAGE: int(user_input.get(CONF_LOW_VOLTAGE, DEFAULT_LOW_VOLTAGE_V)),
+                    CONF_VOLTAGE_DEBOUNCE: int(
+                        user_input.get(CONF_VOLTAGE_DEBOUNCE, DEFAULT_VOLTAGE_DEBOUNCE_S)
+                    ),
                     CONF_CONTROL_MODE: user_input[CONF_CONTROL_MODE],
                     CONF_POLLING_INTERVAL: int(user_input[CONF_POLLING_INTERVAL]),
                     CONF_TEMP_TARGET: int(user_input[CONF_TEMP_TARGET]),

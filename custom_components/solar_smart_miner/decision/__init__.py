@@ -21,6 +21,8 @@ import logging
 
 from ..const import (
     DEFAULT_IMPORT_MAX_W,
+    DEFAULT_LOW_VOLTAGE_V,
+    DEFAULT_VOLTAGE_DEBOUNCE_S,
     DEFAULT_IMPORT_MIN_W,
     DEFAULT_POWER_STEPS,
     DEFAULT_RAMP_LOCK_MINUTES,
@@ -64,6 +66,10 @@ def build_decision(
     sunset: bool = False,
     meter_lost_minutes: float | None = None,
     base_load_w: float | None = None,
+    voltage_low_seconds: float | None = None,
+    voltage_debounce_s: float = DEFAULT_VOLTAGE_DEBOUNCE_S,
+    low_voltage_v: float = DEFAULT_LOW_VOLTAGE_V,
+    held_down: list[str] | tuple[str, ...] = (),
 ) -> Decision:
     """One plan per miner. Apart from safety, at most one miner changes per decision.
 
@@ -79,7 +85,10 @@ def build_decision(
     False; None means unknown) or `sunset` blocks starts and step-ups. Sunrise and sunset come
     from transition.py. While the grid meter is unknown (`meter_lost_minutes`), every miner
     holds for the grace period, then an import estimated with `base_load_w` decides, only
-    downwards (safety.py).
+    downwards (safety.py). `voltage_low_seconds` is how long the voltage has been below
+    `low_voltage_v` outside ramp locks; after `voltage_debounce_s` one miner stops. Miners in
+    `held_down` were brought down by Safety or Limits within the step-down delay and aren't
+    raised or started again yet.
     """
     # One profile: an older stored name (before the migration ran) reads as Solar-follow.
     profile_def = PROFILES_BY_NAME.get(profile, PROFILES[0])
@@ -104,6 +113,10 @@ def build_decision(
         sunset=sunset,
         meter_lost_minutes=meter_lost_minutes,
         base_load_w=base_load_w,
+        voltage_low_seconds=voltage_low_seconds,
+        voltage_debounce_s=voltage_debounce_s,
+        low_voltage_v=low_voltage_v,
+        held_down=held_down,
     )
     try:
         return _run(ctx)

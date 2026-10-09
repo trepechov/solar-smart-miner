@@ -162,6 +162,8 @@ The following overrides run before every AI decision and cannot be bypassed — 
 
 - **Temperature band** — a miner at or above the target plus the tolerance (60 °C + 10 °C by default) steps down one step; between the target and target + tolerance it holds even with spare energy. A low temperature is never a reason to step up
 - **Battery SOC floor** — if battery drops below the configured %, all miners are stopped
+- **Low voltage** — with a voltage sensor (Configure → Sensors): low voltage means too much load on the supply. Below the limit (210 V by default) for the set time (60 s), the hungriest miner stops; the next only after that stop has taken effect and the voltage is still low. Never several at once
+- **What safety brought down stays down for a while** — a miner stopped or stepped down for low voltage, temperature or the battery isn't raised or started again within the step-down delay, so the next cycle can't undo it
 - **Grid meter lost** — while the grid balance is unknown (the meter, or the solar and house sensors it is derived from), every miner holds for 5 minutes: short gaps are normal and must not re-tune the miners. After that the import is estimated as the miners' draw plus the house load besides them (Configure → Farm) minus the actual PV (the PV sensor under Configure → Sensors), and the normal rules decide on it, but only downwards: nothing starts or steps up on an estimate. Without a base load or a PV reading the miners keep holding. After 10 minutes a "grid meter lost" notification is raised; it goes away when the meter is back. A fault of the PV sensor alone changes nothing.
 
 ## Control mode

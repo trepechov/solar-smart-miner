@@ -8,7 +8,12 @@ releasing; it is never a setting.
 from __future__ import annotations
 
 RULES: dict[str, tuple[str, ...]] = {
-    "safety": ("rule.miner-range", "rule.required-inputs", "rule.battery-floor"),
+    "safety": (
+        "rule.miner-range",
+        "rule.battery-floor",
+        "rule.sustained-low-voltage",
+        "rule.required-inputs",
+    ),
     "pacing": ("rule.ramp-lock", "rule.one-miner-per-change"),
     "limits": (
         "rule.sunset-one-by-one",
@@ -25,6 +30,10 @@ RULES: dict[str, tuple[str, ...]] = {
     "tidy": ("rule.power-steps",),
 }
 STAGE_OF = {rule: stage for stage, rules in RULES.items() for rule in rules}
+# Plan reasons of the Safety and Limits rules that bring a miner down. A miner brought down by
+# one isn't raised or started again within the step-down delay (rule.step-down-allocation):
+# otherwise its condition clears once it has acted and the target undoes it the next cycle.
+HELD_DOWN_REASONS = ("low voltage", "too warm", "battery low")
 
 
 def decided_by(rule: str) -> str:

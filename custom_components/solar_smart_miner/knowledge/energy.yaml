@@ -161,11 +161,14 @@ entries:
   - id: energy.voltage-source
     title: Which voltage to watch
     statement: >
-      Mining below about 210 V is not recommended. No voltage sensor has been chosen yet;
-      the inverters and the meter both report it (the meter read 238.6 V on 2026-10-05).
+      The supply voltage falls when the load is too high, and stopping a miner raises it. The
+      voltage to watch is chosen in Configure (the meter or an inverter both report it); without
+      one the low-voltage rule does nothing.
     priority: P3
-    status: assumed
-    source: "requirements doc §3.3; meter reading measured 2026-10-05"
-    date: "2026-10-05"
+    status: decided
+    source: "owner, 2026-10-09; requirements doc §3.3"
+    date: "2026-10-09"
     tags: [always, voltage]
-    note: 'Open question: which entity, and a hard-stop threshold.'
+    note: >
+      Reference farm: mining below about 210 V is not recommended; the meter read 238.6 V on
+      2026-10-05. No hard-stop threshold (owner, 2026-10-09: one rule, stop one miner at a time).

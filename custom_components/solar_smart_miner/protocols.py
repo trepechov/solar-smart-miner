@@ -20,6 +20,7 @@ class EnergySnapshot:
     forecast_now_w: float | None = None  # forecast: what the panels could give right now
     forecast_next_hour_w: float | None = None
     forecast_remaining_kwh: float | None = None  # forecast: energy still to come today
+    voltage_v: float | None = None  # supply voltage, if a voltage sensor is configured (rules use it)
 
 
 @dataclass

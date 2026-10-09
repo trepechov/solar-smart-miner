@@ -38,6 +38,9 @@ from .config_flow import (
     CONF_GRID_ENTITY,
     CONF_IMPORT_MAX,
     CONF_IMPORT_MIN,
+    CONF_LOW_VOLTAGE,
+    CONF_VOLTAGE_DEBOUNCE,
+    CONF_VOLTAGE_ENTITY,
     CONF_MORNING_STEP_DOWN_DELAY,
     CONF_OPENROUTER_KEY,
     CONF_OPENROUTER_MODEL,
@@ -68,6 +71,8 @@ from .const import (
     DEFAULT_BATTERY_FLOOR,
     DEFAULT_IMPORT_MAX_W,
     DEFAULT_IMPORT_MIN_W,
+    DEFAULT_LOW_VOLTAGE_V,
+    DEFAULT_VOLTAGE_DEBOUNCE_S,
     DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES,
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_POWER_STEPS,
@@ -88,6 +93,7 @@ from .const import (
 )
 from .control import (
     RESULT_FAILED,
+    RESULT_PENDING,
     RESULT_REFUSED,
     TRIGGER_AUTO,
     TRIGGER_MANUAL,
@@ -96,6 +102,7 @@ from .control import (
     MinerController,
 )
 from .decision import _describe_plan, build_decision, describe_proposal
+from .decision.rules import HELD_DOWN_REASONS
 from .decision.safety import estimated_import_w
 from .decision_log import DecisionLog
 from . import jsonl_log
@@ -237,6 +244,9 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         self._import_high_frozen: float | None = None  # time.monotonic() the meter went (grace)
         self._grid_unknown_since: float | None = None  # time.monotonic() the grid balance went unknown
         self._meter_alerted = False  # the sensor.meter-lost notification is up
+        self._voltage_low_since: float | None = None  # time.monotonic() it went low (outside locks)
+        # miner id -> time.monotonic() a Safety or Limits rule brought it down (HELD_DOWN_REASONS)
+        self._brought_down: dict[str, float] = {}
         self.transition = Transition()  # sunrise and sunset, from how production changes
         self._building: CoordinatorSnapshot | None = None  # the snapshot of the cycle being worked out
         # miner id -> (plan fingerprint, reason) of the last automatic refusal, so it isn't repeated
@@ -334,6 +344,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             forecast_now_w=_reference(CONF_FORECAST_NOW_ENTITY, _parse_power_w),
             forecast_next_hour_w=_reference(CONF_FORECAST_NEXT_HOUR_ENTITY, _parse_power_w),
             forecast_remaining_kwh=_reference(CONF_FORECAST_REMAINING_ENTITY, _parse_energy_kwh),
+            voltage_v=_reference(CONF_VOLTAGE_ENTITY, _parse_state_float),
             solar_production_w=solar_w,
             grid_consumption_w=house_w,
             battery_soc_pct=battery_pct,
@@ -480,6 +491,27 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             ages.append((now - self._last_change) / 60)
         return min(ages, default=None)
 
+    def _seconds_voltage_low(
+        self, energy: EnergySnapshot, threshold_v: float, since_change: float | None
+    ) -> float | None:
+        """Seconds the voltage has stayed below the threshold, counted only outside a ramp lock:
+        after each change the count starts again, so a lagging reading can't stop a second
+        miner right after the first (None while it isn't low, or there is no voltage sensor)."""
+        if energy.voltage_v is None or energy.voltage_v >= threshold_v or since_change is not None:
+            self._voltage_low_since = None
+            return None
+        if self._voltage_low_since is None:
+            self._voltage_low_since = time.monotonic()
+        return time.monotonic() - self._voltage_low_since
+
+    def _held_down(self, delay_minutes: float) -> list[str]:
+        """Miners a Safety or Limits rule brought down within the step-down delay."""
+        now = time.monotonic()
+        for miner_id, when in list(self._brought_down.items()):
+            if now - when >= delay_minutes * 60:
+                del self._brought_down[miner_id]
+        return sorted(self._brought_down)
+
     def _minutes_meter_lost(self, energy: EnergySnapshot) -> float | None:
         """Minutes the grid balance has been unknown (None while it is known), and the
         sensor.meter-lost alert: raised at METER_LOST_ALERT_MIN, dismissed when it is back."""
@@ -611,6 +643,8 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         return self._farm_proposal(self.data)[1] if self.data is not None else NO_ACTION_TEXT
 
     async def _async_record_action(self, event: CommandEvent) -> None:
+        if event.status == RESULT_PENDING and event.plan.reason in HELD_DOWN_REASONS:
+            self._brought_down[event.miner_id] = time.monotonic()
         if event.status == RESULT_FAILED and event.calls:
             # Tried to: the miner may restart. A failed send waits out the whole ramp lock, so
             # Automatic doesn't retry it every cycle.
@@ -946,6 +980,8 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         sun = self.hass.states.get("sun.sun")
         self._update_transition(energy, since_change, sun)
         meter_lost = self._minutes_meter_lost(energy)
+        low_voltage = float(options.get(CONF_LOW_VOLTAGE, DEFAULT_LOW_VOLTAGE_V))
+        step_down_delay = float(options.get(CONF_STEP_DOWN_DELAY, DEFAULT_STEP_DOWN_DELAY_MINUTES))
         base_load = options.get(CONF_FARM_BASE_LOAD)
         base_load = float(base_load) if base_load not in (None, "") else None
         if energy.grid_net_w is not None:
@@ -967,9 +1003,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             "ramp_lock_minutes": self._ramp_lock_minutes(),
             "ramp_done": list(self._ramp_done),
             "minutes_import_high": self._minutes_import_high(import_now, import_max, since_change),
-            "step_down_delay_minutes": float(
-                options.get(CONF_STEP_DOWN_DELAY, DEFAULT_STEP_DOWN_DELAY_MINUTES)
-            ),
+            "step_down_delay_minutes": step_down_delay,
             "morning_step_down_delay_minutes": float(
                 options.get(CONF_MORNING_STEP_DOWN_DELAY, DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES)
             ),
@@ -978,6 +1012,10 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             "sunset": self.transition.sunset,
             "meter_lost_minutes": meter_lost,
             "base_load_w": base_load,
+            "voltage_low_seconds": self._seconds_voltage_low(energy, low_voltage, since_change),
+            "voltage_debounce_s": float(options.get(CONF_VOLTAGE_DEBOUNCE, DEFAULT_VOLTAGE_DEBOUNCE_S)),
+            "low_voltage_v": low_voltage,
+            "held_down": self._held_down(step_down_delay),
         }
         decision = build_decision(snapshot, **inputs)
         await self.decision_log.async_record(snapshot, inputs, decision)

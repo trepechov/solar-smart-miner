@@ -44,6 +44,11 @@ DEFAULT_IMPORT_MAX_W = 400
 DEFAULT_STEP_DOWN_DELAY_MINUTES = 5
 DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES = 30
 
+# Low voltage (decision/safety.py): too much load on the supply; stopping one miner raises it.
+# Defaults from the reference farm (a 230 V supply). Settings.
+DEFAULT_LOW_VOLTAGE_V = 210
+DEFAULT_VOLTAGE_DEBOUNCE_S = 60
+
 # Grid meter lost (decision/safety.py): every miner holds this long, then an estimated import
 # decides (owner, 2026-10-09: gaps are usually a couple of minutes); the alert comes at
 # METER_LOST_ALERT_MIN. Fixed values, not settings.

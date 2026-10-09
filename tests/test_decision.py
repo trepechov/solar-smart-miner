@@ -782,3 +782,36 @@ def test_the_groups_run_in_order_and_an_earlier_one_wins() -> None:
     assert _decide(_lost(warm), minutes_since_change=1).summary.startswith("Safety:")
     assert _decide(_metered(INSIDE, warm), minutes_since_change=1).summary.startswith("Waiting")
     assert _decide(_metered(INSIDE, warm)).summary.startswith("Temperature:")
+
+
+# --- low voltage (U5) and what Safety or Limits brought down ---------------------------------
+
+
+def test_sustained_low_voltage_stops_the_hungriest_miner_only() -> None:
+    # Owner, 2026-10-09: low voltage means too much load; one miner stopping raises it.
+    miners = [_miner("a", limit=1100.0), _miner("b", limit=1500.0), _miner("c", limit=1300.0)]
+    decision = _decide(_metered(INSIDE, miners, voltage_v=205.0), voltage_low_seconds=61)
+
+    assert _actions(decision) == {"a": ACTION_HOLD, "b": ACTION_STOP, "c": ACTION_HOLD}
+    assert decision.summary.startswith("Safety: low voltage")
+    assert "Decided by: Safety / rule.sustained-low-voltage" in decision.trace
+    assert decision.plans["b"].reason == "low voltage"
+
+
+def test_a_short_voltage_dip_changes_nothing() -> None:
+    decision = _decide(_metered(INSIDE, _three(), voltage_v=205.0), voltage_low_seconds=30)
+
+    assert decision.proposals == {} and not decision.summary.startswith("Safety")
+
+
+def test_a_miner_brought_down_is_not_raised_or_started_again_within_the_delay() -> None:
+    # A voltage stop or a too-warm step down clears its own condition; the target must not
+    # undo it at the next cycle.
+    miners = [_miner("a", limit=1100.0), _miner("b", stopped=True)]
+    decision = _decide(_metered(BELOW, miners), held_down=["b", "a"])
+
+    assert decision.proposals == {}
+    assert set(_actions(decision).values()) == {ACTION_HOLD}
+    assert any("M-b was brought down by a safety or limit rule" in line for line in decision.trace)
+    # Another miner still takes the increment.
+    assert _decide(_metered(BELOW, miners), held_down=["b"]).proposals == {"a": 1300.0}

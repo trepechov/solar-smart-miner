@@ -71,6 +71,7 @@ def _one_change(
     caps: dict[str, int],
     trace: list[str],
     *,
+    held_down: list[str] | tuple[str, ...] = (),
     direction: str | None,
     excess_w: float = 0.0,
     may_step_up: bool = True,
@@ -78,6 +79,8 @@ def _one_change(
     """The one miner to change, its new step (index; None = stop) and the reason.
 
     `caps` is the highest step a miner may step up to (a warm miner: its current one).
+    `held_down` miners were brought down by Safety or Limits within the step-down delay: they
+    aren't raised or started again yet.
     `excess_w` is how far the import is over the maximum, for a step down.
     """
     level: dict[str, int | None] = {
@@ -96,6 +99,9 @@ def _one_change(
         return min(caps.get(m.miner_id, len(ladders[m.miner_id]) - 1), len(ladders[m.miner_id]) - 1)
 
     running = [m for m in candidates if level[m.miner_id] is not None]
+    for m in candidates:
+        if m.miner_id in held_down:
+            trace.append(f"{m.name} was brought down by a safety or limit rule → not raised again yet")
 
     if direction == DOWN:
         # The hungriest miner that can take the whole cut and keep running, on the highest
@@ -118,12 +124,12 @@ def _one_change(
     if direction == UP:
         # One increment: start a stopped miner at its lowest step first ...
         for m in candidates:
-            if level[m.miner_id] is None:
+            if level[m.miner_id] is None and m.miner_id not in held_down:
                 return m, 0, "import below the minimum"
         # ... else the weakest running miner (of equals, the coolest) one step up.
         for m in sorted(running, key=lambda x: (watts(x), temp(x))):
             lv = level[m.miner_id]
-            if lv < top_of(m):
+            if lv < top_of(m) and m.miner_id not in held_down:
                 return m, lv + 1, "import below the minimum"
 
     if len(running) == len(candidates) > 1:
@@ -134,7 +140,7 @@ def _one_change(
         lv_low, lv_high = level[low.miner_id], level[high.miner_id]
         if lv_high > 0 and ladders[high.miner_id][lv_high - 1] > watts(low):
             spread = f"{high.name} {_w(watts(high))} against {low.name} {_w(watts(low))}"
-            if may_step_up and lv_low < top_of(low):
+            if may_step_up and lv_low < top_of(low) and low.miner_id not in held_down:
                 trace.append(f"Even load: {spread} → {low.name} one step up")
                 return low, lv_low + 1, "even load"
             trace.append(f"Even load: {spread} → {high.name} one step down")
@@ -156,7 +162,7 @@ def allocate(ctx: Context) -> Decision:
     """One change for what the target asked, or every miner holds."""
     ladders = {m.miner_id: _ladder(m, ctx.steps) for m in ctx.candidates}
     change = _one_change(
-        ctx.candidates, ladders, ctx.caps, ctx.trace,
+        ctx.candidates, ladders, ctx.caps, ctx.trace, held_down=ctx.held_down,
         direction=ctx.direction, excess_w=ctx.excess_w, may_step_up=ctx.may_step_up,
     )
     summary = f"{ctx.profile_label}: import {_w(ctx.import_w)}"

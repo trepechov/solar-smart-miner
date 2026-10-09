@@ -1487,3 +1487,67 @@ async def test_a_lost_meter_holds_then_estimates_and_raises_the_alert(hass, add_
     await coordinator._async_update_data()
     await hass.async_block_till_done()
     assert "solar_smart_miner_meter_lost" not in hass.data["persistent_notification"]
+
+
+async def test_low_voltage_stops_one_miner_waits_for_it_and_doesnt_restart_it(
+    hass, add_hass_miner, monkeypatch
+) -> None:
+    import time as time_module
+
+    from pytest_homeassistant_custom_component.common import async_mock_service
+
+    from custom_components.solar_smart_miner.config_flow import CONF_VOLTAGE_ENTITY
+    from custom_components.solar_smart_miner.const import CONF_CONTROL_MODE
+
+    now = [1000.0]
+    monkeypatch.setattr(time_module, "monotonic", lambda: now[0])
+    a = add_hass_miner(MINER_IP, limit="1500", power="1500", temperature="55", active="on",
+                       limit_attrs={"min": 500.0, "max": 3500.0})
+    add_hass_miner(MINER_IP_2, limit="1300", power="1300", temperature="55", active="on",
+                   limit_attrs={"min": 500.0, "max": 3500.0})
+    hass.states.async_set(SOLAR_ENTITY, "2900")
+    hass.states.async_set(GRID_ENTITY, "3200")  # import 300 W: inside the range, nothing to do
+    hass.states.async_set("sensor.voltage", "204")
+    off = async_mock_service(hass, "switch", "turn_off")
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_SOLAR_ENTITY: SOLAR_ENTITY, CONF_GRID_ENTITY: GRID_ENTITY, CONF_BATTERY_ENTITY: None,
+              CONF_VOLTAGE_ENTITY: "sensor.voltage"},
+        options={CONF_CONTROL_MODE: "auto"},
+    )
+    entry.add_to_hass(hass)
+    coordinator = SolarMinerCoordinator(hass, entry)
+
+    assert not (await coordinator._async_update_data()).decision.summary.startswith("Safety")
+    now[0] += 61
+    snapshot = await coordinator._async_update_data()
+    assert snapshot.decision.summary.startswith("Safety: low voltage")
+    assert [c.data["entity_id"] for c in off] == [a["active"].entity_id]  # the hungriest
+
+    # Still low while the stop takes effect: the count starts again, no second stop.
+    hass.states.async_set(a["active"].entity_id, "off")
+    hass.states.async_set(a["miner_consumption"].entity_id, "unknown")
+    for _ in range(4):
+        now[0] += 30
+        await coordinator._async_update_data()
+    assert len(off) == 1
+
+    # The voltage recovers and the import is below the minimum: Brod1 is not started again yet.
+    hass.states.async_set("sensor.voltage", "231")
+    hass.states.async_set(GRID_ENTITY, "1100")  # 1,800 W spare: import far below the minimum
+    now[0] += 60
+    snapshot = await coordinator._async_update_data()
+    plan = snapshot.decision.plans[snapshot.miners[0].miner_id]
+    assert plan.action != "start"
+    assert "held_down" in coordinator.decision_log.path.read_text()
+
+
+async def test_without_a_voltage_sensor_the_rule_does_nothing(hass, add_hass_miner) -> None:
+    add_hass_miner(MINER_IP, limit="1500", power="1500", temperature="55",
+                   limit_attrs={"min": 500.0, "max": 3500.0})
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1800")
+    snapshot = await SolarMinerCoordinator(hass, _make_entry(hass))._async_update_data()
+
+    assert snapshot.energy.voltage_v is None
+    assert not snapshot.decision.summary.startswith("Safety: low voltage")

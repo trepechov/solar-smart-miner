@@ -65,19 +65,25 @@ entries:
       reference farm has no battery, so it is inert there; the battery profiles will rely on it.
 
   - id: rule.sustained-low-voltage
-    title: Low voltage steps miners down
+    title: Low voltage stops one miner at a time
     statement: >
-      A sustained low voltage (below the configured voltage limit, averaged over 30 to 60
-      seconds, never a single dip) steps the miners down, and may change several at once.
+      Low voltage means too much load on the supply. When the voltage stays below the configured
+      limit for the configured time (never a single dip), the hungriest running miner stops; the
+      next only after that stop has taken effect and the voltage is still low. Several miners
+      never stop together for it.
     priority: P0
     status: decided
-    stage: advice
-    source: "requirements doc §3.3; limit made a setting, owner 2026-10-07"
-    date: "2026-10-07"
+    stage: safety
+    source: "requirements doc §3.3; owner, 2026-10-07 (a setting) and 2026-10-09 (one miner at a time)"
+    date: "2026-10-09"
     tags: [always, voltage]
     note: >
-      The voltage limit is a setting, 210 V by default (the reference farm, on a 230 V supply);
-      the setting is not in the code yet. The sensor and a hard-stop threshold are still open.
+      Until 2026-10-09 the statement said the miners step down and several may change at once.
+      Owner, 2026-10-09: voltage drops when consumption is too high, and stopping even one miner
+      raises it. In the code since 0.8.0 (decision/safety.py): only with a voltage sensor; limit
+      210 V and 60 s by default (the reference farm, on a 230 V supply); the count starts again
+      after every change, so it waits out the ramp lock. A miner stopped for it isn't started
+      again within the step-down delay (rule.step-down-allocation).
 
   - id: rule.temperature-is-braiins
     title: The miner's cutoff is the last defense
@@ -656,14 +662,13 @@ entries:
   - id: rule.step-down-allocation
     title: Which miner moves
     statement: >
-      Which miner moves. A cut goes to the highest-power miner that stays at or above its
-      lowest step after it; only when none can, the lowest-power one stops. An increment
-      starts a stopped miner at its lowest step first, else raises the weakest running
-      miner (of equals, the coolest) one step. Once every miner runs and nothing else
-      needs to change, two limits two or more steps apart come one step closer: the
-      weakest up, or if it can't, the hungriest (of equals, the hottest) down, so no miner
-      runs much hotter than the rest. Hot miners step down through the temperature rule,
-      not here.
+      A cut goes to the highest-power miner that stays at or above its lowest step after
+      it; if none can, the lowest-power one stops. An increment starts a stopped miner at
+      its lowest step first, else raises the weakest running miner (of equals, the
+      coolest) one step. Once every miner runs and nothing else changes, two limits two or
+      more steps apart come one step closer (the weakest up, else the hungriest down). Hot
+      miners step down through the temperature rule. A miner a safety or limit rule
+      brought down isn't raised or started again within the step-down delay.
     priority: P2
     status: decided
     stage: allocation
