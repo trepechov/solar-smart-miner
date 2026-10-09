@@ -162,7 +162,7 @@ def allocate(ctx: Context) -> Decision:
     summary = f"{ctx.profile_label}: import {_w(ctx.import_w)}"
     if change is None:
         ctx.others_wait(None, "import in range" if ctx.direction is None else "nothing to change")
-        return ctx.done(summary)
+        return ctx.done(summary, "rule.small-import-target")
     m, lv, why = change
     ladder = ladders[m.miner_id]
     if lv is None:
@@ -174,4 +174,10 @@ def allocate(ctx: Context) -> Decision:
         ctx.plans[m.miner_id] = ctx.to_step(m, ladder[lv], why)
     ctx.trace.append(f"One miner changes at a time → {m.name}; the others wait for the next decision")
     ctx.others_wait(m, "one change at a time")
-    return ctx.done(summary)
+    if lv is None:
+        rule = "rule.stop-below-lowest-step"
+    elif why == "off step":
+        rule = "rule.power-steps"
+    else:
+        rule = "rule.step-down-allocation"
+    return ctx.done(summary, rule)

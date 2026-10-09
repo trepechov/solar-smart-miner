@@ -16,6 +16,7 @@ from ..protocols import (
 )
 from .allocation import _ladder, _stop_procedure
 from .describe import _describe_plan
+from .rules import decided_by
 
 
 @dataclass
@@ -89,7 +90,10 @@ class Context:
             if m is not changed:
                 self.plans[m.miner_id] = self.stop(m, reason) if m.is_stopped else self.hold(m, reason)
 
-    def done(self, summary: str) -> Decision:
+    def done(self, summary: str, rule: str | None = None) -> Decision:
+        """The decision, with the rule that made it (decision/rules.py) named in the trace."""
+        if rule is not None:
+            self.trace.append(decided_by(rule))
         # In the order the miners are listed, whichever was decided first.
         names = {m.miner_id: m.name for m in self.snapshot.miners}
         plans = {

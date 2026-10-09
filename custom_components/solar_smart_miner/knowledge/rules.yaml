@@ -9,6 +9,7 @@ entries:
       bypass: a proposal that breaks a P0 or P1 rule is dropped and logged.
     priority: P0
     status: decided
+    stage: control
     source: "requirements doc §7"
     date: "2026-10-05"
     tags: [always]
@@ -25,6 +26,7 @@ entries:
       In Manual mode the owner is the controller and is warned while the schedule is on.
     priority: P0
     status: decided
+    stage: control
     source: "requirements doc §0 point 10; Manual exception: plan 2026-10-06-001 Decision 4"
     date: "2026-10-06"
     tags: [always, startup]
@@ -42,9 +44,25 @@ entries:
       configured power steps.
     priority: P0
     status: decided
+    stage: safety
     source: "requirements doc §3.1; power steps decided 2026-10-05"
     date: "2026-10-05"
     tags: [always]
+
+  - id: rule.battery-floor
+    title: A low battery stops every miner
+    statement: >
+      With a battery sensor configured, a state of charge below the configured floor stops every
+      miner at once. Without a battery sensor this rule does nothing.
+    priority: P0
+    status: decided
+    stage: safety
+    source: "requirements doc §3; in the code since the first version"
+    date: "2026-10-09"
+    tags: [always]
+    note: >
+      Entry added 2026-10-09: the rule was enforced (decision/safety.py) but had no entry. The
+      reference farm has no battery, so it is inert there; the battery profiles will rely on it.
 
   - id: rule.sustained-low-voltage
     title: Low voltage steps miners down
@@ -53,6 +71,7 @@ entries:
       seconds, never a single dip) steps the miners down, and may change several at once.
     priority: P0
     status: decided
+    stage: advice
     source: "requirements doc §3.3; limit made a setting, owner 2026-10-07"
     date: "2026-10-07"
     tags: [always, voltage]
@@ -68,6 +87,7 @@ entries:
       step is not the plugin's job; at most it is noted in the decision trace.
     priority: P0
     status: decided
+    stage: limits
     source: "requirements doc §0.3"
     date: "2026-10-05"
     tags: [always, temperature]
@@ -98,6 +118,7 @@ entries:
       nothing is applied without a press. Only the rule plan is applied, never the AI answer.
     priority: P1
     status: decided
+    stage: control
     source: "owner, 2026-10-07; plan docs/plans/2026-10-06-001-feat-semi-automatic-apply-plan.md Phase 2"
     date: "2026-10-07"
     tags: [always, startup]
@@ -119,6 +140,7 @@ entries:
       own range). Never ask for a wattage between two steps. The smallest change is one step.
     priority: P1
     status: decided
+    stage: tidy
     source: "owner, 2026-10-05; ladder to 2,500 W, owner 2026-10-07"
     date: "2026-10-07"
     tags: [always, allocation]
@@ -164,6 +186,7 @@ entries:
       (rule.down-slowly-up-promptly).
     priority: P1
     status: decided
+    stage: allocation
     source: "requirements doc §0 point 7, §5.3, §0.6 round 7; owner, 2026-10-05 and 2026-10-07"
     date: "2026-10-07"
     situations: [situation.sunset, situation.night]
@@ -196,6 +219,7 @@ entries:
       sensor dropout changes nothing.
     priority: P1
     status: decided
+    stage: safety
     source: "requirements doc §0.6 round 7; owner, 2026-10-07"
     date: "2026-10-07"
     situations: [situation.dropout]
@@ -213,24 +237,30 @@ entries:
       A limit may move several steps in one change. It costs one restart, the same as one step,
       so on a big change go straight to the target step rather than one step per cycle.
     priority: P1
-    status: decided
+    status: retired
     source: "owner, 2026-10-07"
-    date: "2026-10-07"
+    date: "2026-10-09"
     tags: [always, allocation, cloud]
-    note: Still subject to rule.down-slowly-up-promptly; skipping steps is about how far, not how soon.
+    note: >
+      Still subject to rule.down-slowly-up-promptly; skipping steps is about how far, not
+      how soon.
+      Retired 2026-10-09 (0.8.0, fewer rules): merged into rule.one-miner-per-change.
+      Since 0.8.0 only a cut may skip steps.
 
   - id: rule.one-miner-per-change
-    title: One miner restarts at a time
+    title: One change at a time, as large as needed
     statement: >
-      A normal change touches one miner. The next miner changes only after the previous one is
-      back at its new power (the ramp lock) and the readings still call for it. Only safety may
-      change several miners at once. A change that restarts several miners together drops the
-      farm's load to almost nothing for minutes; zero-export inverters throttle down to the house and
-      the grid covers the gap when the miners come back.
+      Apart from safety, a proposal changes one miner, as much as needed: a step down goes
+      straight to the step that fits (it may skip steps, one restart either way), a step
+      up is one step. The next change comes only after the changed miner has settled
+      (rule.ramp-lock). Restarts are the main cost: a change that restarts several miners
+      together drops the farm's load to almost nothing for minutes, the zero-export
+      inverters throttle and the grid covers the gap.
     priority: P1
     status: decided
+    stage: pacing
     source: "owner, 2026-10-07; requirements doc §5 (minimise restarts per decision, safety skips the queue)"
-    date: "2026-10-07"
+    date: "2026-10-09"
     tags: [always, allocation]
     note: >
       Seen 2026-10-07: the rules proposed Brod1 2,300 to 2,500 W, Brod2 and Brod3 2,100 to 2,500 W
@@ -244,6 +274,8 @@ entries:
       0, the inverters throttled to about 225 W each, and the next two decisions read the restarting
       miners as stopped (budget 234 W, "all stopped", then "start all at 1,900 W"). The same
       readings on the rule's code propose pausing Brod3 only, Brod1 and Brod2 holding.
+      2026-10-09 (0.8.0): merges rule.minimise-restarts and rule.jump-several-steps. A
+      step up is one step since the budget went (rule.small-import-target).
 
   - id: rule.minimise-restarts
     title: Few restarts
@@ -251,10 +283,12 @@ entries:
       Restarts are the main cost. One miner changed by a lot beats three changed by a little,
       except when safety needs several, or when pausing one and raising another is better.
     priority: P1
-    status: decided
+    status: retired
     source: "requirements doc §0 point 8, §0.1 point 1"
-    date: "2026-10-05"
+    date: "2026-10-09"
     tags: [always, allocation]
+    note: >
+      Retired 2026-10-09 (0.8.0, fewer rules): merged into rule.one-miner-per-change.
 
   - id: rule.ramp-lock
     title: No decision while ramping
@@ -264,6 +298,7 @@ entries:
       it has run before; the log gives the reason as ramping.
     priority: P1
     status: decided
+    stage: pacing
     source: "requirements doc §5.2, §0.6 round 7; owner, 2026-10-07"
     date: "2026-10-07"
     situations: [situation.tuning]
@@ -301,11 +336,13 @@ entries:
       Pausing one miner and raising the others restarts all of them, and a passing cloud may
       reverse it soon. Do it only for a sustained deficit.
     priority: P1
-    status: decided
+    status: retired
     source: "requirements doc §5.3"
-    date: "2026-10-05"
+    date: "2026-10-09"
     situations: [situation.sunset, situation.cloud]
     tags: [cloud, sunset, allocation]
+    note: >
+      Retired 2026-10-09 (0.8.0, fewer rules): merged into rule.step-down-allocation.
 
   - id: rule.transitions-tolerant
     title: Don't chase sunrise, sunset or clouds
@@ -313,14 +350,15 @@ entries:
       Import during a transition is accepted and there is no give-up rule. Don't step down
       for a deficit shorter than a typical cloud, and don't step up for a surplus that hasn't held.
     priority: P1
-    status: decided
+    status: retired
     source: "requirements doc §0.2, §5.4"
-    date: "2026-10-05"
+    date: "2026-10-09"
     situations: [situation.sunrise, situation.sunset, situation.cloud]
     tags: [sunrise, sunset, cloud]
     note: >
       Owner, 2026-10-08: starting a miner at its lowest step is fine even when it imports a lot at
       first; such exceptions are accepted while the sun rises and sets.
+      Retired 2026-10-09 (0.8.0, fewer rules): merged into rule.down-slowly-up-promptly.
 
   - id: rule.small-import-target
     title: Aim for a small steady import
@@ -333,6 +371,7 @@ entries:
       these rules don't apply (battery profiles are open).
     priority: P1
     status: decided
+    stage: target
     source: "requirements doc §6.2; owner, 2026-10-08 (range 200 to 400 W)"
     date: "2026-10-08"
     situations: [situation.midday, situation.curtailed, situation.sunrise]
@@ -366,6 +405,7 @@ entries:
       the import.
     priority: P1
     status: decided
+    stage: target
     source: "owner, 2026-10-07"
     date: "2026-10-07"
     tags: [always, allocation, curtailed]
@@ -380,6 +420,7 @@ entries:
       not mean the highest power per miner (rule.prefer-spread).
     priority: P1
     status: decided
+    stage: advice
     source: "requirements doc §0 point 3, §1; mixed fleets, review 2026-10-07"
     date: "2026-10-07"
     tags: [always]
@@ -392,6 +433,7 @@ entries:
       rules' so the disagreements can be studied. It does not change the miners.
     priority: P1
     status: decided
+    stage: control
     source: "requirements doc §0 point 1, §7"
     date: "2026-10-05"
     tags: [always, ai]
@@ -399,13 +441,17 @@ entries:
   - id: rule.down-slowly-up-promptly
     title: Step down slowly, step up promptly
     statement: >
-      Step down only when a deficit has lasted longer than the cloud tolerance, so a passing
-      cloud costs no restarts. Step up once a surplus has held for the smoothing window, since
-      extra sun is pure gain. Fast reactions are for safety only (voltage, sensor health).
+      Step down only once the import has stayed above the range for the step-down delay
+      (longer during sunrise, while production still rises), counted again after each
+      change, so a passing cloud costs no restart; import during a transition is accepted
+      and there is no give-up rule. Step up at the next decision once the import is below
+      the range, since extra sun is pure gain. Decisions use the latest readings; there is
+      no smoothing window. Fast reactions are for safety only.
     priority: P1
     status: decided
+    stage: target
     source: "requirements doc §0.4 round 5 point 2, accepted 2026-10-06"
-    date: "2026-10-06"
+    date: "2026-10-09"
     tags: [always, cloud, allocation]
     note: >
       In the code since 2026-10-08 (Solar-max): the import must stay above the band for the
@@ -419,6 +465,9 @@ entries:
       Seen 2026-10-07 at sunset: with import about 160 W above the target the plan went Brod1
       1,300 to 1,100 W (17:21), to 900 W (17:22), then stop Brod2 (17:28), three different
       plans in 7 minutes.
+      2026-10-09 (0.8.0): merges rule.transitions-tolerant, rule.sunrise-fast and
+      rule.smooth-inputs (input smoothing dropped by the owner, 2026-10-09: the step-down
+      delay and the ramp lock cover it).
 
   - id: rule.temperature-band
     title: Follow a target temperature with a tolerance
@@ -430,6 +479,7 @@ entries:
       normal pace and never skip the queue.
     priority: P1
     status: decided
+    stage: limits
     source: "requirements doc §0 point 6, §3.2, §0.6 round 7"
     date: "2026-10-07"
     tags: [always, temperature, allocation]
@@ -467,6 +517,7 @@ entries:
       forecast never decides.
     priority: P1
     status: decided
+    stage: limits
     source: "owner, 2026-10-09 (sunrise is a period, not 15 degrees); requirements doc §0.1 point 5, §5.4"
     date: "2026-10-09"
     tags: [sunrise, sunset]
@@ -483,10 +534,13 @@ entries:
       The sun can rise fast, so in sunrise mode miners may be added before the usual hold
       time has passed. A decision still never acts on the readings of a miner that is ramping.
     priority: P1
-    status: decided
+    status: retired
     source: "requirements doc §0.1 point 3, §5.4"
-    date: "2026-10-05"
+    date: "2026-10-09"
     tags: [sunrise]
+    note: >
+      Retired 2026-10-09 (0.8.0, fewer rules): merged into rule.down-slowly-up-promptly.
+      Up is prompt anyway; a ramping miner still holds the farm (rule.ramp-lock).
 
   - id: rule.sunset-one-by-one
     title: During sunset nothing starts or steps up
@@ -496,6 +550,7 @@ entries:
       chasing every dip. An evening cloud that clears starts nothing until the morning.
     priority: P1
     status: decided
+    stage: limits
     source: "owner, 2026-10-09; requirements doc §0.1 point 5, §5.4"
     date: "2026-10-09"
     tags: [sunset]
@@ -529,11 +584,15 @@ entries:
       fewer pushed harder, as long as each is above the pause threshold. With mixed models,
       power goes to the most efficient miners first and is cut from the least efficient first.
     priority: P2
-    status: decided
+    status: retired
     source: "requirements doc §5.3; mixed fleets, review 2026-10-07"
-    date: "2026-10-07"
+    date: "2026-10-09"
     situations: [situation.midday]
     tags: [midday, allocation]
+    note: >
+      Retired 2026-10-09 (0.8.0, fewer rules): merged into rule.step-down-allocation. With
+      one model the even spread keeps several miners in their efficient range; mixed
+      models are not handled.
 
   - id: rule.even-load
     title: Spread the load evenly once every miner runs
@@ -545,9 +604,9 @@ entries:
       coolest) steps up one step; if it can't, the hungriest (of equals, the hottest) steps down
       one. A step up that pushes the import over the range is taken back from the hungriest.
     priority: P2
-    status: decided
+    status: retired
     source: "owner, 2026-10-08"
-    date: "2026-10-08"
+    date: "2026-10-09"
     situations: [situation.midday]
     tags: [midday, allocation, temperature]
     note: >
@@ -555,6 +614,7 @@ entries:
       and chips at 74 / 64 / 58 °C. The owner: one miner very hot and another 15 °C colder is not
       safe for the miners. Stepping up first keeps the import from falling below the range (which
       would throttle the inverters). In the code since 0.7.7 (decision._even_out).
+      Retired 2026-10-09 (0.8.0, fewer rules): merged into rule.step-down-allocation.
 
   - id: rule.fill-running-first
     title: Fill a running miner before starting another
@@ -581,22 +641,31 @@ entries:
     note: Reversed by round 5 of the requirements doc; replaced by rule.down-slowly-up-promptly.
 
   - id: rule.step-down-allocation
-    title: Which miner steps down
+    title: Which miner moves
     statement: >
-      Take a deficit from the highest-power miner that stays at or above its lowest step after
-      the cut. Only when no running miner can, stop the lowest-power one and let the next
-      step-up rebalance. Hot miners are not picked here; they step down through the
-      temperature rule.
+      Which miner moves. A cut goes to the highest-power miner that stays at or above its
+      lowest step after it; only when none can, the lowest-power one stops. An increment
+      starts a stopped miner at its lowest step first, else raises the weakest running
+      miner (of equals, the coolest) one step. Once every miner runs and nothing else
+      needs to change, two limits two or more steps apart come one step closer: the
+      weakest up, or if it can't, the hungriest (of equals, the hottest) down, so no miner
+      runs much hotter than the rest. Hot miners step down through the temperature rule,
+      not here.
     priority: P2
     status: decided
+    stage: allocation
     source: "requirements doc §0.4 round 5 point 4, §5.3; owner, 2026-10-07"
-    date: "2026-10-07"
+    date: "2026-10-09"
     tags: [cloud, sunset, allocation]
     note: >
       Owner, 2026-10-07: for a big cut, pausing one miner is the efficient way. It is one change,
       and the other two keep running. Example: a 3.4 kW shortfall with three miners at 2,300 W
       pauses one miner (about 2.3 kW) and leaves the others; the next decision, after the ramp
       lock, takes what is left.
+      2026-10-09 (0.8.0): merges rule.even-load, rule.prefer-spread, rule.consolidate-
+      needs-sustained-deficit and rule.resume-next-at-sunrise. A pause-and-raise needs no
+      rule of its own: the step-down delay already makes a deficit sustained before
+      anything is cut.
 
   - id: rule.resume-next-at-sunrise
     title: Start the next miner rather than raise the last
@@ -606,15 +675,17 @@ entries:
       restart each time. Start each miner at the lowest step, and the next one at the next
       increment (rule.small-import-target).
     priority: P1
-    status: decided
+    status: retired
     source: "requirements doc §5.3, §5.4, §0.6 round 7; owner, 2026-10-07"
-    date: "2026-10-08"
+    date: "2026-10-09"
     tags: [sunrise, allocation]
     note: >
       2026-10-08: with all miners paused the meter sat at 0 W from 07:45, the inverters reported
       power limited from 07:50, and nothing started until Brod1 was started by hand at 09:54. With
       zero export the budget never showed the 1,000 W a start needed. Since 2026-10-08 an import
       below the minimum starts the next stopped miner (rule.small-import-target).
+      Retired 2026-10-09 (0.8.0, fewer rules): merged into rule.step-down-allocation.
+      Start a stopped miner first, at its lowest step.
 
   - id: rule.no-import-cap
     title: No cap on grid import
@@ -623,6 +694,7 @@ entries:
       of cooling, so temperature is the limit that matters.
     priority: P2
     status: decided
+    stage: advice
     source: "requirements doc §0 point 12"
     date: "2026-10-05"
     tags: [always, grid]
@@ -633,15 +705,17 @@ entries:
       Decide on the energy inputs (grid import, solar) averaged over 3 minutes rather than the
       latest sample. Temperature is not smoothed.
     priority: P2
-    status: decided
+    status: retired
     source: "requirements doc §0.6 round 7; owner, 2026-10-07"
-    date: "2026-10-07"
+    date: "2026-10-09"
     tags: [always, allocation]
     note: >
       Not in the code yet (v0.7.1 decides on the latest sample). Seen 2026-10-07 12:00 to 14:30:
       the budget swung between about 6,100 and 7,600 to 8,700 W from one minute to the next
       (energy.forecast-headroom-flips) and the plan flipped with it, so two applies were refused
       as stale (12:04, 14:41).
+      Retired 2026-10-09 (0.8.0, fewer rules): merged into rule.down-slowly-up-promptly.
+      Owner, 2026-10-09: no input smoothing (plan unit U4 dropped).
 
   - id: rule.stop-trigger-below-start
     title: Stop at a lower level than start

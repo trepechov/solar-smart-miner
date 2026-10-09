@@ -14,12 +14,12 @@ def check(ctx: Context) -> Decision | None:
             "(a short sensor drop must not re-tune them)"
         )
         ctx.plans.update({m.miner_id: ctx.hold(m, "sensor unavailable") for m in ctx.candidates})
-        return ctx.done("Safety: solar sensor unavailable")
+        return ctx.done("Safety: solar sensor unavailable", "rule.required-inputs")
     if energy.battery_soc_pct is not None and energy.battery_soc_pct < ctx.battery_floor:
         ctx.trace.append(
             f"SAFETY: battery {energy.battery_soc_pct:.0f}% below floor "
             f"{ctx.battery_floor:.0f}% → stop all miners"
         )
         ctx.plans.update({m.miner_id: ctx.stop(m, "battery low") for m in ctx.candidates})
-        return ctx.done("Safety: battery below floor")
+        return ctx.done("Safety: battery below floor", "rule.battery-floor")
     return None

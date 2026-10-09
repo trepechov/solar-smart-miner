@@ -27,7 +27,7 @@ def target(ctx: Context) -> Decision | None:
         trace.append("Grid import unknown → keep current limits")
         for m in ctx.candidates:
             ctx.plans[m.miner_id] = ctx.hold(m, "grid import unknown")
-        return ctx.done(f"{label}: grid import unknown")
+        return ctx.done(f"{label}: grid import unknown", "rule.required-inputs")
 
     import_w = -energy.grid_net_w
     ctx.import_w = import_w
@@ -63,7 +63,7 @@ def target(ctx: Context) -> Decision | None:
                 f"after {wait:.0f} min{why} → every miner holds"
             )
             ctx.others_wait(None, "waiting for the sun" if rising else "waiting out the shortfall")
-            return ctx.done(f"{label}: import {_w(import_w)} above the maximum, waiting")
+            return ctx.done(f"{label}: import {_w(import_w)} above the maximum, waiting", "rule.down-slowly-up-promptly")
         ctx.direction = DOWN
         ctx.excess_w = import_w - import_max_w
         trace.append(

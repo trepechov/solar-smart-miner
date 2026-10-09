@@ -51,5 +51,5 @@ def check(ctx: Context) -> Decision | None:
         ctx.others_wait(m, "waits its turn")
         if len(too_warm) > 1:
             ctx.trace.append(f"One miner changes at a time → {m.name} first")
-        return ctx.done(f"Temperature: {m.name} too warm")
+        return ctx.done(f"Temperature: {m.name} too warm", "rule.temperature-band")
     return None

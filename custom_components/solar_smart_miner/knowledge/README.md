@@ -21,6 +21,7 @@ Each file holds a list of `entries`. One entry is one fact:
 | `tags` | Situations where it matters: `sunset`, `sunrise`, `cloud`, `night`, `midday`, `startup`, `always`, plus topics. Used to pick entries for a prompt. |
 | `situations` | (optional) situations this applies in, such as `situation.sunset` or `situation.tuning`. Rules, facts and alerts name the situations they depend on; this is the one place to edit. |
 | `conflicts_with` | (optional) ids this entry disagrees with. Only on `status: conflict`. |
+| `stage` | (rules only; required on every active rule) which group enforces it, below. |
 | `note` | (optional) caveat or what would settle it. |
 
 ## Priority: how binding
@@ -48,6 +49,26 @@ An `assumed` P1 is a smell: either verify it or lower it.
 **Fewer rules.** Before adding a rule, try to change or retire one; two entries that say the same thing are
 merged. Each active rule is either enforced by the code (with a test) or is advice for the AI only. See
 "Fewer Rules" in the project's CLAUDE.md.
+
+## Stage: which group enforces a rule
+
+`priority` says how binding a rule is; `stage` says where it sits and so what it overrides. The decision
+runs its groups in this order, and an earlier group always wins:
+
+| Stage | What its rules may do |
+|---|---|
+| `safety` | End the decision; may change several miners at once. |
+| `pacing` | Hold every miner (the ramp lock). |
+| `limits` | Block a direction, or require one miner to come down (sunset, temperature). |
+| `target` | Say up, down or hold, from the grid import. |
+| `allocation` | Choose the one miner that moves, and its step. |
+| `tidy` | Only when nothing else changes (a limit off the steps). |
+| `control` | Enforced by the command executor (control.py), outside the decision. |
+| `advice` | Read by the AI only; no code enforces it. |
+
+`decision/rules.py` lists the rules of the first six stages in order; `tests/test_knowledge.py` checks it and
+the entries agree. The decision trace ends with "Decided by: <stage> / <rule id>". Moving a rule means
+moving it in that list, replaying the farm's moments and releasing.
 
 ## Files
 

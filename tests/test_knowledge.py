@@ -65,7 +65,7 @@ def test_every_fact_has_the_required_fields_in_the_right_shape(item) -> None:
     assert len(e["statement"].strip()) <= 700, f"{e['id']}: one fact per entry, keep it short"
     assert set(e) <= {
         "id", "title", "statement", "priority", "status", "source", "date",
-        "tags", "conflicts_with", "situations", "note",
+        "tags", "conflicts_with", "situations", "note", "stage",
     }, f"{e['id']}: unknown field"
 
 
@@ -357,3 +357,32 @@ def test_rules_sent_to_the_ai_carry_no_reference_farm_numbers() -> None:
     for _, e in FACTS:
         if e["id"].startswith("rule.") and e["priority"] in ("P0", "P1") and e["status"] == "decided":
             assert not farm_specific.search(e["statement"]), f"{e['id']}: {e['statement']}"
+
+
+# --- rules and the code: groups ---------------------------------------------------
+
+
+STAGES = {"safety", "pacing", "limits", "target", "allocation", "tidy", "control", "advice"}
+ACTIVE_RULES = [e for f, e in FACTS if f == "rules.yaml" and e["status"] not in ("retired", "open", "conflict")]
+
+
+@pytest.mark.parametrize("rule", ACTIVE_RULES, ids=lambda e: e["id"])
+def test_every_active_rule_has_a_stage(rule) -> None:
+    # Two axes: priority says how binding a rule is, the stage and its place what it overrides.
+    assert rule.get("stage") in STAGES, rule["id"]
+
+
+def test_the_decisions_rule_list_and_the_knowledge_base_agree() -> None:
+    from custom_components.solar_smart_miner.decision.rules import RULES, STAGE_OF
+
+    by_id = {e["id"]: e for e in ACTIVE_RULES}
+    for rule, stage in STAGE_OF.items():
+        assert rule in by_id, f"{rule} is in the code but not an active rule"
+        assert by_id[rule]["stage"] == stage, rule
+    pipeline = {e["id"] for e in ACTIVE_RULES if e["stage"] in RULES}
+    assert pipeline == set(STAGE_OF), "a rule in a decision group is missing from decision/rules.py"
+
+
+def test_fewer_rules_than_before_the_audit() -> None:
+    # 2026-10-09 (U9): 33 active rules before the audit. A new rule should replace one.
+    assert len(ACTIVE_RULES) <= 22

@@ -21,7 +21,7 @@ def check(ctx: Context) -> Decision | None:
             f"→ every miner holds for ~{left:.0f} min more (ramp lock)"
         )
         ctx.others_wait(None, "ramp lock")
-        return ctx.done("Waiting for a miner to restart")
+        return ctx.done("Waiting for a miner to restart", "rule.ramp-lock")
     if ctx.ramp_done:
         ctx.trace.append(
             f"{', '.join(ctx.ramp_done)} already at the new power (hashrate may still be settling) "

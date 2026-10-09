@@ -727,6 +727,17 @@ def test_a_failing_rule_holds_every_miner_instead_of_failing_the_update(monkeypa
     assert "every miner holds" in caplog.text
 
 
+def test_the_trace_names_the_group_and_rule_that_decided() -> None:
+    assert "Decided by: Pacing / rule.ramp-lock" in _decide(
+        _metered(BELOW, _three()), minutes_since_change=1
+    ).trace
+    assert "Decided by: Allocation / rule.step-down-allocation" in _decide(_metered(BELOW, _three())).trace
+    assert "Decided by: Target / rule.small-import-target" in _decide(_metered(INSIDE, _three())).trace
+    assert "Decided by: Allocation / rule.stop-below-lowest-step" in _decide(
+        _metered(_over(2000.0), [_miner("a", limit=900.0)])
+    ).trace
+
+
 def test_the_groups_run_in_order_and_an_earlier_one_wins() -> None:
     # Safety (sensor lost) wins over pacing (ramp lock) over limits (too warm).
     warm = [_miner("a", temp=90.0), _miner("b")]
