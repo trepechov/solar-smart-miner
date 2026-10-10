@@ -220,6 +220,30 @@ async def test_coordinator_reads_miner_entities(hass, add_hass_miner) -> None:
     assert miner.power_limit_entity_id == miner_reg["power_limit"].entity_id
 
 
+async def test_coordinator_reads_the_hottest_chip_temperature(hass, add_hass_miner) -> None:
+    """The temperature band limits the chips, not the boards' average (farm, 2026-10-10:
+    boards at 66 °C while the chips reached 82 °C)."""
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    entry = _make_entry(hass)
+    add_hass_miner(MINER_IP, temperature="66", chips=("80", "82", "unavailable"))
+
+    snapshot = await SolarMinerCoordinator(hass, entry)._async_update_data()
+
+    assert snapshot.miners[0].temperature_c == pytest.approx(82.0)
+
+
+async def test_coordinator_falls_back_to_average_without_chip_readings(hass, add_hass_miner) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    entry = _make_entry(hass)
+    add_hass_miner(MINER_IP, temperature="66", chips=("unavailable", None))
+
+    snapshot = await SolarMinerCoordinator(hass, entry)._async_update_data()
+
+    assert snapshot.miners[0].temperature_c == pytest.approx(66.0)
+
+
 async def test_coordinator_discovers_every_hass_miner_entry(hass, add_hass_miner) -> None:
     hass.states.async_set(SOLAR_ENTITY, "2000")
     hass.states.async_set(GRID_ENTITY, "1500")

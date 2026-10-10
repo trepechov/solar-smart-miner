@@ -75,6 +75,8 @@ def add_hass_miner(hass):
     One config entry per miner (data["ip"]), one device, and entities whose
     unique_id is "<mac>-<key>". Board-level and "ideal" entities are included
     as decoys so tests prove the coordinator picks the miner-level ones.
+    `chips`: one chip temperature per board ("<mac>-<n>-chip_temperature"); None registers
+    the entity without a state. Without chips, `temperature` (the boards' average) is all.
     Returns {"entry", "device", "<key>": registry entry, ...}.
     """
     counter = iter(range(1, 1000))
@@ -85,6 +87,7 @@ def add_hass_miner(hass):
         name: str | None = None,
         power: str = "600",
         temperature: str = "65",
+        chips: tuple[str | None, ...] = (),
         limit: str = "800",
         limit_attrs: dict | None = None,
         hashrate: str | None = None,
@@ -128,6 +131,8 @@ def add_hass_miner(hass):
 
         reg("sensor", "miner_consumption", power, device_class="power")
         reg("sensor", "temperature", temperature, device_class="temperature")
+        for board, chip in enumerate(chips):
+            reg("sensor", f"{board}-chip_temperature", chip, device_class="temperature")
         reg("number", "power_limit", limit,
             limit_attrs if limit_attrs is not None else {"min": 200.0, "max": 1500.0})
         if hashrate is not None:

@@ -515,7 +515,8 @@ entries:
   - id: rule.temperature-band
     title: Follow a target temperature with a tolerance
     statement: >
-      Temperature only limits; a low temperature is never a reason to step up. Below the target
+      A miner's temperature is its hottest chip; the boards' average counts only when no chip
+      reads. Temperature only limits; a low temperature is never a reason to step up. Below the target
       it doesn't block a step-up the energy calls for. Between the target and target plus
       tolerance the miner holds, even with spare energy. At or above target plus tolerance it
       steps down. There is no extra margin below the target. Temperature steps follow the
@@ -523,14 +524,18 @@ entries:
     priority: P1
     status: decided
     stage: limits
-    source: "requirements doc §0 point 6, §3.2, §0.6 round 7"
-    date: "2026-10-07"
+    source: "requirements doc §0 point 6, §3.2, §0.6 round 7; owner 2026-10-10 (chip, not board)"
+    date: "2026-10-10"
     tags: [always, temperature, allocation]
     note: >
       Default target 60 deg C, tolerance 10 deg C (owner, 2026-10-07; 65 deg C before). In the
       settings since 2026-10-06, replacing
       the old 80 deg C ceiling. A too-warm miner steps down one step; one too warm at its lowest
       step is held there and only noted in the trace.
+      Until 2026-10-10 the band followed hass-miner's miner-level temperature, the boards'
+      average, by mistake (owner: the target and tolerance limit the chips). Reference farm,
+      2026-10-10 at 2,500 W: chips ran about 15 deg C above the boards (Brod3 board 66 deg C,
+      chip 82 deg C; Brod1 and Brod2 board 59 to 62, chip 75 to 77), so the band never acted.
 
   - id: rule.temperature-after-change
     title: Ignore temperature right after a change

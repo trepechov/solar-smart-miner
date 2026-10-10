@@ -136,7 +136,8 @@ _LOGGER = logging.getLogger(__name__)
 # hass-miner unique_id suffixes (unique_id = "<mac>-<key>"). Board-level entities
 # use "<mac>-<n>-board_..." and so never match these.
 _UID_POWER = "-miner_consumption"
-_UID_TEMPERATURE = "-temperature"
+_UID_TEMPERATURE = "-temperature"  # the boards' average, only when no chip reads
+_UID_CHIP_TEMPERATURE = "-chip_temperature"  # one per board: "<mac>-<n>-chip_temperature"
 _UID_POWER_LIMIT = "-power_limit"
 _UID_HASHRATE = "-hashrate"
 _UID_EFFICIENCY = "-efficiency"
@@ -178,6 +179,16 @@ def _parse_energy_kwh(state_obj) -> float | None:
     if unit == "MWh":
         return value * 1000
     return value
+
+
+def _hottest_chip(hass: HomeAssistant, entities) -> float | None:
+    """The hottest chip temperature over the miner's boards (None when no chip reads)."""
+    readings = [
+        _parse_state_float(hass.states.get(e.entity_id))
+        for e in entities
+        if e.domain == "sensor" and e.unique_id.endswith(_UID_CHIP_TEMPERATURE)
+    ]
+    return max((t for t in readings if t is not None), default=None)
 
 
 def _find_entity(entities, domain: str, suffix: str):
@@ -399,6 +410,10 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 limit_state.attributes.get("max") if limit_state else None
             ) or hm_entry.data.get("max_power")
 
+            # The chips are what overheat, about 15 °C above the boards on the reference farm.
+            temperature_c = _hottest_chip(self.hass, entities)
+            if temperature_c is None:
+                temperature_c = _parse_state_float(_state(temp_entry))
             power_w = _parse_power_w(_state(power_entry))
             is_available = power_w is not None
             switch_state = _state(active_entry)
@@ -426,7 +441,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 power_limit_w=power_limit_w,
                 min_power_w=float(min_power_w) if min_power_w is not None else None,
                 max_power_w=float(max_power_w) if max_power_w is not None else None,
-                temperature_c=_parse_state_float(_state(temp_entry)),
+                temperature_c=temperature_c,
                 is_available=is_available,
                 power_limit_entity_id=limit_entry.entity_id if limit_entry else None,
                 hashrate_th=_parse_state_float(_state(hashrate_entry)),
