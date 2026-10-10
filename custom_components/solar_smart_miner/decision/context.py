@@ -39,6 +39,7 @@ class Context:
     sun_up: bool | None
     sunrise: bool
     sunset: bool
+    transition_steps: int
     meter_lost_minutes: float | None
     base_load_w: float | None
     voltage_low_seconds: float | None

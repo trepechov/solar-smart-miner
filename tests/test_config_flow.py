@@ -557,6 +557,7 @@ async def test_options_flow_saves_again_after_telegram_was_left_blank(hass: Home
     assert result["data"]["import_max"] == 400
     assert result["data"]["step_down_delay_minutes"] == 5
     assert result["data"]["morning_step_down_delay_minutes"] == 30
+    assert result["data"]["transition_steps"] == 2
     assert "temp_ceiling" not in result["data"]
 
 

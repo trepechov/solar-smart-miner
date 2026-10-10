@@ -99,6 +99,7 @@ class Farm:
     miners: list[SimMiner]
     pv_potential: object  # callable: seconds since the start -> W
     sets_after_s: float | None = None  # when the sun sets, in seconds from the start
+    rising: bool = False  # the morning: sun.sun says rising
     now: float = 0.0
     commands: list[tuple[float, str, str, float | None]] = field(default_factory=list)
 
@@ -114,7 +115,7 @@ class Farm:
             setting = dt_util.now() + timedelta(seconds=self.sets_after_s - self.now)
             self.hass.states.async_set(
                 "sun.sun", "above_horizon" if up else "below_horizon",
-                {"rising": False, "next_setting": setting.isoformat()},
+                {"rising": self.rising, "next_setting": setting.isoformat()},
             )
         load = HOUSE_W + sum(m.draw(self.now) for m in self.miners)
         pv = min(self.pv_potential(self.now), load)
@@ -140,7 +141,7 @@ def _kind(farm: Farm, miner: SimMiner, service: str, value: float | None) -> str
 
 async def _run(
     hass, add_hass_miner, monkeypatch, limits, stopped, pv_potential, minutes: int,
-    sets_after_min: float | None = None,
+    sets_after_min: float | None = None, rising: bool = False, options: dict | None = None,
 ) -> Farm:
     clock = [0.0]
     monkeypatch.setattr(time_module, "monotonic", lambda: clock[0] + 10_000.0)
@@ -150,7 +151,8 @@ async def _run(
                              temperature="50", hashrate="0", active="off" if off else "on",
                              limit_attrs=LIMITS)
         sims.append(SimMiner(reg, limit, stopped=off))
-    farm = Farm(hass, sims, pv_potential, None if sets_after_min is None else sets_after_min * 60)
+    farm = Farm(hass, sims, pv_potential, None if sets_after_min is None else sets_after_min * 60,
+                rising=rising)
 
     def _handler(service: str):
         def handle(call: ServiceCall) -> None:
@@ -170,12 +172,12 @@ async def _run(
     hass.services.async_register("number", "set_value", _handler("set_value"))
     hass.services.async_register("switch", "turn_off", _handler("turn_off"))
     hass.services.async_register("switch", "turn_on", _handler("turn_on"))
-    hass.states.async_set("sun.sun", "above_horizon", {"elevation": 10.0, "rising": False})
+    hass.states.async_set("sun.sun", "above_horizon", {"elevation": 10.0, "rising": rising})
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={CONF_SOLAR_ENTITY: METER, CONF_SOLAR_ENTITY_TYPE: SOLAR_ENTITY_TYPE_NET_EXPORT,
               CONF_GRID_ENTITY: None, CONF_BATTERY_ENTITY: None, CONF_PV_ENTITY: PV},
-        options={CONF_CONTROL_MODE: CONTROL_MODE_AUTO},
+        options={CONF_CONTROL_MODE: CONTROL_MODE_AUTO, **(options or {})},
     )
     entry.add_to_hass(hass)
     coordinator = SolarMinerCoordinator(hass, entry)
@@ -240,3 +242,19 @@ async def test_a_sunny_farm_ramps_up_one_restart_at_a_time(hass, add_hass_miner,
     assert all(kind == "up" for _, _, kind, _ in farm.commands), farm.commands
     assert _close_pairs(farm) == []
     assert _reversals(farm) == []
+
+
+async def test_a_sunrise_climbs_in_bigger_steps_with_fewer_restarts(hass, add_hass_miner, monkeypatch) -> None:
+    # Owner, 2026-10-10: on 2026-10-09 and 10 each miner walked 900 to 2,500 W one step at a time
+    # (about 27 commands in 3.5 hours). The sun rises 50 W a minute from 1.5 kW, past what three draw.
+    def morning(steps: int):
+        return _run(hass, add_hass_miner, monkeypatch, [900, 900, 900], [True] * 3,
+                    lambda s: min(9000.0, 1500.0 + s / 60 * 50), minutes=180, rising=True,
+                    options={"transition_steps": steps})
+
+    farm = await morning(2)
+    ups = [c for c in farm.commands if c[2] == "up"]
+    assert [m.limit for m in farm.miners] == [2500.0] * 3 and not any(m.stopped for m in farm.miners)
+    assert len(ups) <= 3 * 5, farm.commands  # 900 → 1,300 → 1,700 → 2,100 → 2,500, plus at most one
+    assert _close_pairs(farm) == []
+    assert [c for c in farm.commands if c[2] in ("down", "stop")] == [], farm.commands

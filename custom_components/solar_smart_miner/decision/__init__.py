@@ -67,6 +67,7 @@ def build_decision(
     sun_up: bool | None = None,
     sunrise: bool = False,
     sunset: bool = False,
+    transition_steps: int = 1,
     meter_lost_minutes: float | None = None,
     base_load_w: float | None = None,
     voltage_low_seconds: float | None = None,
@@ -87,7 +88,8 @@ def build_decision(
     above that it steps down once the import has been that high for `minutes_import_high` >=
     the step-down delay (the longer sunrise delay during `sunrise`). The sun down (`sun_up`
     False; None means unknown) or `sunset` blocks starts and step-ups. Sunrise and sunset come
-    from transition.py. While the grid meter is unknown (`meter_lost_minutes`), every miner
+    from transition.py; during sunrise an increment, during sunset a cut, moves
+    `transition_steps` steps. While the grid meter is unknown (`meter_lost_minutes`), every miner
     holds for the grace period, then an import estimated with `base_load_w` decides, only
     downwards (safety.py). `voltage_low_seconds` is how long the voltage has been below
     `low_voltage_v` outside ramp locks; after `voltage_debounce_s` one miner stops. Miners in
@@ -116,6 +118,7 @@ def build_decision(
         sun_up=sun_up,
         sunrise=sunrise,
         sunset=sunset,
+        transition_steps=max(1, int(transition_steps)),
         meter_lost_minutes=meter_lost_minutes,
         base_load_w=base_load_w,
         voltage_low_seconds=voltage_low_seconds,
@@ -142,6 +145,7 @@ def _run(ctx: Context) -> Decision:
         f"Temperature: target {ctx.temp_target:.0f} °C, step down at {ctx.too_warm_c:.0f} °C",
         f"Restart time after a change: {ctx.ramp_lock_minutes:.0f} min; step-down delay "
         f"{ctx.step_down_delay_minutes:.0f} min ({ctx.morning_step_down_delay_minutes:.0f} min during sunrise)",
+        f"Power steps per change during sunrise and sunset: {ctx.transition_steps}",
     ]
     if not snapshot.miners:
         ctx.trace.append("No hass-miner miners found — nothing to decide.")

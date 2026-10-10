@@ -54,6 +54,7 @@ from .const import (
     DEFAULT_IMPORT_MAX_W,
     DEFAULT_IMPORT_MIN_W,
     DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES,
+    DEFAULT_TRANSITION_STEPS,
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_POWER_STEPS,
     DEFAULT_PROFILE,
@@ -102,6 +103,7 @@ CONF_IMPORT_MIN = "import_min"  # W: Solar-follow's minimum grid import
 CONF_IMPORT_MAX = "import_max"  # W: Solar-follow's maximum grid import
 CONF_STEP_DOWN_DELAY = "step_down_delay_minutes"  # a shortfall must last this long first
 CONF_MORNING_STEP_DOWN_DELAY = "morning_step_down_delay_minutes"  # the same while the sun rises
+CONF_TRANSITION_STEPS = "transition_steps"  # power steps per change during sunrise / sunset
 CONF_PROFILE = "profile"
 CONF_POLLING_INTERVAL = "polling_interval"
 CONF_TELEGRAM_TOKEN = "telegram_bot_token"
@@ -430,6 +432,10 @@ def _options_schema(options: dict) -> vol.Schema:
             )
         ),
         vol.Required(
+            CONF_TRANSITION_STEPS,
+            default=options.get(CONF_TRANSITION_STEPS, DEFAULT_TRANSITION_STEPS),
+        ): NumberSelector(NumberSelectorConfig(min=1, max=4, step=1, mode=NumberSelectorMode.BOX)),
+        vol.Required(
             CONF_POWER_STEPS, default=_format_power_steps(options.get(CONF_POWER_STEPS))
         ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT)),
         vol.Required(
@@ -619,6 +625,9 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
                     CONF_IMPORT_MAX: int(user_input[CONF_IMPORT_MAX]),
                     CONF_STEP_DOWN_DELAY: int(user_input[CONF_STEP_DOWN_DELAY]),
                     CONF_MORNING_STEP_DOWN_DELAY: int(user_input[CONF_MORNING_STEP_DOWN_DELAY]),
+                    CONF_TRANSITION_STEPS: int(
+                        user_input.get(CONF_TRANSITION_STEPS, DEFAULT_TRANSITION_STEPS)
+                    ),
                 }
             )
             self._pending_options.pop("temp_ceiling", None)  # replaced by target + tolerance

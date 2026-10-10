@@ -9,9 +9,17 @@ through its relay or its own pause switch (see MinerSnapshot).
   (a cut may skip steps: one restart either way); if none can, the lowest-power one stops.
 - Up: one increment. A stopped miner starts at its lowest step first, else the weakest running
   miner (of equals, the coolest) goes one step up.
+- Sunrise and sunset: production moves on its own, so an increment during sunrise and a cut
+  during sunset move the transition steps (setting, default 2) instead of one, never past the
+  lowest or highest step: fewer restarts per morning and evening (2026-10-09 and 10: each miner
+  walked 900 to 2,500 W one step at a time, 24 restarts in 3 hours). An overshoot is safe only
+  in the sun's direction: the sunrise delay lets the sun catch up, and nothing steps up during
+  sunset. At midday a bigger cut would drop the import under the range and the next increment
+  would undo it.
 - Even load (once every miner runs, the import inside the range): two miners two or more steps
-  apart come one step closer, the weakest up; the hungriest down only while nothing may step up
-  (sunset, the sun down, an estimated import) and the import isn't below the range.
+  apart come closer, the weakest up (as far as an increment, not past the other); the hungriest
+  one step down only while nothing may step up (sunset, the sun down, an estimated import) and
+  the import isn't below the range.
 - Tidy: when nothing else changes, a limit that is off the steps moves onto the nearest one.
 """
 from __future__ import annotations
@@ -77,6 +85,8 @@ def _one_change(
     excess_w: float = 0.0,
     may_step_up: bool = True,
     import_low: bool = False,
+    up_steps: int = 1,
+    down_steps: int = 1,
 ) -> tuple[MinerSnapshot, int | None, str] | None:
     """The one miner to change, its new step (index; None = stop) and the reason.
 
@@ -84,6 +94,8 @@ def _one_change(
     `held_down` miners were brought down by Safety or Limits within the step-down delay: they
     aren't raised or started again yet.
     `excess_w` is how far the import is over the maximum, for a step down.
+    `up_steps` / `down_steps`: how many steps an increment / a cut moves at least (sunrise /
+    sunset), never past the ends of the miner's ladder.
     """
     level: dict[str, int | None] = {
         m.miner_id: None if m.is_stopped else _nearest_level(ladders[m.miner_id], m.power_limit_w)
@@ -118,7 +130,7 @@ def _one_change(
         # Of equals, the last miner in the list: the first ones start first and stop last.
         if fits:
             m, new = max(reversed(fits), key=lambda pair: (watts(pair[0]), temp(pair[0])))
-            return m, new, "import above the maximum"
+            return m, min(new, max(0, level[m.miner_id] - down_steps)), "import above the maximum"
         if running:
             return min(reversed(running), key=watts), None, "import above the maximum"
         return None
@@ -132,7 +144,7 @@ def _one_change(
         for m in sorted(running, key=lambda x: (watts(x), temp(x))):
             lv = level[m.miner_id]
             if lv < top_of(m) and m.miner_id not in held_down:
-                return m, lv + 1, "import below the minimum"
+                return m, min(lv + up_steps, top_of(m)), "import below the minimum"
 
     if len(running) == len(candidates) > 1:
         # Even load: one step closer when two miners are two or more steps apart. Within one
@@ -143,8 +155,12 @@ def _one_change(
         if lv_high > 0 and ladders[high.miner_id][lv_high - 1] > watts(low):
             spread = f"{high.name} {_w(watts(high))} against {low.name} {_w(watts(low))}"
             if may_step_up and lv_low < top_of(low) and low.miner_id not in held_down:
-                trace.append(f"Even load: {spread} → {low.name} one step up")
-                return low, lv_low + 1, "even load"
+                # An up move like an increment (more steps during sunrise), never past the other.
+                ladder, new = ladders[low.miner_id], lv_low + 1
+                while new < min(lv_low + up_steps, top_of(low)) and ladder[new + 1] <= watts(high):
+                    new += 1
+                trace.append(f"Even load: {spread} → {low.name} up to {_w(ladder[new])}")
+                return low, new, "even load"
             if not may_step_up and not import_low:
                 # Only when nothing may step up (sunset, the sun down, an estimate): otherwise
                 # the step down drops the import under the range and the next increment raises
@@ -171,6 +187,8 @@ def allocate(ctx: Context) -> Decision:
         ctx.candidates, ladders, ctx.caps, ctx.trace, held_down=ctx.held_down,
         direction=ctx.direction, excess_w=ctx.excess_w, may_step_up=ctx.may_step_up,
         import_low=ctx.import_w is not None and ctx.import_w < ctx.import_min_w,
+        up_steps=ctx.transition_steps if ctx.sunrise else 1,
+        down_steps=ctx.transition_steps if ctx.sunset else 1,
     )
     summary = f"{ctx.profile_label}: import {_w(ctx.import_w)}"
     if change is None:

@@ -55,6 +55,7 @@ from .config_flow import (
     CONF_STEP_DOWN_DELAY,
     CONF_TEMP_TARGET,
     CONF_TEMP_TOLERANCE,
+    CONF_TRANSITION_STEPS,
     DEFAULT_OPENROUTER_MODEL,
 )
 from .const import (
@@ -78,6 +79,7 @@ from .const import (
     DEFAULT_POWER_STEPS,
     DEFAULT_PROFILE,
     DEFAULT_STEP_DOWN_DELAY_MINUTES,
+    DEFAULT_TRANSITION_STEPS,
     DEFAULT_TEMP_TARGET,
     DEFAULT_TEMP_TOLERANCE,
     DEFAULT_RAMP_LOCK_MINUTES,
@@ -1069,6 +1071,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 options.get(CONF_MORNING_STEP_DOWN_DELAY, DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES)
             ),
             "sun_up": None if sun is None else sun.state == "above_horizon",
+            "transition_steps": int(options.get(CONF_TRANSITION_STEPS, DEFAULT_TRANSITION_STEPS)),
             "sunrise": self.transition.sunrise,
             "sunset": self.transition.sunset,
             "meter_lost_minutes": meter_lost,

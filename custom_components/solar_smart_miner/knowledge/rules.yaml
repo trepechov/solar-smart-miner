@@ -681,17 +681,24 @@ entries:
       A cut goes to the highest-power miner that stays at or above its lowest step after
       it; if none can, the lowest-power one stops. An increment starts a stopped miner at
       its lowest step first, else raises the weakest running miner (of equals, the
-      coolest) one step. Once every miner runs, two limits two or more steps apart come
-      one step closer: the weakest up, or the hungriest down only while nothing may step
-      up and the import isn't low. A miner a safety or limit rule brought down isn't
-      raised or started again within the step-down delay.
+      coolest) one step. At sunrise an increment, at sunset a cut, moves the configured
+      transition steps within the miner's ladder (an overshoot goes the sun's way). Once every miner runs, two limits two or more
+      steps apart come closer: the weakest up, or the hungriest one step down only while
+      nothing may step up and the import isn't low. A miner a safety or limit rule brought
+      down isn't raised or started again within the step-down delay.
     priority: P2
     status: decided
     stage: allocation
-    source: "requirements doc §0.4 round 5 point 4, §5.3; owner, 2026-10-07"
-    date: "2026-10-09"
-    tags: [cloud, sunset, allocation]
+    source: "requirements doc §0.4 round 5 point 4, §5.3; owner, 2026-10-07; owner, 2026-10-10 (bigger steps at sunrise and sunset)"
+    date: "2026-10-10"
+    tags: [cloud, sunrise, sunset, allocation]
     note: >
+      Owner, 2026-10-10: fewer limit changes at sunrise and sunset. Reference farm, 0.7.7,
+      2026-10-09 and 10: each of three miners walked 900 to 2,500 W one 200 W step at a time,
+      about 27 commands from 05:00 to 08:30 UTC, the farm paced by the ramp lock (about 7 min
+      per change) while the sun rose faster; the afternoon walked back down the same way.
+      Default 2 steps (400 W) halves those restarts. Midday keeps one step: a bigger cut there
+      drops the import under the range and the next increment undoes it.
       Review 2026-10-09: with the weakest miner capped by temperature, stepping the
       hungriest down dropped the import under the range and the next increment raised it
       again (a slow loop); the down step is now only for when nothing may step up (sunset,

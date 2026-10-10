@@ -43,6 +43,11 @@ DEFAULT_IMPORT_MAX_W = 400
 # sunrise it waits longer, since production is catching up. Minutes.
 DEFAULT_STEP_DOWN_DELAY_MINUTES = 5
 DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES = 30
+# Power steps per change while production moves on its own (rule.step-down-allocation): an
+# increment during sunrise and a cut during sunset skip this many steps, so a morning costs
+# fewer restarts. An overshoot is safe only in the sun's direction: the sunrise delay lets the
+# sun catch up, and nothing steps up during sunset. 1 = one step, as at midday. Setting.
+DEFAULT_TRANSITION_STEPS = 2
 
 # Low voltage (decision/safety.py): too much load on the supply; stopping one miner raises it.
 # Defaults from the reference farm (a 230 V supply). Settings.

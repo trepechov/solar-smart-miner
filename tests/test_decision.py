@@ -607,6 +607,74 @@ def test_during_sunrise_a_shortfall_waits_for_the_sunrise_delay() -> None:
     assert list(_decide(snapshot, minutes_import_high=31, **kw).proposals.values()) == [1300.0]
 
 
+def test_during_sunrise_an_increment_moves_the_transition_steps() -> None:
+    # Owner, 2026-10-10: bigger steps in the morning, fewer restarts (each miner had walked
+    # 900 to 2,500 W one step at a time).
+    miners = [_miner("a", limit=1300.0), _miner("b", limit=900.0)]
+    kw = {"power_steps": DEFAULT_POWER_STEPS, "transition_steps": 2}
+
+    assert _decide(_metered(BELOW, miners), sunrise=True, **kw).proposals == {"b": 1300.0}
+    assert _decide(_metered(BELOW, miners), **kw).proposals == {"b": 1100.0}  # midday: one step
+    assert "Power steps per change during sunrise and sunset: 2" in _decide(
+        _metered(BELOW, miners), **kw
+    ).trace
+
+
+def test_a_sunrise_increment_stops_at_the_top_step() -> None:
+    top = _decide(_metered(BELOW, [_miner("a", limit=2300.0)]), power_steps=DEFAULT_POWER_STEPS,
+                  sunrise=True, transition_steps=3)
+    assert top.proposals == {"a": 2500.0}
+
+    # A stopped miner still starts at its lowest step: a start moves the import by that much.
+    start = _decide(_metered(BELOW, [_miner("a", stopped=True)]), sunrise=True, transition_steps=2)
+    assert start.proposals == {"a": 900.0}
+
+
+def test_during_sunrise_a_cut_is_still_the_smallest_that_fits() -> None:
+    # A bigger cut while the sun rises would drop the import under the range and be undone.
+    decision = _decide(_metered(_over(150.0), [_miner("a", limit=1500.0)]), sunrise=True,
+                       transition_steps=2, minutes_import_high=60, morning_step_down_delay_minutes=30)
+
+    assert decision.proposals == {"a": 1300.0}
+
+
+def test_during_sunset_a_cut_moves_at_least_the_transition_steps() -> None:
+    kw = {"power_steps": DEFAULT_POWER_STEPS, "sunset": True, "transition_steps": 2}
+
+    assert _decide(_metered(_over(150.0), [_miner("a", limit=1900.0)]), **kw).proposals == {"a": 1500.0}
+    # A cut that needs more than the transition steps still takes what it needs.
+    assert _decide(_metered(_over(700.0), [_miner("a", limit=1900.0)]), **kw).proposals == {"a": 1100.0}
+    # Never below the lowest step: one step above it goes to it, it doesn't stop.
+    assert _decide(_metered(_over(150.0), [_miner("a", limit=1100.0)]), **kw).proposals == {"a": 900.0}
+    # Midday, the same shortfall is one step.
+    midday = _decide(_metered(_over(150.0), [_miner("a", limit=1900.0)]),
+                     power_steps=DEFAULT_POWER_STEPS, transition_steps=2)
+    assert midday.proposals == {"a": 1700.0}
+
+
+def test_bigger_sunrise_steps_reach_full_power_with_fewer_restarts() -> None:
+    def morning(transition_steps: int) -> tuple[int, float]:
+        state = {i: [900.0, True] for i in "abc"}
+        changes = 0
+        for potential in range(0, 8500, 250):  # the sun rises past what the farm can draw
+            for _ in range(2):  # a few decisions per reading, one change each
+                miners = [_miner(i, limit=lim, stopped=stopped) for i, (lim, stopped) in state.items()]
+                decision = _decide(
+                    _metered(_farm_import(state, potential), miners), power_steps=DEFAULT_POWER_STEPS,
+                    sun_up=True, sunrise=True, transition_steps=transition_steps,
+                    morning_step_down_delay_minutes=30,
+                )
+                changes += sum(1 for p in decision.plans.values() if p.action != ACTION_HOLD)
+                _apply(state, decision)
+        return changes, sum(limit for limit, stopped in state.values() if not stopped)
+
+    one, full = morning(1)
+    two, full_two = morning(2)
+    assert full == full_two == 3 * 2500.0
+    assert one == 3 + 3 * 8  # three starts, eight steps each
+    assert two == 3 + 3 * 4
+
+
 def test_the_forecast_never_changes_the_proposal() -> None:
     # Owner, 2026-10-07: the forecast can be far off, so it is shown but never decides.
     miners = [_miner("a", limit=1500.0), _miner("b", limit=1500.0), _miner("c", stopped=True)]
@@ -693,6 +761,16 @@ def test_with_the_import_in_range_limits_two_steps_apart_are_evened_out() -> Non
     assert decision.proposals == {"c": 1300.0}
     assert decision.plans["c"].reason == "even load"
     assert any(line.startswith("Even load:") for line in decision.trace)
+
+
+def test_during_sunrise_even_load_moves_like_an_increment_but_never_past_the_other() -> None:
+    # Otherwise 1,300 W against 900 W takes a one-step move and the next jumps land between steps.
+    kw = {"power_steps": DEFAULT_POWER_STEPS, "sunrise": True}
+    pair = [_miner("a", limit=1300.0), _miner("b", limit=900.0)]
+
+    assert _decide(_metered(INSIDE, pair), transition_steps=2, **kw).proposals == {"b": 1300.0}
+    assert _decide(_metered(INSIDE, pair), transition_steps=4, **kw).proposals == {"b": 1300.0}
+    assert _decide(_metered(INSIDE, pair), **kw).proposals == {"b": 1100.0}  # one step by default
 
 
 def test_limits_within_one_step_are_even_enough() -> None:
