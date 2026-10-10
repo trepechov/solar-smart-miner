@@ -268,13 +268,17 @@ entries:
       how soon.
       Retired 2026-10-09 (0.8.0, fewer rules): merged into rule.one-miner-per-change.
       Since 0.8.0 only a cut may skip steps.
+      2026-10-10: a step up skips steps again during sunrise, and a cut during sunset skips at
+      least the transition steps (rule.step-down-allocation). Sized on spare power, this
+      rule never jumped on a zero-export farm: a throttled meter shows no spare power, so the
+      reference farm on 0.7.7 still climbed one step at a time (2026-10-09 and 10).
 
   - id: rule.one-miner-per-change
     title: One change at a time, as large as needed
     statement: >
       Apart from safety, a proposal changes one miner, as much as needed: a step down goes
       straight to the step that fits (it may skip steps, one restart either way), a step
-      up is one step. The next change comes only after the changed miner has settled
+      up is one step (the transition steps during sunrise). The next change comes only after the changed miner has settled
       (rule.ramp-lock). Restarts are the main cost: a change that restarts several miners
       together drops the farm's load to almost nothing for minutes, the zero-export
       inverters throttle and the grid covers the gap.
@@ -298,6 +302,8 @@ entries:
       readings on the rule's code propose pausing Brod3 only, Brod1 and Brod2 holding.
       2026-10-09 (0.8.0): merges rule.minimise-restarts and rule.jump-several-steps. A
       step up is one step since the budget went (rule.small-import-target).
+      Owner, 2026-10-10: during sunrise a step up moves the transition steps again, a fixed
+      stride rather than sized on spare power (rule.step-down-allocation).
 
   - id: rule.minimise-restarts
     title: Few restarts
@@ -417,6 +423,8 @@ entries:
       smallest that brings the import under the maximum. The budget's 150 W tolerance and 100 W
       margin are gone. Multi-step jumps up are gone too, so a morning ramp-up takes one ramp
       lock per step.
+      Owner, 2026-10-10: too many restarts that way; during sunrise an increment on a running
+      miner moves the transition steps (setting, default 2; rule.step-down-allocation).
 
   - id: rule.forecast-reference-only
     title: The solar forecast never decides
