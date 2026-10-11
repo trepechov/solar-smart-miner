@@ -93,7 +93,7 @@ def build_decision(
     holds for the grace period, then an import estimated with `base_load_w` decides, only
     downwards (safety.py). `voltage_low_seconds` is how long the voltage has been below
     `low_voltage_v` outside ramp locks; after `voltage_debounce_s` one miner stops. Miners in
-    `held_down` were brought down by Safety or Limits within the step-down delay and aren't
+    `held_down` were brought down by Safety or Limits within the hold-down time and aren't
     raised or started again yet. `estimate_used`: a change was already made on the estimated
     import during this meter outage.
     """

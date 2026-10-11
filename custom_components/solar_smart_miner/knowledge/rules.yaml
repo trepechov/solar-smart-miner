@@ -520,7 +520,9 @@ entries:
       it doesn't block a step-up the energy calls for. Between the target and target plus
       tolerance the miner holds, even with spare energy. At or above target plus tolerance it
       steps down. There is no extra margin below the target. Temperature steps follow the
-      normal pace and never skip the queue.
+      normal pace and never skip the queue. The tolerance must be wider than one power step's
+      temperature change. A miner it brings down stays down until its chips have warmed again
+      after the restart (the hold-down time).
     priority: P1
     status: decided
     stage: limits
@@ -536,6 +538,11 @@ entries:
       average, by mistake (owner: the target and tolerance limit the chips). Reference farm,
       2026-10-10 at 2,500 W: chips ran about 15 deg C above the boards (Brod3 board 66 deg C,
       chip 82 deg C; Brod1 and Brod2 board 59 to 62, chip 75 to 77), so the band never acted.
+      Reference farm, 2026-10-11 (0.8.1, target 70, tolerance 5): one top step moved the
+      hottest chip about 5 to 6 deg C (2,300 W about 69 to 70, 2,500 W about 75 to 77), more
+      than the 5 deg C band, so a settled miner was either free to step up or too warm. Owner,
+      2026-10-11: target 67, tolerance 10 on the farm (step down at 77 deg C, the miners' own
+      cutoff 80 deg C). Defaults unchanged.
 
   - id: rule.temperature-after-change
     title: Ignore temperature right after a change
@@ -698,12 +705,12 @@ entries:
       transition steps within the miner's ladder (an overshoot goes the sun's way). Once every miner runs, two limits two or more
       steps apart come closer: the weakest up, or the hungriest one step down only while
       nothing may step up and the import isn't low. A miner a safety or limit rule brought
-      down isn't raised or started again within the step-down delay.
+      down isn't raised or started again within the hold-down time.
     priority: P2
     status: decided
     stage: allocation
-    source: "requirements doc §0.4 round 5 point 4, §5.3; owner, 2026-10-07; owner, 2026-10-10 (bigger steps at sunrise and sunset)"
-    date: "2026-10-10"
+    source: "requirements doc §0.4 round 5 point 4, §5.3; owner, 2026-10-07; owner, 2026-10-10 (bigger steps at sunrise and sunset); owner, 2026-10-12 (no flip-flops)"
+    date: "2026-10-12"
     tags: [cloud, sunrise, sunset, allocation]
     note: >
       Owner, 2026-10-10: fewer limit changes at sunrise and sunset. Reference farm, 0.7.7,
@@ -724,6 +731,16 @@ entries:
       needs-sustained-deficit and rule.resume-next-at-sunrise. A pause-and-raise needs no
       rule of its own: the step-down delay already makes a deficit sustained before
       anything is cut.
+      0.8.2 (owner, 2026-10-12: flip-flops are very inefficient and must be avoided): the hold
+      after a forced step down was the step-down delay (5 minutes), counted from the command.
+      Reference farm, 0.8.1, 2026-10-11: a too-warm step down 2,500 to 2,300 W restarted the
+      miner, its chips read 45 to 60 deg C when it mined again, the hold ended about 5 minutes
+      after the command and the import raised it straight back to 2,500 W, where it hit the
+      step-down again. Brod3 11:22 to 12:47 and Brod1 12:52 to 15:05 local flip-flopped every
+      about 12 minutes, about 37 of the day's 74 limit changes, each miner down about 7
+      minutes in 12. The chips took about 12 minutes from the command to warm again
+      (Brod3 11:34 command, 45 deg C at 11:38, 74 deg C at 11:46). Now its own setting, the
+      hold-down time, default 15 minutes; same number of rules.
 
   - id: rule.resume-next-at-sunrise
     title: Start the next miner rather than raise the last

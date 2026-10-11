@@ -835,6 +835,18 @@ async def test_settings_default_to_the_agreed_steps(hass: HomeAssistant) -> None
     assert entry.options[CONF_POWER_STEPS] == [900, 1100, 1300, 1500, 1700, 1900, 2100, 2300, 2500]
 
 
+async def test_settings_store_the_hold_down_time(hass: HomeAssistant) -> None:
+    from custom_components.solar_smart_miner.config_flow import CONF_HOLD_DOWN
+    from custom_components.solar_smart_miner.const import DEFAULT_HOLD_DOWN_MINUTES
+
+    entry = _make_entry(hass)
+    await _get_options_flow_result(hass, entry, options_input={})
+    assert entry.options[CONF_HOLD_DOWN] == DEFAULT_HOLD_DOWN_MINUTES == 15
+
+    await _get_options_flow_result(hass, entry, options_input={CONF_HOLD_DOWN: 20})
+    assert entry.options[CONF_HOLD_DOWN] == 20
+
+
 def test_temperature_defaults_are_the_agreed_band() -> None:
     # Owner, 2026-10-07: target 60 °C, step down at 70 °C.
     assert (DEFAULT_TEMP_TARGET, DEFAULT_TEMP_TOLERANCE) == (60, 10)

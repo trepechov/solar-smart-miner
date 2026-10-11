@@ -91,7 +91,7 @@ def _one_change(
     """The one miner to change, its new step (index; None = stop) and the reason.
 
     `caps` is the highest step a miner may step up to (a warm miner: its current one).
-    `held_down` miners were brought down by Safety or Limits within the step-down delay: they
+    `held_down` miners were brought down by Safety or Limits within the hold-down time: they
     aren't raised or started again yet.
     `excess_w` is how far the import is over the maximum, for a step down.
     `up_steps` / `down_steps`: how many steps an increment / a cut moves at least (sunrise /

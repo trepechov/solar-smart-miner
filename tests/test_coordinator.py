@@ -1681,7 +1681,7 @@ async def test_held_down_records_safety_and_limit_reductions_and_expires(hass, m
 async def test_a_held_down_miner_is_not_started_again_after_the_ramp_lock(hass, add_hass_miner, monkeypatch) -> None:
     import time as time_module
 
-    from custom_components.solar_smart_miner.config_flow import CONF_STEP_DOWN_DELAY
+    from custom_components.solar_smart_miner.config_flow import CONF_HOLD_DOWN
     from custom_components.solar_smart_miner.const import CONF_CONTROL_MODE
     from custom_components.solar_smart_miner.control import CommandEvent
     from custom_components.solar_smart_miner.protocols import MinerPlan
@@ -1692,20 +1692,58 @@ async def test_a_held_down_miner_is_not_started_again_after_the_ramp_lock(hass, 
     hass.states.async_set(SOLAR_ENTITY, "3000")
     hass.states.async_set(GRID_ENTITY, "500")  # 2,500 W spare: an increment is due
     coordinator = SolarMinerCoordinator(
-        hass, _make_entry(hass, options={CONF_CONTROL_MODE: "manual", CONF_STEP_DOWN_DELAY: 10})
+        hass, _make_entry(hass, options={CONF_CONTROL_MODE: "manual", CONF_HOLD_DOWN: 10})
     )
     miner_id = (await coordinator._async_update_data()).miners[0].miner_id
     await coordinator._async_record_action(
         CommandEvent("c1", "auto", miner_id, "Brod1", MinerPlan("stop", reason="low voltage"), "pending")
     )
 
-    now[0] += 6 * 60  # past the ramp lock, inside the 10-minute step-down delay
+    now[0] += 6 * 60  # past the ramp lock, inside the 10-minute hold-down
     decision = (await coordinator._async_update_data()).decision
     assert decision.plans[miner_id].action == "hold"
     assert any("brought down by a safety or limit rule" in line for line in decision.trace)
 
     now[0] += 5 * 60
     assert (await coordinator._async_update_data()).decision.plans[miner_id].action == "start"
+
+
+async def test_a_too_warm_miner_isnt_raised_again_while_its_chips_are_cooled_by_the_restart(
+    hass, add_hass_miner, monkeypatch
+) -> None:
+    """Reference farm, 2026-10-11 (0.8.1): Brod3 stepped down 2,500 -> 2,300 W for temperature,
+    its restart cooled the chips to 45 °C, the 5-minute hold ended and the import raised it
+    straight back to 2,500 W: a flip-flop every 12 minutes for over an hour. The chips took
+    about 12 minutes to warm again; the hold-down (default 15 minutes) outlasts that, and it no
+    longer follows the step-down delay."""
+    import time as time_module
+
+    from custom_components.solar_smart_miner.const import CONF_CONTROL_MODE
+    from custom_components.solar_smart_miner.control import CommandEvent
+    from custom_components.solar_smart_miner.protocols import MinerPlan
+
+    now = [1000.0]
+    monkeypatch.setattr(time_module, "monotonic", lambda: now[0])
+    add_hass_miner(
+        MINER_IP, limit="2300", power="2300", active="on", chips=("45", "45", "45"),
+        limit_attrs={"min": 500.0, "max": 3500.0},
+    )
+    hass.states.async_set(SOLAR_ENTITY, "3000")
+    hass.states.async_set(GRID_ENTITY, "500")  # spare energy: an increment is due
+    coordinator = SolarMinerCoordinator(hass, _make_entry(hass, options={CONF_CONTROL_MODE: "manual"}))
+    miner_id = (await coordinator._async_update_data()).miners[0].miner_id
+    await coordinator._async_record_action(
+        CommandEvent("c1", "auto", miner_id, "Brod3", MinerPlan("set_limit", 2300.0, "too warm"), "pending")
+    )
+
+    now[0] += 6 * 60  # past the ramp lock and the 5-minute step-down delay; chips still cool
+    decision = (await coordinator._async_update_data()).decision
+    assert decision.plans[miner_id].action == "hold"
+    assert any("brought down by a safety or limit rule" in line for line in decision.trace)
+
+    now[0] += 9 * 60  # 15 minutes: the chips have warmed again, the band decides once more
+    decision = (await coordinator._async_update_data()).decision
+    assert (decision.plans[miner_id].action, decision.plans[miner_id].limit_w) == ("set_limit", 2500.0)
 
 
 async def test_a_failing_pending_check_or_log_write_doesnt_stop_the_cycle(hass, monkeypatch) -> None:

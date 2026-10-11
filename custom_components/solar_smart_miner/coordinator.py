@@ -52,6 +52,7 @@ from .config_flow import (
     CONF_PV_ENTITY,
     CONF_SOLAR_ENTITY,
     CONF_SOLAR_ENTITY_TYPE,
+    CONF_HOLD_DOWN,
     CONF_STEP_DOWN_DELAY,
     CONF_TEMP_TARGET,
     CONF_TEMP_TOLERANCE,
@@ -74,6 +75,7 @@ from .const import (
     DEFAULT_IMPORT_MIN_W,
     DEFAULT_LOW_VOLTAGE_V,
     DEFAULT_VOLTAGE_DEBOUNCE_S,
+    DEFAULT_HOLD_DOWN_MINUTES,
     DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES,
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_POWER_STEPS,
@@ -539,7 +541,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         return time.monotonic() - self._voltage_low_since
 
     def _held_down(self, delay_minutes: float) -> list[str]:
-        """Miners a Safety or Limits rule brought down within the step-down delay."""
+        """Miners a Safety or Limits rule brought down within the hold-down time."""
         now = time.monotonic()
         for miner_id, when in list(self._brought_down.items()):
             if now - when >= delay_minutes * 60:
@@ -1095,7 +1097,9 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             "voltage_low_seconds": self._seconds_voltage_low(energy, low_voltage, since_change),
             "voltage_debounce_s": float(options.get(CONF_VOLTAGE_DEBOUNCE, DEFAULT_VOLTAGE_DEBOUNCE_S)),
             "low_voltage_v": low_voltage,
-            "held_down": self._held_down(step_down_delay),
+            "held_down": self._held_down(
+                float(options.get(CONF_HOLD_DOWN, DEFAULT_HOLD_DOWN_MINUTES))
+            ),
         }
         decision = build_decision(snapshot, **inputs)
         try:

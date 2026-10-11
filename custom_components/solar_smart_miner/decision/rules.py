@@ -31,7 +31,7 @@ RULES: dict[str, tuple[str, ...]] = {
 }
 STAGE_OF = {rule: stage for stage, rules in RULES.items() for rule in rules}
 # Plan reasons of the Safety and Limits rules that bring a miner down. A miner brought down by
-# one isn't raised or started again within the step-down delay (rule.step-down-allocation):
+# one isn't raised or started again within the hold-down time (rule.step-down-allocation):
 # otherwise its condition clears once it has acted and the target undoes it the next cycle.
 REASON_LOW_VOLTAGE = "low voltage"
 REASON_TOO_WARM = "too warm"

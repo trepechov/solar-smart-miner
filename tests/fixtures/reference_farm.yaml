@@ -364,3 +364,41 @@ entries:
     date: "2026-10-05"
     tags: [always, alerts, dropout]
     moved_from: energy.meter-dropouts
+
+  - id: farm.temperature-per-step
+    title: One top step moves the chips about 6 deg C
+    statement: >
+      At the top steps one 200 W step moves the hottest chip about 5 to 6 deg C once settled:
+      about 64 to 67 deg C at 2,100 W, 69 to 70 at 2,300 W and 75 to 77 at 2,500 W at midday.
+      A temperature band narrower than that has no step that settles inside it.
+    priority: P3
+    status: verified
+    source: "measured: HA history, chip temperatures and limits, 2026-10-11"
+    date: "2026-10-11"
+    tags: [midday, temperature]
+
+  - id: farm.temperature-after-restart
+    title: The chips need about 12 minutes to warm again after a change
+    statement: >
+      A limit change restarts the miner and its chips cool to about 45 deg C. They are back
+      at their settled temperature about 12 minutes after the command, several minutes after
+      the miner draws its new limit again (Brod3: command 11:34, 45 deg C at 11:38, 74 deg C
+      at 11:46). A reading in that window is lower than the miner runs at.
+    priority: P3
+    status: verified
+    source: "measured: HA history, 2026-10-11 (Brod3 11:22 to 12:47, Brod1 12:52 to 15:05)"
+    date: "2026-10-11"
+    tags: [always, temperature]
+
+  - id: farm.temperature-coupling
+    title: The miners share their cooling slowly
+    statement: >
+      One miner's restart changes the other two by about 1 deg C within 7 minutes. Over tens
+      of minutes they warm together: while Brod3 ran near 2,500 W from 11:34 to 12:41 on
+      2026-10-11, Brod1 rose from 70 to 74 deg C and Brod2 from 69 to 73 deg C. Stepping one
+      miner down doesn't quickly cool the others.
+    priority: P3
+    status: verified
+    source: "measured: HA history, 2026-10-11"
+    date: "2026-10-11"
+    tags: [midday, temperature]

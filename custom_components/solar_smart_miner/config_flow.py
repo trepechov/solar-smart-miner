@@ -53,6 +53,7 @@ from .const import (
     DEFAULT_CONTROL_MODE,
     DEFAULT_IMPORT_MAX_W,
     DEFAULT_IMPORT_MIN_W,
+    DEFAULT_HOLD_DOWN_MINUTES,
     DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES,
     DEFAULT_TRANSITION_STEPS,
     DEFAULT_POLLING_INTERVAL,
@@ -103,6 +104,7 @@ CONF_IMPORT_MIN = "import_min"  # W: Solar-follow's minimum grid import
 CONF_IMPORT_MAX = "import_max"  # W: Solar-follow's maximum grid import
 CONF_STEP_DOWN_DELAY = "step_down_delay_minutes"  # a shortfall must last this long first
 CONF_MORNING_STEP_DOWN_DELAY = "morning_step_down_delay_minutes"  # the same while the sun rises
+CONF_HOLD_DOWN = "hold_down_minutes"  # a miner Safety or Limits brought down stays down this long
 CONF_TRANSITION_STEPS = "transition_steps"  # power steps per change during sunrise / sunset
 CONF_PROFILE = "profile"
 CONF_POLLING_INTERVAL = "polling_interval"
@@ -432,6 +434,13 @@ def _options_schema(options: dict) -> vol.Schema:
             )
         ),
         vol.Required(
+            CONF_HOLD_DOWN, default=options.get(CONF_HOLD_DOWN, DEFAULT_HOLD_DOWN_MINUTES)
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=0, max=120, step=1, unit_of_measurement="min", mode=NumberSelectorMode.BOX
+            )
+        ),
+        vol.Required(
             CONF_TRANSITION_STEPS,
             default=options.get(CONF_TRANSITION_STEPS, DEFAULT_TRANSITION_STEPS),
         ): NumberSelector(NumberSelectorConfig(min=1, max=4, step=1, mode=NumberSelectorMode.BOX)),
@@ -625,6 +634,7 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
                     CONF_IMPORT_MAX: int(user_input[CONF_IMPORT_MAX]),
                     CONF_STEP_DOWN_DELAY: int(user_input[CONF_STEP_DOWN_DELAY]),
                     CONF_MORNING_STEP_DOWN_DELAY: int(user_input[CONF_MORNING_STEP_DOWN_DELAY]),
+                    CONF_HOLD_DOWN: int(user_input.get(CONF_HOLD_DOWN, DEFAULT_HOLD_DOWN_MINUTES)),
                     CONF_TRANSITION_STEPS: int(
                         user_input.get(CONF_TRANSITION_STEPS, DEFAULT_TRANSITION_STEPS)
                     ),
