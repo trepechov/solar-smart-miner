@@ -14,9 +14,9 @@ How to use this doc: add thoughts anywhere under **Notes** blocks. Items marked 
 2. **AI interval: default 60 s, minimum 10 s.** Changed in code (`const.py`) together with this review. 10–15 s is expected in production.
 3. **Goal (§1):** use as much of the excess energy as possible. On battery, efficiency comes first.
 4. **Small constant grid import (Setup A) is confirmed.** Without a battery, importing a little is the only proof that all available solar is used. Otherwise the inverter throttles and nothing shows that the miners could go higher.
-5. **The miners run in immersion mode, with no fans.** Temperature follows power and cooling directly. The only Braiins OS temperature setting that matters is the **cutoff**.
-6. **Temperature is not an emergency.** A miner that is too hot at minimum power is left to the Braiins OS cutoff, which restarts it. ~~We monitor and log it.~~ *(Superseded by round 4, point 4: at most a note in the decision trace.)* Temperature steps follow the normal pace and never skip the queue.
-7. **Below ~1000 W a miner is not worth running.** *(Round 7: 900 W is fine; the lowest power step is the pause threshold, §0.6.)* That is the point to pause it with Braiins OS pause, not to idle it at its hardware minimum.
+5. **The miners run in immersion mode, with no fans.** Temperature follows power and cooling directly. The only firmware temperature setting that matters is the **cutoff**.
+6. **Temperature is not an emergency.** A miner that is too hot at minimum power is left to the miner's own cutoff, which restarts it. ~~We monitor and log it.~~ *(Superseded by round 4, point 4: at most a note in the decision trace.)* Temperature steps follow the normal pace and never skip the queue.
+7. **Below ~1000 W a miner is not worth running.** *(Round 7: 900 W is fine; the lowest power step is the pause threshold, §0.6.)* That is the point to pause it with the firmware's pause, not to idle it at its hardware minimum.
 8. **Restarts are the main cost to keep low** (refined in round 2: a trade-off, not a hard rule). Changing one miner by 600 W beats changing three miners by 200 W each. A decision **may** change several miners when needed (for example pause one and raise another), so the AI answer stays multi-miner.
 9. **Some grid import is fine at sunrise, sunset and during clouds.** Production changes quickly then, so don't chase it.
 10. **Handover:** when the integration starts applying decisions, the fixed-hour schedule automation is switched off. They never run together.
@@ -40,7 +40,7 @@ How to use this doc: add thoughts anywhere under **Notes** blocks. Items marked 
 
 ## 0.3 Decisions from review round 4 (2026-10-05)
 
-1. **The Braiins OS cutoff is the final line of defense.** It is set on the miner. The plugin doesn't track it, warn about it or manage it.
+1. **The miner's own cutoff is the final line of defense.** It is set on the miner. The plugin doesn't track it, warn about it or manage it.
 2. **The plugin only follows target temperature + tolerance.** It doesn't do any other temperature monitoring. The "cutoff as information" and "smooth the temperature" suggestions are dropped.
 3. **Important: every settings change restarts the miner, so its temperature always goes down first.** After the restart it climbs again and may reach the high band at the new setting. The old rule "after a step-down, wait for the temperature to settle before the next one" doesn't apply. A post-change reading is always low and says nothing.
 4. **Too hot at minimum power is not the plugin's job.** It means something is wrong (cooling, ambient temperature, hardware). Other mechanisms handle it. Not even notify: at most it's noted in the decision trace.
@@ -92,7 +92,7 @@ A check of the whole doc found places where decisions from different rounds cont
 
 ## 0.7 Decisions from review round 8 (2026-10-07): after the first day of applying
 
-1. **Power steps 900 to 2,500 W, in 200 W steps, are normal.** 900 to 1,500 W was only the first ladder. Every miner has run all of these steps, so a change between them is a restart, not a tuning. They are now the default steps.
+1. **On the reference farm, power steps 900 to 2,500 W, in 200 W steps, are normal**. About 200 W apart is a sensible spacing on any miner (owner, 2026-10-12): finer steps only add restarts. 900 to 1,500 W was only the first ladder. Every miner has run all of these steps, so a change between them is a restart, not a tuning. They are now the default steps.
 2. **Higher steps are welcome later.** If the miners stay below the temperature limits, steps above 2,500 W may be added.
 3. **Temperature defaults: target 60 °C, tolerance 10 °C** (step down at 70 °C). They were 65 °C and 10 °C.
 
@@ -102,7 +102,7 @@ A check of the whole doc found places where decisions from different rounds cont
 
 **Use as much of the excess energy as possible for mining.** "Excess" means solar: what the panels can give, with a small steady draw from the grid as the proof that none of it is left unused.
 
-**Scope (review 2026-10-07).** The integration serves farms of any size, miner model, cooling and inverter. The first farm (three S9s on Braiins OS, immersion cooled, zero-export inverters, no battery) is the **reference example**: its numbers in this document show how to reason and become defaults, never fixed rules. The §8 table says which values are which. Success criterion carried over from the original requirements: someone with a different solar brand and no battery can install the integration, configure it for their own miners in the HA UI, and reach a working preview.
+**Scope (review 2026-10-07).** The integration serves farms of any size, miner model, cooling and inverter. The first farm (`tests/fixtures/reference_farm.yaml`) is the **reference example**: its numbers in this document show how to reason and become defaults, never fixed rules. The §8 table says which values are which. Success criterion carried over from the original requirements: someone with a different solar brand and no battery can install the integration, configure it for their own miners in the HA UI, and reach a working preview.
 
 - **This does not mean "highest power per miner".** On the reference farm the miners have similar efficiency between about **1000 W and 2000 W**, so 4000 W is better used by three miners at ~1330 W each than by two at 2000 W. With mixed models, the most efficient miners get power first.
 - **On battery** (open, §6.3), efficiency was suggested to come first: hash per stored Wh.
@@ -121,7 +121,7 @@ Limits come in three kinds:
 
 - `decision.py` builds a *preview* only. Its proposals are logged and never applied.
 - The order is: safety checks (solar sensor fault, battery floor, temperature ceiling), then the profile, then a power budget split **evenly** across all miners.
-- Today "pause" means running at the hardware minimum (`_floor_w`). This is wrong for the hard limits: at minimum, a miner still drains the battery below its floor or imports at night. It has to become a real **Braiins OS pause** (§5.3).
+- Today "pause" means running at the hardware minimum (`_floor_w`). This is wrong for the hard limits: at minimum, a miner still drains the battery below its floor or imports at night. It has to become a real **firmware pause** (§5.3).
 - Temperature is a single hard ceiling (`DEFAULT_TEMP_CEILING = 80 °C`). There is no target or tolerance.
 - No voltage input and no memory of previous changes. Every cycle decides from scratch, so it would change every miner at once.
 - The AI answers in JSON with one action per miner: `increase` / `reduce` / `hold`, each with a reason. The answer has **no target wattage**, so it can't express "raise miner A by 600 W" or "pause B".
@@ -131,7 +131,7 @@ Limits come in three kinds:
 
 ### 2.1 Current operational setup (outside this integration)
 
-- Miners are stopped and started with the **Braiins OS pause / resume** function.
+- Miners are stopped and started with the firmware's **pause / resume** function.
 - A **separate Home Assistant automation** pauses and resumes mining at **fixed hours**.
 - **(decided)** When the integration starts applying decisions, that automation is switched off.
 
@@ -155,7 +155,7 @@ Limits come in three kinds:
 ### 3.2 Temperature: target and tolerance
 *Not a safety step: temperature is applied in allocation, at the normal pace (§11 step 4).*
 - **(decided)** The miners run in immersion mode, with no fans. Temperature responds directly to power and cooling, so it is a usable control signal.
-- **(decided)** The Braiins OS cutoff (~80 °C, set on the miner) is the **final line of defense**: the miner restarts and cools down. The plugin has **no emergency temperature action** and doesn't track the cutoff.
+- **(decided)** The miner's own cutoff (set on the miner) is the **final line of defense**: the miner restarts and cools down. The plugin has **no emergency temperature action** and doesn't track the cutoff.
 - **(decided)** The plugin only follows **target + tolerance**. Example: target 60 °C, tolerance 10 °C (the defaults since round 8). The user makes sure the range is wide enough.
 
 | Miner temperature | Meaning | Action |
@@ -220,7 +220,7 @@ Limits come in three kinds:
 
 ### 5.1 Every power change costs a restart
 - **Measured (2026-10-06):** changing a miner's power limit restarts it. On a step it has run before, it is back at full hashrate in **3–4 minutes** (round 7). The ~50 min tuning only happens on a step it has never run (`situation.tuning`, an exception).
-- **(open)** The cost of Braiins OS pause / resume, and how long the temperature takes to come back (§9).
+- **(open)** The cost of pause / resume, and how long the temperature takes to come back (§9).
 - So:
   - A change costs about 3–4 min of hashing on that miner. The cost scales with the miner's **current** power, not with the step size.
   - While a miner ramps, readings are misleading: its draw is low, so import looks lower than it really is.
@@ -241,7 +241,7 @@ Limits come in three kinds:
   - Fast reactions are for safety only (§3.3, §3.4). The evening decline is handled by sunset mode (§5.4).
 
 ### 5.3 Allocation across miners: spread, pause, resume
-- **(decided)** A miner below the **pause threshold** isn't worth running. The threshold is the lowest power step, **900 W** (round 7). It is **paused** (Braiins OS pause), not left idling at minimum.
+- **(decided)** A miner below the **pause threshold** isn't worth running. The threshold is the lowest power step, **900 W** (round 7). It is **paused** (firmware pause), not left idling at minimum.
 - **(decided)** Spreading the load over more miners in the efficient range (~1000–2000 W) is better than running fewer miners harder.
 - **(decided)** Consolidating (pausing one miner and raising the others) restarts every miner involved, and a passing cloud can force the reverse change soon after. So consolidating needs a **sustained** deficit, not a momentary one.
 - New actions: `pause` and `resume` alongside `increase` / `reduce` / `hold`. Each action carries a **target wattage**.
@@ -375,7 +375,7 @@ All **(suggestion)** until agreed:
 
 | Setting | Example default | Basis | Section |
 |---|---|---|---|
-| Power steps | 900 to 2,500 W in 200 W steps (decided, round 8) | miner type; reference farm (S9) | 5.1 |
+| Power steps | 900 to 2,500 W in 200 W steps (decided, round 8) | miner type; reference farm | 5.1 |
 | Target temperature | 60 °C (decided, round 8) | cooling; reference farm (immersion) | 3.2 |
 | Temperature tolerance (above target) | 10 °C (decided, round 8) | cooling; reference farm (immersion) | 3.2 |
 | Voltage sensor entity | — | site | 3.3 |
@@ -383,14 +383,14 @@ All **(suggestion)** until agreed:
 | Low-voltage threshold | 210 V | site (grid); configurable, default 210 V from the reference farm's 230 V supply | 3.3 |
 | Voltage debounce window | 60 s | generic default | 3.3 |
 | Minimum power step | one step (200 W on the reference farm) | derived: one configured step | 5.2 |
-| Ramp timeout | 4 min (decided, round 7) | miner type; reference farm (S9, Braiins OS) | 5.2 |
+| Ramp timeout | 4 min (decided, round 7) | miner type; reference farm | 5.2 |
 | Minimum hold time per miner (temperature settling) | open, §9 | miner type and cooling | 5.2 |
-| Tuning window (only for a step never run, `situation.tuning`) | 50 min | miner type; reference farm (S9, Braiins OS) | 5.1 |
+| Tuning window (only for a step never run, `situation.tuning`) | 50 min | miner type; reference farm | 5.1 |
 | Input smoothing window (energy only) | 3 min (decided, round 7) | generic default | 5.2 |
 | Cloud tolerance (deficit time before a step-down) | from the §5.4 study | site | 5.2, 5.4 |
 | Probe step (step-up when surplus is hidden) | 400 W | derived from the power steps | 5.2 |
 | Pause threshold | lowest power step (900 W on the reference farm, decided round 7) | derived: the lowest configured step | 5.3 |
-| Efficient range, upper end | 2000 W | miner type; reference farm (S9) | 5.3 |
+| Efficient range, upper end | 2000 W | miner type; reference farm | 5.3 |
 | Setup: has battery | yes / no | site | 6.1 |
 | Setup: export policy | zero export / export allowed | site | 6.1 |
 | Import target and band (Solar-follow) | tune from logs, band wider than one step | site; band derived: wider than one step | 6.2 |
@@ -409,7 +409,7 @@ Resolved: round 1 in §0, round 2 in §0.1, round 3 in §0.2, round 4 in §0.3, 
 3. Import target and band defaults for normal (non-transition) operation. 400 W is in the code. (§6.2)
 
 **Not blocking Solar-follow:**
-4. The cost of Braiins OS pause / resume. (§5.1)
+4. The cost of pause / resume. (§5.1)
 5. Is efficiency worse above ~2000 W? No longer moot: the steps go up to 2,500 W since round 8. (§5.3)
 6. Voltage sensor source and the hard-stop threshold. (§3.3)
 7. How does the AI learn from the history: examples in the prompt, statistics, or offline review? (§7)

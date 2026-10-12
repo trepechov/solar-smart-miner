@@ -4,7 +4,6 @@ type: feat
 usedate: 2026-10-06
 updated: 2026-10-07  # Phase 2 detailed: Automatic mode, Preview removed
 origin: docs/brainstorms/2026-10-05-decision-making-requirements.md
-parent_plan: docs/plans/2026-05-15-001-feat-solar-smart-miner-ha-integration-plan.md
 ---
 
 # feat: Semi-automatic apply: confirm each proposed action with a button

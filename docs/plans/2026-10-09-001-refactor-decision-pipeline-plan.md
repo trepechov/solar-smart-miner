@@ -437,7 +437,7 @@ What is there today, and what happens to it:
 
 | Where | Today | Change |
 |---|---|---|
-| `decision.py` comment, `rule.temperature-is-braiins` | "Braiins OS cutoff" | "the miner's own temperature cutoff"; rule id kept (ids are never reused), title and statement generic, Braiins in `note` |
+| `decision.py` comment, `rule.temperature-is-braiins` | the firmware's name for the cutoff | "the miner's own temperature cutoff"; rule id kept (ids are never reused), title and statement generic, the firmware in `note` |
 | `decision.py` docstring | "2 to 4 minutes at no power" | "while it restarts (the ramp lock)" |
 | `DEFAULT_RAMP_LOCK_MINUTES = 4` | constant | **setting** "Restart time after a change" (miner type), default 4; the apply plan's deferred item. Thread it through all three uses: `coordinator._minutes_since_change`, the restart-not-stopped override in `_async_read_miners` (9b0b2c4), and `build_decision`'s `ramp_lock_minutes`; test a non-default value across the restart window. |
 | `RAMP_DONE_FRACTION = 0.05`, `RAMP_MIN_MINUTES = 1` | constants | stay constants (generic: "drawing its new limit"); docstring says why |
@@ -475,18 +475,18 @@ integration's folder (HACS replaces that folder on update).
 
 **The Farm step (Configure → Farm)**
 
-| Field | Type | Used by | Reference farm |
-|---|---|---|---|
-| Inverters | text | prompt | 3 × Huawei SUN2000-5KTL-L1, 5 kW AC each, 15 kW total |
-| Export to the grid | select: zero export / export allowed | prompt now; the decision later (§6.1 export policy) | zero export (inverters report "power limited") |
-| Battery | select: none / present | prompt; profile choice later | none |
-| PV array | text | prompt | east-west roof, 2 × 7.5 kWp, 80° and 260°, 15° tilt (assumed) |
-| Cooling | select: air / immersion / hydro | prompt; temperature defaults hint | immersion, no fans |
-| Miner model and firmware | text | prompt | Antminer S9, Braiins OS, via hass-miner |
-| Miner's own temperature cutoff | number, °C, optional | prompt | about 80 °C |
-| Base load besides the miners | number, W, optional | prompt now; U3's estimate | about 500 W |
-| Schedule automation | entity (multiple), optional | apply plan S10 warning | the 07:00/19:00 pause/resume automations |
-| Notes | multi-line text | prompt | free text |
+| Field | Type | Used by |
+|---|---|---|
+| Inverters | text | prompt |
+| Export to the grid | select: zero export / export allowed | prompt now; the decision later (§6.1 export policy) |
+| Battery | select: none / present | prompt; profile choice later |
+| PV array | text | prompt |
+| Cooling | select: air / immersion / hydro | prompt; temperature defaults hint |
+| Miner model and firmware | text | prompt |
+| Miner's own temperature cutoff | number, °C, optional | prompt |
+| Base load besides the miners | number, W, optional | prompt now; U3's estimate |
+| Schedule automation | entity (multiple), optional | apply plan S10 warning |
+| Notes | multi-line text | prompt |
 
 Location and time zone come from HA (`hass.config`), not a field. Sensors stay where they are (Sensors step).
 
@@ -521,45 +521,7 @@ step; not automatic: the integration can't tell which install is the reference f
 | `energy.evening-curve`, `energy.morning-curve`, `energy.pv-sum-unreliable`, `energy.meter-dropouts` | "short meter gaps are normal and must not make the controller act" | the dated curves and entity ids → `farm.yaml` |
 | 6 rules, 6 open questions with figures | reworded against the settings ("the configured power steps") | figures to `note` (allowed by CLAUDE.md) or to `farm.yaml` |
 
-**Example: the reference farm's `farm.yaml` (excerpt)**
-
-```yaml
-# Facts about this farm, for the AI. Same format as the integration's knowledge base,
-# P3 only. Edit freely; reload the integration to apply.
-entries:
-  - id: farm.miners
-    title: Three S9s on Braiins OS
-    statement: >
-      Three miners, Brod1, Brod2 and Brod3, Antminer S9 on Braiins OS. Each accepts 500 to
-      3500 W in 100 W steps; every configured step from 900 to 2,500 W has been tuned once.
-    priority: P3
-    status: verified
-    source: "measured: HA entity registry, 2026-10-05"
-    date: "2026-10-05"
-    tags: [always]
-
-  - id: farm.settled-values
-    title: Settled hashrate per step
-    statement: >
-      Settled: 1300 W gives about 59 TH/s, 1500 W 68, 1700 W 76 to 78, 1900 W 84 to 88, all
-      near 22 J/TH, so efficiency is flat from 1300 to 1900 W.
-    priority: P3
-    status: verified
-    source: "measured: median of 15 to 25 min, 2026-10-06"
-    date: "2026-10-06"
-    tags: [midday]
-
-  - id: farm.meter-dropouts
-    title: Grid meter gaps
-    statement: >
-      The grid meter drops out for about 35 seconds a few times an evening. Gaps of minutes
-      are normal; longer than that has not been seen.
-    priority: P3
-    status: verified
-    source: "measured: 2026-10-05 17:39 and 18:43; owner 2026-10-09"
-    date: "2026-10-09"
-    tags: [always, grid]
-```
+**Example:** the reference farm's file is `tests/fixtures/reference_farm.yaml`.
 
 **How it reaches the AI.** The Farm step's fields are rendered into a short "This farm" block in the prompt (a
 few lines, always sent). `farm.yaml` entries join the P3 pool and are picked by situation within

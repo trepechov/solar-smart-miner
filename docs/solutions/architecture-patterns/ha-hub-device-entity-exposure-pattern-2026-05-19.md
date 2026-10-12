@@ -258,9 +258,6 @@ target_device = dr.async_get_device(connections={("ip", miner_ip)})
 
 ## Related
 
-- [Hub entity exposure plan](../../plans/2026-05-18-002-feat-hub-device-entity-exposure-plan.md) — the implementation plan this pattern was derived from
-- [Coordinator sensor reads plan](../../plans/2026-05-18-001-feat-coordinator-sensor-reads-logging-plan.md) — precursor work: reading hass-miner entity state into the coordinator
-- [Dashboard card entities requirements](../../brainstorms/2026-05-18-dashboard-card-entities-requirements.md) — origin requirements (R1–R7)
 - **Relevant source files:**
   - `custom_components/solar_smart_miner/sensor.py` — hub DeviceInfo, hub sensors, parametric MinerSensor, async_setup_entry
   - `custom_components/solar_smart_miner/button.py` — AddToDashboardButton, persistent notification YAML

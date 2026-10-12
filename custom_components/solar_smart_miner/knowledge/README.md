@@ -149,7 +149,7 @@ changed), not the several listed.
 
 A situation is either `scope: site` (one answer for the whole site: sunrise, night, cloud) or
 `scope: miner` (one answer per miner: tuning). A miner situation is evaluated separately for
-Brod1, Brod2 and Brod3, from that miner's own sensors.
+each miner, from its own sensors.
 
 ## Alerts
 
