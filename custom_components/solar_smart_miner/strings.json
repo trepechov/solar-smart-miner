@@ -165,11 +165,13 @@
         "description": "Messages from the farm go to one Telegram chat. 1) In Telegram, message @BotFather, send /newbot and copy the token it gives you. 2) Open your new bot and press Start (a bot can't write to you before that). 3) Get your chat ID from @userinfobot, or for a group, add the bot to the group and send a message there (a group's ID starts with -). Saving sends a test message; nothing is saved if it doesn't arrive. Clear both fields to turn Telegram off.",
         "data": {
           "telegram_bot_token": "Bot token",
-          "telegram_chat_id": "Chat ID"
+          "telegram_chat_id": "Chat ID",
+          "telegram_day_messages": "Day messages"
         },
         "data_description": {
           "telegram_bot_token": "Stored hidden. It gives full control of the bot: don't share it.",
-          "telegram_chat_id": "Your user ID, or a group's (negative) ID."
+          "telegram_chat_id": "Your user ID, or a group's (negative) ID.",
+          "telegram_day_messages": "Four messages a day: when the first miner starts, when every miner runs at its top step, the first step down after that, and a summary when the last miner stops."
         }
       }
     },

@@ -142,6 +142,7 @@ def _kind(farm: Farm, miner: SimMiner, service: str, value: float | None) -> str
 async def _run(
     hass, add_hass_miner, monkeypatch, limits, stopped, pv_potential, minutes: int,
     sets_after_min: float | None = None, rising: bool = False, options: dict | None = None,
+    freezer=None,
 ) -> Farm:
     clock = [0.0]
     monkeypatch.setattr(time_module, "monotonic", lambda: clock[0] + 10_000.0)
@@ -186,6 +187,8 @@ async def _run(
         farm.publish()
         await coordinator._async_update_data()
         farm.now += TICK_S
+        if freezer is not None:  # the wall clock too (the day report's times and energy)
+            freezer.tick(TICK_S)
     return farm
 
 
@@ -258,3 +261,36 @@ async def test_a_sunrise_climbs_in_bigger_steps_with_fewer_restarts(hass, add_ha
     assert len(ups) <= 3 * 5, farm.commands  # 900 → 1,300 → 1,700 → 2,100 → 2,500, plus at most one
     assert _close_pairs(farm) == []
     assert [c for c in farm.commands if c[2] in ("down", "stop")] == [], farm.commands
+
+
+async def test_a_sunrise_sends_the_morning_and_all_at_max_messages_and_changes_nothing(
+    hass, add_hass_miner, monkeypatch, mock_telegram, freezer
+) -> None:
+    """The day messages only observe: the same sunrise sends the same commands with them on or off."""
+    freezer.move_to("2026-10-12T07:00:00+03:00")
+
+    def sunrise(day_messages: bool):
+        return _run(hass, add_hass_miner, monkeypatch, [900, 900, 900], [True] * 3,
+                    lambda s: min(9000.0, 1500.0 + s / 60 * 50), minutes=180, rising=True,
+                    freezer=freezer, options={
+                        "telegram_bot_token": "1:T", "telegram_chat_id": "42",
+                        "telegram_day_messages": day_messages,
+                    })
+
+    farm = await sunrise(True)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    texts = [c.args[3] for c in mock_telegram.await_args_list]
+
+    assert [t[0] for t in texts] == ["☀", "⚡"], texts
+    assert texts[0].startswith("☀️ Production is up: Miner ")
+    assert texts[1].startswith("⚡ All 3 miners run at their top step, settled")
+
+    mock_telegram.reset_mock()
+    for entry in hass.config_entries.async_entries("miner"):
+        await hass.config_entries.async_remove(entry.entry_id)
+    freezer.move_to("2026-10-12T07:00:00+03:00")
+    quiet = await sunrise(False)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    mock_telegram.assert_not_awaited()
+    assert [c[1:] for c in quiet.commands] == [c[1:] for c in farm.commands]

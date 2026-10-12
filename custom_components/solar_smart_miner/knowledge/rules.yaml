@@ -442,6 +442,8 @@ entries:
     note: >
       Until 2026-10-07 Solar-max added forecast PV now minus actual PV to the budget when the
       meter sat near 0 W (energy.forecast-headroom-flips); removed in the code the same day.
+      Since 2026-10-12 the Telegram day messages (day_report.py) also show the forecast next to the
+      actual PV, as a report only: they read the decision's outcome and never feed it.
 
   - id: rule.goal
     title: Use as much excess energy as possible

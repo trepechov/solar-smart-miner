@@ -506,10 +506,24 @@ async def test_telegram_tab_shows_the_saved_values(hass: HomeAssistant) -> None:
     form = await hass.config_entries.options.async_configure(
         result["flow_id"], {"next_step_id": "edit_telegram"}
     )
-    suggested = {
-        str(k): k.description["suggested_value"] for k in form["data_schema"].schema
-    }
-    assert suggested == {"telegram_bot_token": "1:T", "telegram_chat_id": "42"}
+    fields = {str(k): k for k in form["data_schema"].schema}
+    assert fields["telegram_bot_token"].description["suggested_value"] == "1:T"
+    assert fields["telegram_chat_id"].description["suggested_value"] == "42"
+    assert fields["telegram_day_messages"].default() is True  # on unless turned off
+
+
+async def test_telegram_day_messages_can_be_turned_off(hass: HomeAssistant, mock_telegram) -> None:
+    entry = _entry_with_telegram(hass, "1:T", "42")
+
+    result = await _get_options_flow_result(
+        hass,
+        entry,
+        telegram_input={
+            "telegram_bot_token": "1:T", "telegram_chat_id": "42", "telegram_day_messages": False
+        },
+    )
+
+    assert result["data"]["telegram_day_messages"] is False
 
 
 async def test_telegram_new_pair_is_checked_with_a_test_message_and_saved(

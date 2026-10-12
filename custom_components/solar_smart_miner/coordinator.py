@@ -19,13 +19,15 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry, entity_registry
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .action_log import ActionLog
 from .ai import async_ask, build_messages
 from .ai_log import AiLog, build_record, complete_record
-from .notify import Notifier
+from .day_report import DayReport, describe as describe_day
+from .notify import CONF_TELEGRAM_DAY, Notifier
 from .config_flow import (
     CONF_AI_ENABLED,
     CONF_AI_INTERVAL,
@@ -107,6 +109,7 @@ from .control import (
 )
 from .decision import HOLD_ALL_SUMMARY, _describe_plan, build_decision, describe_proposal
 from .decision.rules import HELD_DOWN_REASONS
+from .decision.context import too_warm_c
 from .decision.safety import estimated_import_w
 from .decision_log import DecisionLog
 from . import jsonl_log
@@ -136,6 +139,7 @@ _LOGGER = logging.getLogger(__name__)
 
 RULES_FAILED_COOLDOWN_MIN = 60  # at most one push an hour, however often the rules fail again
 METER_LOST_COOLDOWN_MIN = 60  # alerts.yaml sensor.meter-lost
+DAY_SAVE_DELAY_S = 300  # the day report between its events (and at HA's final write)
 
 # hass-miner unique_id suffixes (unique_id = "<mac>-<key>"). Board-level entities
 # use "<mac>-<n>-board_..." and so never match these.
@@ -269,6 +273,8 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         # miner id -> time.monotonic() a Safety or Limits rule brought it down (HELD_DOWN_REASONS)
         self._brought_down: dict[str, float] = {}
         self.transition = Transition()  # sunrise and sunset, from how production changes
+        self.day_report = DayReport()  # the four day messages; loaded by async_load_day_report
+        self._day_store: Store[dict] = Store(hass, 1, f"{DOMAIN}.day_report.{entry.entry_id}")
         self._building: CoordinatorSnapshot | None = None  # the snapshot of the cycle being worked out
         # miner id -> (plan fingerprint, reason) of the last automatic refusal, so it isn't repeated
         self._auto_refused: dict[str, tuple[str, str]] = {}
@@ -647,6 +653,47 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         elif not failed and self._rules_failed:
             self.notifier.dismiss("rules_failed")
         self._rules_failed = failed
+
+    async def async_load_day_report(self) -> None:
+        """The day so far, so a restart of HA neither repeats a day message nor loses the morning."""
+        try:
+            self.day_report = DayReport(await self._day_store.async_load())
+        except Exception:  # noqa: BLE001 - a broken file only costs today's messages
+            _LOGGER.exception("The day report could not be loaded; it starts again")
+
+    async def async_save_day_report(self) -> None:
+        """Write the day now (on unload: a reload would otherwise load an older copy)."""
+        await self._day_store.async_save(self.day_report.as_dict())
+
+    async def _async_report_day(self, snapshot: CoordinatorSnapshot, inputs: dict) -> None:
+        """Follow the day and send its messages (day_report.py), from what the decision was
+        given. Never stops a cycle."""
+        options = self._entry.options
+        try:
+            events = self.day_report.update(
+                dt_util.now(),
+                snapshot,
+                settled=inputs["minutes_since_change"] is None,
+                restarting={m.miner_id for m in snapshot.miners if self.controller.restarting(m.miner_id)},
+                steps=inputs["power_steps"],
+                too_warm_c=too_warm_c(inputs["temp_target"], inputs["temp_tolerance"]),
+                sun_up=inputs["sun_up"],
+                sunset=inputs["sunset"],
+                poll_s=self.update_interval.total_seconds() if self.update_interval else 60.0,
+            )
+            if not events:
+                self._day_store.async_delay_save(self.day_report.as_dict, DAY_SAVE_DELAY_S)
+                return
+            await self.async_save_day_report()
+            if not options.get(CONF_TELEGRAM_DAY, True):
+                return
+            for event in events:
+                self.notifier.notify(
+                    f"day_{event}", "", describe_day(event, self.day_report.state, snapshot),
+                    push=True, persistent=False, cooldown_min=0,
+                )
+        except Exception:  # noqa: BLE001 - a report must never stop the cycle
+            _LOGGER.exception("The day report failed")
 
     async def async_seed_transition(self) -> None:
         """After a reload during sunset, it stays sunset: the last decision line says so."""
@@ -1125,6 +1172,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         finally:
             self._building = None
         snapshot.decision_history = list(self._history)
+        await self._async_report_day(snapshot, inputs)
         self._maybe_request_ai(snapshot)
         # After the request: a very fast answer can already be in by now.
         snapshot.ai_advice = self._ai_advice

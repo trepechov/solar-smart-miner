@@ -47,6 +47,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.action_log.async_load_history()
     coordinator.seed_activity()
     await coordinator.async_seed_transition()
+    await coordinator.async_load_day_report()
     await coordinator.async_load_knowledge()
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
@@ -56,6 +57,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    await entry.runtime_data.async_save_day_report()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 

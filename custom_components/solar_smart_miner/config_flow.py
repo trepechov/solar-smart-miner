@@ -77,6 +77,7 @@ from .const import (
 from .decision import min_import_range_w
 from .notify import (
     CONF_TELEGRAM_CHAT_ID,
+    CONF_TELEGRAM_DAY,
     CONF_TELEGRAM_TOKEN,
     CONNECTED_TEXT,
     async_send_telegram,
@@ -287,6 +288,7 @@ def _telegram_schema(options: dict[str, Any]) -> vol.Schema:
                 CONF_TELEGRAM_CHAT_ID,
                 description={"suggested_value": options.get(CONF_TELEGRAM_CHAT_ID)},
             ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT)),
+            vol.Optional(CONF_TELEGRAM_DAY, default=options.get(CONF_TELEGRAM_DAY, True)): bool,
         }
     )
 
@@ -830,6 +832,7 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
             if not errors:
                 self._pending_options[CONF_TELEGRAM_TOKEN] = token or None
                 self._pending_options[CONF_TELEGRAM_CHAT_ID] = chat_id or None
+                self._pending_options[CONF_TELEGRAM_DAY] = user_input.get(CONF_TELEGRAM_DAY, True)
                 return self.async_create_entry(data=self._pending_options)
 
         return self.async_show_form(

@@ -47,8 +47,8 @@ defaults come from the reference farm it was built on.
   **Apply proposal**; in Automatic the proposal is applied every cycle, one miner at a time
 - **AI advisor** on any OpenRouter model, free ones included; advisory only
 - **Logs you can replay:** every command, decision and AI request is written to JSONL files
-- **Telegram:** a command that didn't take, or rules that failed, is also pushed to your Telegram chat
-  (day reports are next: [plan](docs/plans/2026-10-09-002-feat-telegram-notifications-plan.md))
+- **Telegram:** four short reports a day (first start, all at full power, the first step down, the day's
+  summary), and failures (a command that didn't take, the rules failing, the grid meter lost) pushed to your chat
 
 ## Requirements
 
@@ -80,7 +80,7 @@ Saving reloads the integration.
 | **Miner stop method** | Per miner: the relay that cuts it off (empty = the miner's own pause switch) |
 | **Farm** | Inverters, export to the grid, battery, PV array, cooling, miner model and firmware, the miners' own temperature cutoff, the house load besides the miners, schedule automations, notes |
 | **AI (OpenRouter)** | On / off, API key, model, seconds between requests |
-| **Telegram** | Bot token and chat ID; saving sends a test message (see below) |
+| **Telegram** | Bot token and chat ID (saving sends a test message), day messages on / off |
 | **Settings** | Power steps, import range, step-down delays, temperature target and tolerance, low-voltage limit, battery floor, polling interval, control mode |
 
 ### Your farm's data
@@ -102,6 +102,20 @@ updates:
    with `-`).
 4. **Configure → Telegram**: paste both and save. A test message arrives in the chat; if it doesn't, the
    form says why and nothing is saved. Clear both fields to turn Telegram off.
+
+What it sends, each at most once a day:
+
+| When | Message |
+|---|---|
+| The first miner starts | ☀️ which miner, at what limit; the forecast for the rest of today and the next hour |
+| Every miner runs at its top step, settled and inside the temperature band | ⚡ how long it took from the first start |
+| After that, the first step down or stop | 🌥 which miner and why; the forecast against what the panels give |
+| The last miner stops after sunset | 🌙 PV, miners' and grid energy for the day, mining hours, the morning's forecast |
+
+A cloud that stops every miner at noon is not the evening, and the day messages say nothing about it.
+Failures are pushed as they happen: a command that didn't take (critical), the rules failing (critical)
+and the grid meter lost (warning), each at most once per cooldown. The forecast is only shown, never used
+to decide. Turn the day messages off on the Telegram tab to keep only the failures.
 
 ## How it decides
 
@@ -197,7 +211,7 @@ python -m pytest tests/
 
 ## Roadmap
 
-- Telegram day reports and alerts
+- Telegram alerts from the alert catalogue
 - Battery profiles
 - Event-triggered decisions instead of polling
 - Grid electricity price

@@ -19,6 +19,11 @@ from .describe import _describe_plan
 from .rules import decided_by
 
 
+def too_warm_c(temp_target: float, temp_tolerance: float) -> float:
+    """The top of the temperature band: a miner at or above it steps down."""
+    return temp_target + temp_tolerance
+
+
 @dataclass
 class Context:
     snapshot: CoordinatorSnapshot
@@ -66,7 +71,7 @@ class Context:
 
     @property
     def too_warm_c(self) -> float:
-        return self.temp_target + self.temp_tolerance
+        return too_warm_c(self.temp_target, self.temp_tolerance)
 
     def hold(self, m: MinerSnapshot, reason: str) -> MinerPlan:
         return MinerPlan(ACTION_HOLD, limit_w=m.power_limit_w, reason=reason)

@@ -325,3 +325,19 @@ async def test_per_miner_entities_of_v060_are_removed_on_setup(hass, add_hass_mi
     assert any(  # the farm-level Apply button stays
         e.unique_id.endswith("_apply_all") for e in er.entities.values() if e.platform == DOMAIN
     )
+
+
+async def test_a_reload_keeps_the_day_report(hass, add_hass_miner, hass_storage) -> None:
+    """Saving any option reloads the entry: the day so far is written on unload and read back."""
+    entry, _ = await _setup(hass, add_hass_miner)
+    coordinator = entry.runtime_data
+    coordinator.day_report.state["pv_kwh"] = 12.5
+    coordinator.day_report.state["sent"] = ["morning"]
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    saved = hass_storage[f"solar_smart_miner.day_report.{entry.entry_id}"]["data"]
+    assert saved["pv_kwh"] >= 12.5 and saved["sent"] == ["morning"]
+    assert entry.runtime_data is not coordinator
+    assert entry.runtime_data.day_report.state["sent"] == ["morning"]

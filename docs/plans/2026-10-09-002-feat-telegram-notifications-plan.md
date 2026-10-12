@@ -3,7 +3,7 @@ title: "feat: Telegram: the connection, four day messages, then alerts"
 type: feat
 date: 2026-10-09
 updated: 2026-10-12  # owner's request: the four day messages (U4-U5) replace per-change messages and the 21:00 summary; owner's answers
-status: planned, not started
+status: U1-U5 done (0.8.3, 0.8.4, 2026-10-12); U6 open, U7 deferred
 related_plans:
   - docs/plans/2026-10-06-001-feat-semi-automatic-apply-plan.md  # control.py, apply-failed notification
   - docs/plans/2026-10-09-001-refactor-decision-pipeline-plan.md  # alerts that will push once built
@@ -78,7 +78,7 @@ chatty for the owner, and message 3 covers the change they care about) and the *
 | Message format | Plain text, `parse_mode` unset; first character an emoji marker | No escaping bugs with miner names or reasons that contain `_`, `*`, `<`. |
 | Day messages from events or from state? | **From state**: `day_report` looks at each coordinator snapshot, not at commands | Works in Manual and Automatic, catches a miner started by a schedule automation, and survives a lost command event. |
 | Once a day | `day_report` keeps the day's date and which messages went out, in an HA `Store` (`.storage/solar_smart_miner.day_report`), saved when it changes | An HA restart at noon must not send "production is up" again or lose the first-start time message 2 needs. |
-| When does a day begin? | At the first poll with the sun rising (`sun.sun` `rising`) on a new date | Same signal `Transition` uses to clear its sunset latch; one definition of a new day. |
+| When does a day begin? | At the first poll on a new date. A day picked up while miners mine skips only the greeting | Review, 2026-10-12: tying it to the sun rising lost the whole day when HA came back in the afternoon. |
 | Repeats of failures and alerts | Per-key cooldown in memory (`cooldown_min` from the alert, 15 min default); an HA restart resets it | A duplicate after a restart is acceptable. |
 | A failed send | Logged once per failure streak at `warning`, never raised, never retried in a loop; a day message that fails is **not** re-sent | A Telegram outage must not break a cycle or a command; a morning message at noon is worse than none. |
 | Token in logs | Never: errors are logged with the status and Telegram's `description`, not the URL | The token gives full control of the bot. |
@@ -179,7 +179,7 @@ The events, each **once a day**, in this order:
 |---|---|
 | `morning` | No miner was mining this day yet, and one now is (`is_mining`). |
 | `all_max` | Every available miner mines at the **top configured power step**, none is settling (`Settling` absent or `done`), and each hottest chip is within the temperature band (target + tolerance). Seen on two polls in a row, so a passing reading doesn't count. |
-| `step_down` | After `all_max`: a miner's limit is lower than in the previous poll, or it stopped. |
+| `step_down` | After `all_max`: a miner's limit is lower than when last read, or it stopped: not mining for two polls and not restarting after a limit change (a restart reads as a stop for a minute or two). |
 | `evening` | After `morning`: no miner mines, and it is sunset (`transition.sunset`) or the sun is below the horizon. |
 
 Energy, each poll, over the time since the last poll (gaps over 5 min are not filled in):
