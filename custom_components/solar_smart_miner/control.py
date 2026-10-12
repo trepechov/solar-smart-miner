@@ -20,7 +20,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 import voluptuous as vol
-from homeassistant.components.persistent_notification import async_create as pn_create
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -32,11 +31,11 @@ from .const import (
     CONTROL_MODE_AUTO,
     CONTROL_MODE_MANUAL,
     DEFAULT_RAMP_LOCK_MINUTES,
-    DOMAIN,
     RAMP_DONE_FRACTION,
     RAMP_MIN_MINUTES,
 )
 from .decision import _describe_plan, _ladder
+from .notify import Notifier
 from .protocols import (
     ACTION_HOLD,
     ACTION_SET_LIMIT,
@@ -48,6 +47,8 @@ from .protocols import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+APPLY_FAILED_COOLDOWN_MIN = 15  # one Telegram push per miner per quarter hour
 
 TRIGGER_MANUAL = "manual"
 TRIGGER_AUTO = "auto"
@@ -178,8 +179,10 @@ class MinerController:
         on_limit_applied: Callable[[str, float], None] | None = None,
         on_event: Callable[[CommandEvent], Awaitable[None]] | None = None,
         get_ramp_lock_minutes: Callable[[], float] = lambda: DEFAULT_RAMP_LOCK_MINUTES,
+        notifier: Notifier | None = None,
     ) -> None:
         self._hass = hass
+        self._notifier = notifier or Notifier(hass)
         self._get_mode = get_mode
         self._on_limit_applied = on_limit_applied
         self._on_event = on_event
@@ -473,12 +476,14 @@ class MinerController:
 
     def _notify_failure(self, pending: PendingCommand, reason: str) -> None:
         """control.apply-failed: one notification per miner, replaced rather than stacked."""
-        pn_create(
-            self._hass,
+        self._notifier.notify(
+            f"apply_failed_{pending.miner_id.replace('.', '_')}",
+            "Solar Smart Miner: a command didn't take",
             f"{pending.miner_name}: the command ({_describe_plan(pending.plan)}) didn't take: {reason}.\n\n"
             "Check the miner and the Solar Smart Miner action log.",
-            title="Solar Smart Miner: a command didn't take",
-            notification_id=f"{DOMAIN}_apply_failed_{pending.miner_id.replace('.', '_')}",
+            severity="critical",
+            push=True,
+            cooldown_min=APPLY_FAILED_COOLDOWN_MIN,
         )
 
     async def _emit(

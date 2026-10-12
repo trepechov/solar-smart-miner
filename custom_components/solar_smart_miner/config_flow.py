@@ -75,6 +75,12 @@ from .const import (
     control_mode_of,
 )
 from .decision import min_import_range_w
+from .notify import (
+    CONF_TELEGRAM_CHAT_ID,
+    CONF_TELEGRAM_TOKEN,
+    CONNECTED_TEXT,
+    async_send_telegram,
+)
 
 CONF_SOLAR_ENTITY = "solar_production_entity"
 CONF_SOLAR_ENTITY_TYPE = "solar_entity_type"
@@ -108,8 +114,6 @@ CONF_HOLD_DOWN = "hold_down_minutes"  # a miner Safety or Limits brought down st
 CONF_TRANSITION_STEPS = "transition_steps"  # power steps per change during sunrise / sunset
 CONF_PROFILE = "profile"
 CONF_POLLING_INTERVAL = "polling_interval"
-CONF_TELEGRAM_TOKEN = "telegram_bot_token"
-CONF_TELEGRAM_CHAT_ID = "telegram_chat_id"
 CONF_AI_ENABLED = "ai_enabled"
 CONF_AI_INTERVAL = "ai_interval"
 CONF_POWER_STEPS = "power_steps"  # list[int] in options; typed as "900, 1100, 1300, 1500"
@@ -266,6 +270,23 @@ def _sensors_schema(current: dict[str, Any]) -> vol.Schema:
                 )
                 for key in REFERENCE_ENTITY_KEYS
             },
+        }
+    )
+
+
+def _telegram_schema(options: dict[str, Any]) -> vol.Schema:
+    # Suggested, not defaulted: a blank field is stored as None, and None as a default
+    # fails the text selector, so the form could never be saved again.
+    return vol.Schema(
+        {
+            vol.Optional(
+                CONF_TELEGRAM_TOKEN,
+                description={"suggested_value": options.get(CONF_TELEGRAM_TOKEN)},
+            ): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+            vol.Optional(
+                CONF_TELEGRAM_CHAT_ID,
+                description={"suggested_value": options.get(CONF_TELEGRAM_CHAT_ID)},
+            ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT)),
         }
     )
 
@@ -469,15 +490,6 @@ def _options_schema(options: dict) -> vol.Schema:
                 min=10, max=600, step=5, unit_of_measurement="s", mode=NumberSelectorMode.BOX
             )
         ),
-        # Suggested, not defaulted: a blank field is stored as None, and None as a default
-        # fails the text selector, so the form could never be saved again.
-        vol.Optional(
-            CONF_TELEGRAM_TOKEN, description={"suggested_value": options.get(CONF_TELEGRAM_TOKEN)}
-        ): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
-        vol.Optional(
-            CONF_TELEGRAM_CHAT_ID,
-            description={"suggested_value": options.get(CONF_TELEGRAM_CHAT_ID)},
-        ): TextSelector(TextSelectorConfig(type=TextSelectorType.TEXT)),
         vol.Optional(
             CONF_MOCK_SOLAR_ENABLED,
             default=options.get(CONF_MOCK_SOLAR_ENABLED, False),
@@ -602,7 +614,9 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         return self.async_show_menu(
             step_id="init",
-            menu_options=["edit_sensors", "edit_miners", "edit_farm", "edit_ai", "edit_settings"],
+            menu_options=[
+                "edit_sensors", "edit_miners", "edit_farm", "edit_ai", "edit_telegram", "edit_settings"
+            ],
         )
 
     async def async_step_edit_settings(
@@ -642,11 +656,6 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
             )
             self._pending_options.pop("temp_ceiling", None)  # replaced by target + tolerance
             self._pending_options.pop("dry_run", None)  # replaced by the control mode
-            token = (user_input.get(CONF_TELEGRAM_TOKEN) or "").strip()
-            chat_id = (user_input.get(CONF_TELEGRAM_CHAT_ID) or "").strip()
-            self._pending_options[CONF_TELEGRAM_TOKEN] = token if token else None
-            self._pending_options[CONF_TELEGRAM_CHAT_ID] = chat_id if chat_id else None
-
             self._pending_options[CONF_MOCK_SOLAR_ENABLED] = user_input.get(
                 CONF_MOCK_SOLAR_ENABLED, False
             )
@@ -793,4 +802,39 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
         return self.async_show_form(
             step_id="edit_ai",
             data_schema=_ai_schema(data, self._config_entry.options, model_options),
+        )
+
+    async def async_step_edit_telegram(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Bot token and chat ID. A changed pair is checked with a test message before it is
+        saved; both blank turns Telegram off."""
+        errors: dict[str, str] = {}
+        placeholders = {"reason": ""}
+        if user_input is not None:
+            token = (user_input.get(CONF_TELEGRAM_TOKEN) or "").strip()
+            chat_id = (user_input.get(CONF_TELEGRAM_CHAT_ID) or "").strip()
+            changed = (token, chat_id) != (
+                (self._pending_options.get(CONF_TELEGRAM_TOKEN) or "").strip(),
+                (self._pending_options.get(CONF_TELEGRAM_CHAT_ID) or "").strip(),
+            )
+            if bool(token) != bool(chat_id):
+                errors["base"] = "telegram_incomplete"
+            elif token and changed:
+                reason = await async_send_telegram(
+                    async_get_clientsession(self.hass), token, chat_id, CONNECTED_TEXT
+                )
+                if reason is not None:
+                    errors["base"] = "telegram_failed"
+                    placeholders["reason"] = reason
+            if not errors:
+                self._pending_options[CONF_TELEGRAM_TOKEN] = token or None
+                self._pending_options[CONF_TELEGRAM_CHAT_ID] = chat_id or None
+                return self.async_create_entry(data=self._pending_options)
+
+        return self.async_show_form(
+            step_id="edit_telegram",
+            data_schema=_telegram_schema(user_input if errors else self._pending_options),
+            errors=errors,
+            description_placeholders=placeholders,
         )

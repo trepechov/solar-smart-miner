@@ -111,7 +111,8 @@ An autouse fixture in `tests/conftest.py` fails any unmocked call to `api.telegr
 - if `persistent`, creates or replaces the persistent notification `f"{DOMAIN}_{key}"` (today's behaviour)
 - if `push` and Telegram is configured and the key is not in its cooldown, schedules the send as a
   background task (`hass.async_create_background_task`), so callers never wait on the network
-- `dismiss(key)` removes the persistent notification and clears the cooldown
+- `dismiss(key)` removes the persistent notification; the cooldown stays, so an event that comes and goes
+  is pushed once per cooldown (review, 2026-10-12). A push that didn't go out doesn't use the cooldown
 
 Route the existing calls through it:
 

@@ -126,7 +126,8 @@ alerts:
       and shouldn't keep miners at full power forever. Since 0.8.0 (owner, 2026-10-09) there is no
       blind step-down: after a 5-minute grace the rules decide on an estimated import, only
       downwards (rule.required-inputs). Raised as a persistent notification at 10 minutes and
-      dismissed when the meter reads again; pushed to Telegram once that channel exists.
+      dismissed when the meter reads again; pushed to Telegram when it is configured
+      (since 2026-10-12), at most once per cooldown.
 
   - id: sensor.inverter-fault
     title: An inverter is not in a normal state in daylight
@@ -319,7 +320,8 @@ alerts:
       Raised by the command executor (control.py) when an applied command fails or isn't seen in
       time (300 s for a relay start, the miner has to boot). Since 2026-10-09 (S11) also when the
       entity echoes the value but the miner doesn't act within the ramp lock plus 60 s. Freezing automatic applying comes with
-      automatic mode; today it is a notification per miner.
+      automatic mode; today it is a notification per miner, also pushed to Telegram when it is
+      configured (since 2026-10-12, at most once per miner per cooldown).
 
   - id: control.schedule-conflict
     title: The schedule automation is still on
@@ -354,6 +356,24 @@ alerts:
     resolves_when: Import is back inside the band.
     related: [rule.ramp-lock, rule.no-step-up-while-tuning]
     note: A watchdog on the hold rules themselves (a tuning flag or ramp lock that never clears).
+
+  - id: control.rules-failed
+    title: The decision rules failed
+    severity: critical
+    category: control
+    condition: Building the decision raised an error, so every miner holds as it is, safety included.
+    normal: Every cycle builds a decision.
+    not_alert: []
+    thresholds: {}
+    action: hold
+    acts: human
+    notify: [log, dashboard, push]
+    cooldown_min: 60
+    resolves_when: A cycle builds a decision again.
+    related: [rule.required-inputs]
+    note: >
+      A persistent notification, dismissed when a decision works again, and a Telegram push when
+      it is configured (since 2026-10-12). One push per cooldown, however often it fails again.
 
   # ---- ai -------------------------------------------------------------------
   - id: ai.provider-failing

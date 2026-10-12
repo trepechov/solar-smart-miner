@@ -24,6 +24,7 @@ from custom_components.solar_smart_miner.control import (
     CommandEvent,
     MinerController,
 )
+from custom_components.solar_smart_miner.notify import Notifier
 from custom_components.solar_smart_miner.protocols import (
     ACTION_HOLD,
     ACTION_SET_LIMIT,
@@ -65,7 +66,7 @@ def _start(method: str = STOP_METHOD_PAUSE, entity: str = SWITCH, limit_w: float
 class Harness:
     """A controller with recorded events, tuning marks and fake number / switch services."""
 
-    def __init__(self, hass, mode: str = CONTROL_MODE_MANUAL) -> None:
+    def __init__(self, hass, mode: str = CONTROL_MODE_MANUAL, notifier=None) -> None:
         self.hass = hass
         self.mode = mode
         self.events: list[CommandEvent] = []
@@ -75,6 +76,7 @@ class Harness:
             get_mode=lambda: self.mode,
             on_limit_applied=lambda mid, w: self.marked.append((mid, w)),
             on_event=self._record,
+            notifier=notifier,
         )
         self.number_calls = async_mock_service(hass, "number", "set_value")
         self.on_calls = async_mock_service(hass, "switch", "turn_on")
@@ -374,6 +376,30 @@ async def test_an_echoed_limit_alone_is_not_ok(h, clock, hass) -> None:
     assert h.statuses == [RESULT_PENDING, RESULT_FAILED]
     assert "never came back mining" in h.events[-1].reason
     assert "solar_smart_miner_apply_failed_192_168_1_10" in hass.data["persistent_notification"]
+
+
+async def test_a_command_that_didnt_take_is_pushed_to_telegram(hass, clock, mock_telegram) -> None:
+    """control.apply-failed is critical: with Telegram set up it is pushed, not only shown."""
+    options = {"telegram_bot_token": "1:T", "telegram_chat_id": "42"}
+    hass.states.async_set(NUMBER, "1100")
+    hass.states.async_set(SWITCH, "on")
+    h = Harness(hass, notifier=Notifier(hass, lambda: options))
+    await h.apply(_set_limit(1300.0))
+    h.hass.states.async_set(NUMBER, "1300.0")
+    unchanged = _seen(power_limit_w=1300.0, power_w=1100.0, hashrate_th=50.0)
+
+    await h.controller.async_check_pending(unchanged)
+    clock[0] += APPLY_VERIFY_GRACE_S + 1
+    await h.controller.async_check_pending(unchanged)
+    clock[0] += 4 * 60
+    await h.controller.async_check_pending(unchanged)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert h.statuses == [RESULT_PENDING, RESULT_FAILED]
+    mock_telegram.assert_awaited_once()
+    text = mock_telegram.await_args.args[3]
+    assert text.startswith("🔴 Solar Smart Miner: a command didn't take")
+    assert "never came back mining" in text
 
 
 async def test_a_miner_that_restarted_but_still_settles_is_ok_at_the_deadline(h, clock) -> None:

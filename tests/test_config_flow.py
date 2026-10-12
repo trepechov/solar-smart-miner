@@ -278,6 +278,7 @@ async def _get_options_flow_result(
     options_input: dict | None = None,
     sensors_input: dict | None = None,
     ai_input: dict | None = None,
+    telegram_input: dict | None = None,
 ) -> dict:
     """Drive the OptionsFlow through the menu and return the final result.
 
@@ -293,6 +294,8 @@ async def _get_options_flow_result(
         step_id, user_input = "edit_sensors", sensors_input
     elif ai_input is not None:
         step_id, user_input = "edit_ai", ai_input
+    elif telegram_input is not None:
+        step_id, user_input = "edit_telegram", telegram_input
     else:
         step_id, user_input = "edit_settings", options_input
     result = await hass.config_entries.options.async_configure(
@@ -474,9 +477,112 @@ async def test_options_flow_accepts_one_second_polling(hass: HomeAssistant) -> N
     assert result["data"][CONF_POLLING_INTERVAL] == 1
 
 
-async def test_options_flow_telegram_credentials_stored(hass: HomeAssistant) -> None:
-    """Happy path: Telegram credentials provided → stored in options."""
+def _entry_with_telegram(hass: HomeAssistant, token: str | None, chat_id: str | None) -> MockConfigEntry:
     entry = _make_entry(hass)
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "telegram_bot_token": token, "telegram_chat_id": chat_id}
+    )
+    return entry
+
+
+async def test_options_menu_has_a_telegram_tab(hass: HomeAssistant) -> None:
+    entry = _make_entry(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert "edit_telegram" in result["menu_options"]
+
+
+async def test_settings_form_has_no_telegram_fields(hass: HomeAssistant) -> None:
+    entry = _make_entry(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    form = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "edit_settings"}
+    )
+    assert not {"telegram_bot_token", "telegram_chat_id"} & {str(k) for k in form["data_schema"].schema}
+
+
+async def test_telegram_tab_shows_the_saved_values(hass: HomeAssistant) -> None:
+    entry = _entry_with_telegram(hass, "1:T", "42")
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    form = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "edit_telegram"}
+    )
+    suggested = {
+        str(k): k.description["suggested_value"] for k in form["data_schema"].schema
+    }
+    assert suggested == {"telegram_bot_token": "1:T", "telegram_chat_id": "42"}
+
+
+async def test_telegram_new_pair_is_checked_with_a_test_message_and_saved(
+    hass: HomeAssistant, mock_telegram
+) -> None:
+    entry = _make_entry(hass)
+
+    result = await _get_options_flow_result(
+        hass, entry, telegram_input={"telegram_bot_token": " 1:T ", "telegram_chat_id": "-100123"}
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["telegram_bot_token"] == "1:T"
+    assert result["data"]["telegram_chat_id"] == "-100123"
+    assert result["data"][CONF_TEMP_TARGET] == DEFAULT_TEMP_TARGET  # other options kept
+    mock_telegram.assert_awaited_once()
+    _, token, chat, text = mock_telegram.await_args.args
+    assert (token, chat) == ("1:T", "-100123")
+    assert "connected" in text
+
+
+async def test_telegram_failed_test_message_keeps_the_old_values(
+    hass: HomeAssistant, mock_telegram
+) -> None:
+    mock_telegram.return_value = "HTTP 401: Unauthorized"
+    entry = _entry_with_telegram(hass, "1:OLD", "42")
+
+    result = await _get_options_flow_result(
+        hass, entry, telegram_input={"telegram_bot_token": "1:BAD", "telegram_chat_id": "42"}
+    )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"] == {"base": "telegram_failed"}
+    assert result["description_placeholders"]["reason"] == "HTTP 401: Unauthorized"
+    assert entry.options["telegram_bot_token"] == "1:OLD"
+
+
+async def test_telegram_unchanged_pair_sends_nothing(hass: HomeAssistant, mock_telegram) -> None:
+    entry = _entry_with_telegram(hass, "1:T", "42")
+
+    result = await _get_options_flow_result(
+        hass, entry, telegram_input={"telegram_bot_token": "1:T", "telegram_chat_id": "42"}
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    mock_telegram.assert_not_awaited()
+
+
+async def test_telegram_one_field_alone_is_an_error(hass: HomeAssistant, mock_telegram) -> None:
+    entry = _make_entry(hass)
+
+    result = await _get_options_flow_result(hass, entry, telegram_input={"telegram_bot_token": "1:T"})
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"] == {"base": "telegram_incomplete"}
+    mock_telegram.assert_not_awaited()
+
+
+async def test_telegram_both_blank_turns_it_off(hass: HomeAssistant, mock_telegram) -> None:
+    entry = _entry_with_telegram(hass, "1:T", "42")
+
+    result = await _get_options_flow_result(
+        hass, entry, telegram_input={"telegram_bot_token": "", "telegram_chat_id": ""}
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["telegram_bot_token"] is None
+    assert result["data"]["telegram_chat_id"] is None
+    mock_telegram.assert_not_awaited()
+
+
+async def test_saving_settings_keeps_the_telegram_values(hass: HomeAssistant, mock_telegram) -> None:
+    entry = _entry_with_telegram(hass, "1:T", "42")
 
     result = await _get_options_flow_result(
         hass,
@@ -487,40 +593,17 @@ async def test_options_flow_telegram_credentials_stored(hass: HomeAssistant) -> 
             CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
             CONF_TEMP_TOLERANCE: DEFAULT_TEMP_TOLERANCE,
             CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
-            "telegram_bot_token": "bot123:ABC",
-            "telegram_chat_id": "-100123456",
         },
     )
+
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert result["data"]["telegram_bot_token"] == "bot123:ABC"
-    assert result["data"]["telegram_chat_id"] == "-100123456"
-
-
-async def test_options_flow_telegram_blank_stored_as_none(hass: HomeAssistant) -> None:
-    """Edge case: empty Telegram fields → stored as None, not empty string."""
-    entry = _make_entry(hass)
-
-    result = await _get_options_flow_result(
-        hass,
-        entry,
-        options_input={
-            CONF_CONTROL_MODE: "manual",
-            CONF_POLLING_INTERVAL: DEFAULT_POLLING_INTERVAL,
-            CONF_TEMP_TARGET: DEFAULT_TEMP_TARGET,
-            CONF_TEMP_TOLERANCE: DEFAULT_TEMP_TOLERANCE,
-            CONF_BATTERY_FLOOR: DEFAULT_BATTERY_FLOOR,
-            "telegram_bot_token": "",
-            "telegram_chat_id": "",
-        },
-    )
-    assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert result["data"].get("telegram_bot_token") is None
-    assert result["data"].get("telegram_chat_id") is None
+    assert (result["data"]["telegram_bot_token"], result["data"]["telegram_chat_id"]) == ("1:T", "42")
+    mock_telegram.assert_not_awaited()
 
 
 async def test_options_flow_saves_again_after_telegram_was_left_blank(hass: HomeAssistant) -> None:
-    """Regression: blank Telegram fields are stored as None; None must not become the
-    field default, or the text selector rejects it and the form can't be saved."""
+    """Regression: blank Telegram values are stored as None. Saving Settings (which no longer
+    shows them) keeps them as they are."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         data=dict(_make_entry(hass).data),

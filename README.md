@@ -47,15 +47,16 @@ defaults come from the reference farm it was built on.
   **Apply proposal**; in Automatic the proposal is applied every cycle, one miner at a time
 - **AI advisor** on any OpenRouter model, free ones included; advisory only
 - **Logs you can replay:** every command, decision and AI request is written to JSONL files
-- **Telegram:** planned ([plan](docs/plans/2026-10-09-002-feat-telegram-notifications-plan.md))
+- **Telegram:** a command that didn't take, or rules that failed, is also pushed to your Telegram chat
+  (day reports are next: [plan](docs/plans/2026-10-09-002-feat-telegram-notifications-plan.md))
 
 ## Requirements
 
 - Home Assistant (current stable release)
 - [hass-miner](https://github.com/Schnitzel/hass-miner) with at least one miner whose power limit it can set
 - A solar production sensor or a net grid meter from any HA integration
-- Optional: an [OpenRouter](https://openrouter.ai) API key, a battery SOC sensor, a voltage sensor, solar
-  forecast sensors
+- Optional: an [OpenRouter](https://openrouter.ai) API key, a Telegram bot, a battery SOC sensor, a voltage
+  sensor, solar forecast sensors
 
 ## Installation
 
@@ -79,6 +80,7 @@ Saving reloads the integration.
 | **Miner stop method** | Per miner: the relay that cuts it off (empty = the miner's own pause switch) |
 | **Farm** | Inverters, export to the grid, battery, PV array, cooling, miner model and firmware, the miners' own temperature cutoff, the house load besides the miners, schedule automations, notes |
 | **AI (OpenRouter)** | On / off, API key, model, seconds between requests |
+| **Telegram** | Bot token and chat ID; saving sends a test message (see below) |
 | **Settings** | Power steps, import range, step-down delays, temperature target and tolerance, low-voltage limit, battery floor, polling interval, control mode |
 
 ### Your farm's data
@@ -91,6 +93,15 @@ updates:
 - **`<HA config>/solar_smart_miner/farm.yaml`:** your measurements and notes for the AI, in the knowledge
   base format ([knowledge/README.md](custom_components/solar_smart_miner/knowledge/README.md)), P3 only, ids
   starting with `farm.`. It is created with an example header. A broken entry is logged and skipped.
+
+### Telegram
+
+1. In Telegram, message **@BotFather**, send `/newbot`, and copy the token it gives you.
+2. Open your new bot and press **Start** (a bot can't write to you before that).
+3. Get your chat ID from **@userinfobot**. For a group, add the bot to it and use the group's ID (it starts
+   with `-`).
+4. **Configure → Telegram**: paste both and save. A test message arrives in the chat; if it doesn't, the
+   form says why and nothing is saved. Clear both fields to turn Telegram off.
 
 ## How it decides
 
@@ -186,7 +197,7 @@ python -m pytest tests/
 
 ## Roadmap
 
-- Telegram reports and alerts
+- Telegram day reports and alerts
 - Battery profiles
 - Event-triggered decisions instead of polling
 - Grid electricity price

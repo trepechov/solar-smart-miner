@@ -1481,7 +1481,9 @@ async def test_a_meter_gap_freezes_the_step_down_clock_instead_of_restarting_it(
         assert coordinator._minutes_import_high(650.0, 400.0, None) == pytest.approx(4)
 
 
-async def test_a_lost_meter_holds_then_estimates_and_raises_the_alert(hass, add_hass_miner, monkeypatch) -> None:
+async def test_a_lost_meter_holds_then_estimates_and_raises_the_alert(
+    hass, add_hass_miner, monkeypatch, mock_telegram
+) -> None:
     import time as time_module
 
     from custom_components.solar_smart_miner.config_flow import CONF_PV_ENTITY, CONF_SOLAR_ENTITY_TYPE
@@ -1497,7 +1499,7 @@ async def test_a_lost_meter_holds_then_estimates_and_raises_the_alert(hass, add_
         domain=DOMAIN,
         data={CONF_SOLAR_ENTITY: SOLAR_ENTITY, CONF_SOLAR_ENTITY_TYPE: SOLAR_ENTITY_TYPE_NET_EXPORT,
               CONF_GRID_ENTITY: None, CONF_BATTERY_ENTITY: None, CONF_PV_ENTITY: "sensor.pv"},
-        options={"farm_base_load": 500},
+        options={"farm_base_load": 500, "telegram_bot_token": "1:T", "telegram_chat_id": "42"},
     )
     entry.add_to_hass(hass)
     coordinator = SolarMinerCoordinator(hass, entry)
@@ -1515,8 +1517,9 @@ async def test_a_lost_meter_holds_then_estimates_and_raises_the_alert(hass, add_
 
     now[0] += 5 * 60
     decision = (await coordinator._async_update_data()).decision
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert "solar_smart_miner_meter_lost" in hass.data["persistent_notification"]
+    assert mock_telegram.await_args.args[3].startswith("⚠️ Solar Smart Miner: grid meter lost")
     assert list(decision.proposals.values()) == [1100.0]  # the estimate's shortfall, after the delay
 
     hass.states.async_set(SOLAR_ENTITY, "-300")
@@ -1777,6 +1780,43 @@ async def test_the_owner_is_told_when_the_rules_fail_and_when_they_work_again(
     await coordinator._async_update_data()
     await hass.async_block_till_done()
     assert "solar_smart_miner_rules_failed" not in hass.data["persistent_notification"]
+
+
+async def test_rules_that_fail_again_and_again_are_pushed_once_per_cooldown(
+    hass, add_hass_miner, monkeypatch, mock_telegram
+) -> None:
+    import time as time_module
+
+    from custom_components.solar_smart_miner.decision import limits
+
+    now = [1000.0]
+    monkeypatch.setattr(time_module, "monotonic", lambda: now[0])
+    add_hass_miner(MINER_IP, limit="1500", power="1500", temperature="55",
+                   limit_attrs={"min": 500.0, "max": 3500.0})
+    entry = _make_entry(hass)
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "telegram_bot_token": "1:T", "telegram_chat_id": "42"}
+    )
+    coordinator = SolarMinerCoordinator(hass, entry)
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    check = limits.check
+
+    for minutes in (0, 10, 59):  # fail, recover, fail again: inside the hour
+        now[0] = 1000.0 + minutes * 60
+        monkeypatch.setattr(limits, "check", lambda ctx: 1 / 0)
+        await coordinator._async_update_data()
+        monkeypatch.setattr(limits, "check", check)
+        await coordinator._async_update_data()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert mock_telegram.await_count == 1
+    assert mock_telegram.await_args.args[3].startswith("🔴 Solar Smart Miner: the rules failed")
+
+    now[0] = 1000.0 + 61 * 60  # past the cooldown
+    monkeypatch.setattr(limits, "check", lambda ctx: 1 / 0)
+    await coordinator._async_update_data()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert mock_telegram.await_count == 2
 
 
 async def test_a_bad_farm_file_never_stops_loading_the_knowledge(hass) -> None:

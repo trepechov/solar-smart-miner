@@ -13,8 +13,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import yaml
-from homeassistant.components.persistent_notification import async_create as pn_create
-from homeassistant.components.persistent_notification import async_dismiss as pn_dismiss
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
@@ -27,6 +25,7 @@ from homeassistant.util import dt as dt_util
 from .action_log import ActionLog
 from .ai import async_ask, build_messages
 from .ai_log import AiLog, build_record, complete_record
+from .notify import Notifier
 from .config_flow import (
     CONF_AI_ENABLED,
     CONF_AI_INTERVAL,
@@ -134,6 +133,9 @@ from .protocols import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+RULES_FAILED_COOLDOWN_MIN = 60  # at most one push an hour, however often the rules fail again
+METER_LOST_COOLDOWN_MIN = 60  # alerts.yaml sensor.meter-lost
 
 # hass-miner unique_id suffixes (unique_id = "<mac>-<key>"). Board-level entities
 # use "<mac>-<n>-board_..." and so never match these.
@@ -270,8 +272,10 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         self._building: CoordinatorSnapshot | None = None  # the snapshot of the cycle being worked out
         # miner id -> (plan fingerprint, reason) of the last automatic refusal, so it isn't repeated
         self._auto_refused: dict[str, tuple[str, str]] = {}
+        self.notifier = Notifier(hass, lambda: self._entry.options)
         self.controller = MinerController(
             hass,
+            notifier=self.notifier,
             get_mode=lambda: self.control_mode,
             on_limit_applied=self._mark_limit_changed,
             on_event=self._async_record_action,
@@ -554,7 +558,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         now = time.monotonic()
         if energy.grid_net_w is not None:
             if self._meter_alerted:
-                pn_dismiss(self.hass, f"{DOMAIN}_meter_lost")
+                self.notifier.dismiss("meter_lost")
                 self._meter_alerted = False
             self._grid_unknown_since = None
             self._estimate_used = False
@@ -564,8 +568,9 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         lost = (now - self._grid_unknown_since) / 60
         if lost >= METER_LOST_ALERT_MIN and not self._meter_alerted:
             self._meter_alerted = True
-            pn_create(
-                self.hass,
+            self.notifier.notify(
+                "meter_lost",
+                "Solar Smart Miner: grid meter lost",
                 f"The grid meter has read nothing for {lost:.0f} minutes. "
                 + (
                     "The import is estimated from the miners' draw, the house load and the actual "
@@ -575,8 +580,9 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                     "(Configure → Farm) and an actual PV sensor (Configure → Sensors)."
                 )
                 + " Check the meter and its connection.",
-                title="Solar Smart Miner: grid meter lost",
-                notification_id=f"{DOMAIN}_meter_lost",
+                severity="warning",
+                push=True,
+                cooldown_min=METER_LOST_COOLDOWN_MIN,
             )
         return lost
 
@@ -629,15 +635,17 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         take it back once a decision works again."""
         failed = decision.summary == HOLD_ALL_SUMMARY
         if failed and not self._rules_failed:
-            pn_create(
-                self.hass,
+            self.notifier.notify(
+                "rules_failed",
+                "Solar Smart Miner: the rules failed",
                 "The decision rules failed, so every miner holds as it is (safety included). "
                 "The Home Assistant log has the error; the decision log card shows it too.",
-                title="Solar Smart Miner: the rules failed",
-                notification_id=f"{DOMAIN}_rules_failed",
+                severity="critical",
+                push=True,
+                cooldown_min=RULES_FAILED_COOLDOWN_MIN,
             )
         elif not failed and self._rules_failed:
-            pn_dismiss(self.hass, f"{DOMAIN}_rules_failed")
+            self.notifier.dismiss("rules_failed")
         self._rules_failed = failed
 
     async def async_seed_transition(self) -> None:
@@ -781,11 +789,8 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         return data is not None and any(self.can_apply(m.miner_id) for m in data.miners)
 
     def _notify_changed(self, notification_id: str, message: str, title: str | None = None) -> None:
-        pn_create(
-            self.hass,
-            message,
-            title=title or "Solar Smart Miner: the proposal changed",
-            notification_id=f"{DOMAIN}_{notification_id}",
+        self.notifier.notify(
+            notification_id, title or "Solar Smart Miner: the proposal changed", message
         )
 
     async def _async_refresh_for_apply(self) -> str | None:

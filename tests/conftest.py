@@ -51,6 +51,22 @@ def mock_openrouter():
 
 
 @pytest.fixture(autouse=True)
+def mock_telegram():
+    """Never hit Telegram: every send (pushes and the options form's test message) succeeds.
+
+    Tests that care about what was sent assert on this mock or set its return value (a
+    reason string means the send failed). test_notify.py tests the real sender on aioclient_mock.
+    """
+    send = AsyncMock(return_value=None)
+    with (
+        patch("custom_components.solar_smart_miner.notify.async_send_telegram", send),
+        patch("custom_components.solar_smart_miner.config_flow.async_send_telegram", send),
+        patch("custom_components.solar_smart_miner.notify.async_get_clientsession"),
+    ):
+        yield send
+
+
+@pytest.fixture(autouse=True)
 def mock_openrouter_models():
     """The options form lists OpenRouter's free models; serve a fixed list offline."""
     with (

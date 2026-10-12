@@ -53,6 +53,7 @@
           "edit_miners": "Miner stop method",
           "edit_farm": "Farm",
           "edit_ai": "AI (OpenRouter)",
+          "edit_telegram": "Telegram",
           "edit_settings": "Settings"
         },
         "description": "Miners are picked up automatically from hass-miner. Saving any section reloads the integration — no restart required."
@@ -72,8 +73,6 @@
           "morning_step_down_delay_minutes": "Step-down delay during sunrise (Solar-follow)",
           "hold_down_minutes": "Hold-down after a forced step down",
           "transition_steps": "Power steps per change during sunrise and sunset",
-          "telegram_bot_token": "Telegram bot token (optional)",
-          "telegram_chat_id": "Telegram chat ID (optional)",
           "mock_solar_enabled": "Use Forecast.Solar as mock solar data (development only)",
           "mock_solar_entity": "Forecast.Solar power sensor (mock source)",
           "mock_consumption_enabled": "Use total miner power as mock grid consumption (development only)",
@@ -160,13 +159,27 @@
           "miner": "Miner",
           "relay_entity": "Relay switch (optional)"
         }
+      },
+      "edit_telegram": {
+        "title": "Solar Smart Miner — Telegram",
+        "description": "Messages from the farm go to one Telegram chat. 1) In Telegram, message @BotFather, send /newbot and copy the token it gives you. 2) Open your new bot and press Start (a bot can't write to you before that). 3) Get your chat ID from @userinfobot, or for a group, add the bot to the group and send a message there (a group's ID starts with -). Saving sends a test message; nothing is saved if it doesn't arrive. Clear both fields to turn Telegram off.",
+        "data": {
+          "telegram_bot_token": "Bot token",
+          "telegram_chat_id": "Chat ID"
+        },
+        "data_description": {
+          "telegram_bot_token": "Stored hidden. It gives full control of the bot: don't share it.",
+          "telegram_chat_id": "Your user ID, or a group's (negative) ID."
+        }
       }
     },
     "error": {
       "solar_entity_not_found": "Solar / grid power entity not found in Home Assistant. Check the entity ID.",
       "grid_entity_not_found": "House consumption entity not found in Home Assistant. Check the entity ID.",
       "invalid_import_range": "The maximum import must be at least one power step (the largest gap between the power steps) above the minimum, or a step up could land above it.",
-      "invalid_power_steps": "Enter whole watts between 100 and 10000, separated by commas, e.g. 900, 1100, 1300, 1500."
+      "invalid_power_steps": "Enter whole watts between 100 and 10000, separated by commas, e.g. 900, 1100, 1300, 1500.",
+      "telegram_incomplete": "Enter both the bot token and the chat ID, or clear both to turn Telegram off.",
+      "telegram_failed": "The test message didn't arrive ({reason}). Check the token, that you pressed Start in the bot, and the chat ID."
     }
   }
 }
