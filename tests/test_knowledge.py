@@ -391,15 +391,36 @@ def test_fewer_rules_than_before_the_audit() -> None:
 # --- the shipped base holds principles, not one farm ------------------------------------
 
 # Farm data (Configure -> Farm, <config>/solar_smart_miner/farm.yaml) is the user's; the shipped
-# statements must hold for any farm. Notes may keep the reference farm's figures.
+# base holds principles. No field of any entry (retired ones too: they ship) names a miner model,
+# firmware, site, miner or Home Assistant entity. Notes may keep the reference farm's figures,
+# with its miners as "miner 1, 2, 3" and its sensors as the setting that supplies them.
 FARM_SPECIFIC = re.compile(
-    r"\b(S9s?|Antminer|Braiins|Huawei|SUN2000|Brod\d?|Brodilovo)\b"
-    r"|\b(?:sensor|switch|number|automation)\.[a-z0-9_]+(?![-\w])"
+    r"\b(S9s?|Antminer|Braiins|Huawei|SUN2000|Brod\w*|Brodilovo)\b"
+    r"|\b(?i:sensor|switch|number|automation)\.(?i:[a-z0-9_]+)(?![-\w])"
+)
+SHIPPED = (
+    [(e["id"], e) for _, e in FACTS]
+    + [(a["id"], a) for a in ALERTS + NOT_ALERTS]
+    + [(s["id"], s) for s in SITUATIONS]
 )
 
 
-@pytest.mark.parametrize("item", [i for i in FACTS if i[1]["status"] != "retired"], ids=_label)
-def test_shipped_statements_name_no_farm_model_or_entity(item) -> None:
-    _, e = item
-    found = sorted({m.group(0) for m in FARM_SPECIFIC.finditer(" ".join(str(e["statement"]).split()))})
-    assert not found, f"{e['id']}: {found} belongs in the farm data or the note"
+def _text(entry: dict) -> str:
+    """Every field but the id, flattened (a signal's `uses` and `says` included)."""
+    return " ".join(str({k: v for k, v in entry.items() if k != "id"}).split())
+
+
+@pytest.mark.parametrize("item", SHIPPED, ids=lambda i: i[0])
+def test_the_shipped_base_names_no_farm_model_or_entity(item) -> None:
+    entry_id, entry = item
+    found = sorted({m.group(0) for m in FARM_SPECIFIC.finditer(_text(entry))})
+    assert not found, f"{entry_id}: {found} belongs in the farm data (tests/fixtures/reference_farm.yaml)"
+
+
+def test_the_farm_check_catches_what_it_should() -> None:
+    caught = "Brod1 at 1,500 W, sensor.brodN_hashrate, switch.miner_active, Braiins OS, three S9s"
+    assert {m.group(0) for m in FARM_SPECIFIC.finditer(caught)} == {
+        "Brod1", "sensor.brodN_hashrate", "switch.miner_active", "Braiins", "S9s"
+    }
+    # An alert id or a setting is not an entity.
+    assert not FARM_SPECIFIC.search("sensor.meter-lost, config.pv_power_entity, rule.temperature-is-braiins")

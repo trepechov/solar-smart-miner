@@ -3,7 +3,7 @@ entries:
   - id: site.location
     title: Where the site is
     statement: >
-      The site is in Brodilovo, Bulgaria (about 42.08 N, 27.86 E). Home Assistant runs in
+      The site's location comes from Home Assistant. Home Assistant runs in
       local time, UTC+3 in summer and UTC+2 in winter. In early October the first PV output
       appears around 07:00 and the sun is gone by about 18:20.
     priority: P3
@@ -18,9 +18,9 @@ entries:
   - id: site.inverters
     title: Three 5 kW inverters
     statement: >
-      Three Huawei SUN2000-5KTL-L1 inverters (Invertor 071, 981 and 928), 5 kW AC each,
+      Three inverters, 5 kW AC each,
       15 kW in total. Home Assistant has one active-power sensor per inverter and a
-      calculated sum, sensor.active_power_total.
+      calculated sum, config.pv_power_entity.
     priority: P3
     status: retired
     source: "measured: HA entities, 2026-10-05"
@@ -76,7 +76,7 @@ entries:
     tags: [always, grid]
     note: >
       Made a principle 2026-10-09 (the integration is for any farm). Reference farm, the
-      statement until then: sensor.power_meter_active_power is the grid meter in W.
+      statement until then: config.solar_production_entity is the grid meter in W.
       Negative means importing from the grid, positive means exporting. It sits close to 0
       while the inverters cover the load.
 
@@ -133,8 +133,8 @@ entries:
     title: How the solar forecast is set up
     statement: >
       Forecast.Solar runs as two entries, "East slope" (80 deg, 7.5 kWp) and "West slope"
-      (260 deg, 7.5 kWp). Two template sensors add them: sensor.solar_forecast_power_now and
-      sensor.solar_forecast_energy_left_today. The free API allows 12 calls an hour.
+      (260 deg, 7.5 kWp). Two template sensors add them: config.forecast_power_now_entity and
+      config.forecast_energy_remaining_entity. The free API allows 12 calls an hour.
     priority: P3
     status: retired
     source: "measured: HA config entries, 2026-10-05"
@@ -165,7 +165,7 @@ entries:
     title: Fixed-hour schedule still runs the miners
     statement: >
       Home Assistant automations pause and resume the miners at fixed hours: resume at
-      07:00, 07:05 and 07:10, pause at 19:00, 19:05 and 19:10 (Brod1, Brod2, Brod3). They are
+      07:00, 07:05 and 07:10, pause at 19:00, 19:05 and 19:10 (miner 1, miner 2, miner 3). They are
       to be switched off before the integration applies decisions automatically (rule.one-controller);
       with manual Apply they may still run, and the owner is warned.
     priority: P3

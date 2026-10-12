@@ -99,7 +99,7 @@ entries:
     date: "2026-10-09"
     tags: [always, temperature]
     note: >
-      The id is kept (ids are never reused). On the reference farm the cutoff is Braiins OS's, at
+      The id is kept (ids are never reused). On the reference farm the cutoff is the firmware's, at
       about 80 deg C; the statement was made generic on 2026-10-09 (the integration is for any
       farm).
 
@@ -141,8 +141,8 @@ entries:
       This answers the former open.go-live-evidence (requirements doc §9 point 8) by judgement,
       not by counts: two days of applying by hand were enough. Counting proposals applied,
       expired or reversed (plan S14) is still worth doing to tune the rules. Seen in the manual
-      phase: the 2026-10-07 sunset stop of Brod3 was proposed at 17:04 and pressed at 17:10, with
-      1.2 to 1.4 kW of import in between; Brod2's stop waited 3 minutes (17:28 to 17:31).
+      phase: the 2026-10-07 sunset stop of miner 3 was proposed at 17:04 and pressed at 17:10, with
+      1.2 to 1.4 kW of import in between; miner 2's stop waited 3 minutes (17:28 to 17:31).
 
   - id: rule.power-steps
     title: Move between fixed steps
@@ -157,7 +157,7 @@ entries:
     tags: [always, allocation]
     note: >
       The steps depend on the miner type and are a setting. The default is the reference farm's
-      ladder (S9s), 900 to 2,500 W in 200 W steps.
+      ladder, 900 to 2,500 W in 200 W steps.
       900 to 1,500 W was the first ladder (2026-10-05). Owner, 2026-10-07: up to 2,500 W is normal
       and every miner has run these steps; steps above 2,500 W are welcome later if the temperature
       limits (rule.temperature-band) are not hit.
@@ -177,7 +177,7 @@ entries:
       Tuning is an exception, not the normal cost of a change: it happens on a step a miner has
       never run (miner.revisit-is-a-restart). A change to a tuned step costs only the ramp lock
       and a short settle (the tuning time setting, 5 minutes by default). On the reference farm
-      (S9s, Braiins OS) a first tuning takes about 50 minutes. Owner, 2026-10-08: tuning is rare,
+      a first tuning takes about 50 minutes. Owner, 2026-10-08: tuning is rare,
       the miners have tuned profiles for every configured step, and an hour is far too long. On
       2026-10-08 a stored 60-minute setting let each miner step up only once an hour, so the
       farm lagged the rising sun until about 14:30 with the import near 0 W all midday.
@@ -289,17 +289,17 @@ entries:
     date: "2026-10-09"
     tags: [always, allocation]
     note: >
-      Seen 2026-10-07: the rules proposed Brod1 2,300 to 2,500 W, Brod2 and Brod3 2,100 to 2,500 W
+      Seen 2026-10-07: the rules proposed miner 1 2,300 to 2,500 W, miner 2 and miner 3 2,100 to 2,500 W
       in one proposal, three restarts for +1,000 W. In the code since 2026-10-07: a shortfall goes to
       the hungriest miner that can take all of it (rule.step-down-allocation), else the lowest-power
       one stops; spare power starts a stopped miner at its lowest step first, else raises the weakest
       running miner as far as it fits (rule.jump-several-steps). The AI prompt asks for one miner too.
       Seen again 2026-10-07 16:02 (local), on v0.7.0 which didn't have the rule yet: a 3.4 kW
-      shortfall gave one proposal of Brod1 and Brod2 2,300 to 1,300 W and Brod3 to 1,100 W. Applied
+      shortfall gave one proposal of miner 1 and miner 2 2,300 to 1,300 W and miner 3 to 1,100 W. Applied
       by hand, all three restarted in the same cycle: the miners' load fell from 6.95 kW to almost
       0, the inverters throttled to about 225 W each, and the next two decisions read the restarting
       miners as stopped (budget 234 W, "all stopped", then "start all at 1,900 W"). The same
-      readings on the rule's code propose pausing Brod3 only, Brod1 and Brod2 holding.
+      readings on the rule's code propose pausing miner 3 only, miner 1 and miner 2 holding.
       2026-10-09 (0.8.0): merges rule.minimise-restarts and rule.jump-several-steps. A
       step up is one step since the budget went (rule.small-import-target).
       Owner, 2026-10-10: during sunrise a step up moves the transition steps again, a fixed
@@ -333,7 +333,7 @@ entries:
     tags: [always, allocation]
     note: >
       The ramp time depends on the miner type and is to become a setting like the power steps
-      (owner, 2026-10-07). On the reference farm (S9s, Braiins OS) a miner is back in 3 to 4
+      (owner, 2026-10-07). On the reference farm a miner is back in 3 to 4
       minutes, so the lock is 4 minutes.
       In the code since 2026-10-07: every miner holds for 4 minutes after any change (a command
       sent, or a limit, stop or start seen on a miner) and while a command is still being checked.
@@ -350,7 +350,7 @@ entries:
       Since 0.8.0 it is the only wait after a change: it absorbs rule.no-step-up-while-tuning and
       rule.temperature-after-change (the tuning window measured the same settling).
       Without it (v0.7.0, 2026-10-07) a restarting miner reports nothing and is read as stopped:
-      right after Brod1 went to 2,100 W the rules proposed Brod2 up as if Brod1 drew 0 W, and after
+      right after miner 1 went to 2,100 W the rules proposed miner 2 up as if miner 1 drew 0 W, and after
       the 16:02 bundle they proposed starting all three at 1,900 W. Still open: a miner that is
       still unreadable after the 4 minutes counts as stopped again.
       Owner, 2026-10-07: a miner needs about 4 to 5 minutes to settle after a change, and changing
@@ -476,9 +476,9 @@ entries:
       the log, never rounded, so a later stage can apply and score the answer. Reasons
       gain ramping; the 0.7 words stop and start read as pause and resume; the prompt
       lists the recent commands. Before: Seen 2026-10-07 (mistralai/mistral-nemo): at
-      17:30 and 17:31 it said "reduce Brod2" while Brod2 was at 1,100 W and the rules said
+      17:30 and 17:31 it said "reduce miner 2" while miner 2 was at 1,100 W and the rules said
       stop, so the two can't be compared. Most reasons were "other", and at 17:02 it gave
-      temperature_limit for Brod1 at 40 deg C against a 60 deg C target. At 17:00 and
+      temperature_limit for miner 1 at 40 deg C against a 60 deg C target. At 17:00 and
       17:02 it changed all three miners, on v0.7.0 before rule.one-miner-per-change was in
       the knowledge base; from 17:04 it changed one at a time. A step per miner and a
       checked reason would make each answer comparable.
@@ -507,8 +507,8 @@ entries:
       2026-10-08: some import in the morning is acceptable, the sun will come, so no back-off
       after a start that imports. The smoothing window is still not in the code.
       Before (v0.7.1) it stepped down on one reading once the shortfall passed 150 W.
-      Seen 2026-10-07 at sunset: with import about 160 W above the target the plan went Brod1
-      1,300 to 1,100 W (17:21), to 900 W (17:22), then stop Brod2 (17:28), three different
+      Seen 2026-10-07 at sunset: with import about 160 W above the target the plan went miner 1
+      1,300 to 1,100 W (17:21), to 900 W (17:22), then stop miner 2 (17:28), three different
       plans in 7 minutes.
       2026-10-09 (0.8.0): merges rule.transitions-tolerant, rule.sunrise-fast and
       rule.smooth-inputs (input smoothing dropped by the owner, 2026-10-09: the step-down
@@ -538,8 +538,8 @@ entries:
       step is held there and only noted in the trace.
       Until 2026-10-10 the band followed hass-miner's miner-level temperature, the boards'
       average, by mistake (owner: the target and tolerance limit the chips). Reference farm,
-      2026-10-10 at 2,500 W: chips ran about 15 deg C above the boards (Brod3 board 66 deg C,
-      chip 82 deg C; Brod1 and Brod2 board 59 to 62, chip 75 to 77), so the band never acted.
+      2026-10-10 at 2,500 W: chips ran about 15 deg C above the boards (miner 3 board 66 deg C,
+      chip 82 deg C; miner 1 and miner 2 board 59 to 62, chip 75 to 77), so the band never acted.
       Reference farm, 2026-10-11 (0.8.1, target 70, tolerance 5): one top step moved the
       hottest chip about 5 to 6 deg C (2,300 W about 69 to 70, 2,500 W about 75 to 77), more
       than the 5 deg C band, so a settled miner was either free to step up or too warm. Owner,
@@ -738,10 +738,10 @@ entries:
       Reference farm, 0.8.1, 2026-10-11: a too-warm step down 2,500 to 2,300 W restarted the
       miner, its chips read 45 to 60 deg C when it mined again, the hold ended about 5 minutes
       after the command and the import raised it straight back to 2,500 W, where it hit the
-      step-down again. Brod3 11:22 to 12:47 and Brod1 12:52 to 15:05 local flip-flopped every
+      step-down again. Miner 3 11:22 to 12:47 and miner 1 12:52 to 15:05 local flip-flopped every
       about 12 minutes, about 37 of the day's 74 limit changes, each miner down about 7
       minutes in 12. The chips took about 12 minutes from the command to warm again
-      (Brod3 11:34 command, 45 deg C at 11:38, 74 deg C at 11:46). Now its own setting, the
+      (miner 3 11:34 command, 45 deg C at 11:38, 74 deg C at 11:46). Now its own setting, the
       hold-down time, default 15 minutes; same number of rules.
 
   - id: rule.resume-next-at-sunrise
@@ -758,7 +758,7 @@ entries:
     tags: [sunrise, allocation]
     note: >
       2026-10-08: with all miners paused the meter sat at 0 W from 07:45, the inverters reported
-      power limited from 07:50, and nothing started until Brod1 was started by hand at 09:54. With
+      power limited from 07:50, and nothing started until miner 1 was started by hand at 09:54. With
       zero export the budget never showed the 1,000 W a start needed. Since 2026-10-08 an import
       below the minimum starts the next stopped miner (rule.small-import-target).
       Retired 2026-10-09 (0.8.0, fewer rules): merged into rule.step-down-allocation.
@@ -853,7 +853,7 @@ entries:
     date: "2026-10-07"
     tags: [always, allocation]
     note: >
-      Measured 2026-10-06 (Brod1, Brod2, 1300 to 1500 W): both statements are true at different time scales.
+      Measured 2026-10-06 (miner 1, miner 2, 1300 to 1500 W): both statements are true at different time scales.
       The restart and the power ramp take about 4 minutes; the tuning to within 10% of final efficiency takes
       17 to 20 minutes and the probing dips end at about 46. Settled 2026-10-07 by the owner: the miners keep
       the settings from their first tuning at a wattage, so a change to a step tuned before costs only the
@@ -888,8 +888,8 @@ entries:
     note: >
       Settled 2026-10-07 by the owner: 900 to 2,500 W is the normal ladder and every miner has run
       it (rule.power-steps, miner.revisit-is-a-restart); the default steps are now the same. Seen
-      before that: 2026-10-07 used them: Brod1 2,100 W at 12:30 and 2,300 W at 13:20, Brod2 2,100 and 2,300 W,
-      Brod3 2,300 W at 14:48, with plans for 2,500 W all afternoon. Whether a miner had run these
+      before that: 2026-10-07 used them: miner 1 2,100 W at 12:30 and 2,300 W at 13:20, miner 2 2,100 and 2,300 W,
+      miner 3 2,300 W at 14:48, with plans for 2,500 W all afternoon. Whether a miner had run these
       steps before is not known from the logs. The code waits 5 minutes for tuning
       (DEFAULT_TUNING_SETTLE_MINUTES, 0 until 2026-10-08), so it treats every step as already tuned. Settle by the
       owner confirming the steps, and by checking the efficiency in the first hour after each

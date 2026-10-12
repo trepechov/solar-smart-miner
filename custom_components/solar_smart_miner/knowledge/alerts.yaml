@@ -44,7 +44,7 @@ not_alerts:
     related: [miner.hashrate-noise]
   - id: normal.hot-at-lowest-step
     what: A miner too hot even at its lowest step.
-    why: Decided not to be the plugin's job; the Braiins OS cutoff handles it. At most a line in the decision trace.
+    why: Decided not to be the plugin's job; the miner's own cutoff handles it. At most a line in the decision trace.
     related: [rule.temperature-is-braiins]
   - id: normal.single-ai-error
     what: One failed or slow AI request.
@@ -148,7 +148,7 @@ alerts:
     title: The PV sum keeps dropping out
     severity: info
     category: sensor
-    condition: sensor.active_power_total is unknown for most of an hour in daylight.
+    condition: config.pv_power_entity is unknown for most of an hour in daylight.
     normal: Occasional gaps of minutes in the evening.
     not_alert: [normal.brief-dropout]
     thresholds: {minutes_unknown_per_hour: 30}
@@ -273,7 +273,7 @@ alerts:
     severity: warning
     category: miner
     condition: The number of miners, or their names, differs from what the controller saw before.
-    normal: Brod1, Brod2 and Brod3, once each.
+    normal: miner 1, miner 2 and miner 3, once each.
     not_alert: []
     thresholds: {}
     action: hold

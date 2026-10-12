@@ -31,7 +31,7 @@ entries:
       miner settled when its efficiency stops improving over about 10 minutes and is near the value
       it had when last stable at that step. Needs the settled values per step to compare against.
       Made a principle 2026-10-09 (the integration is for any farm). Reference farm, the
-      statement until then: Is there a Braiins OS field (through its API or pyasic) that
+      statement until then: Is there a firmware field (through its API or pyasic) that
       says whether a miner is tuning or stable, so the controller doesn't have to guess
       from time since the last change?
 
@@ -181,8 +181,8 @@ entries:
     note: >
       Made a principle 2026-10-09 (the integration is for any farm). Reference farm, the
       statement until then: The miner facts (tuning time, ramp, efficient range, hashrate
-      band, "every change restarts") were measured on the reference farm's S9s with
-      Braiins OS but read as true for every miner. Should they carry a model or firmware
+      band, "every change restarts") were measured on the reference farm's miners and firmware
+      but read as true for every miner. Should they carry a model or firmware
       scope, so another model gets its own?
 
   - id: open.cooling-type

@@ -44,7 +44,7 @@ entries:
     note: >
       On 2026-10-07 from 12:00 to 14:30 the grid stayed within 75 W of 0 and the measured budget
       near 6,100 W, while the full budget swung between 6,100 and 7,600 to 8,700 W from one minute
-      to the next. The plan went between "Brod1 2,100 W only" and "every miner to 2,500 W" with it.
+      to the next. The plan went between "miner 1 2,100 W only" and "every miner to 2,500 W" with it.
       Smoothing (rule.smooth-inputs) or keeping the last headroom over a missing reading would
       steady it. Retired 2026-10-07: the forecast no longer sizes the budget (rule.forecast-reference-only).
 
@@ -113,7 +113,7 @@ entries:
     note: >
       Made a principle 2026-10-09 (the integration is for any farm). The farm's own
       figures are farm data (farm.pv-sum-unreliable). Reference farm, the statement until
-      then: sensor.active_power_total reads unknown every few minutes through the evening,
+      then: config.pv_power_entity reads unknown every few minutes through the evening,
       for seconds to minutes at a time, probably when an inverter doesn't answer. It is
       fine as a reference value, not as a control signal.
 
@@ -130,7 +130,7 @@ entries:
     note: >
       Made a principle 2026-10-09 (the integration is for any farm). The farm's own
       figures are farm data (farm.meter-dropouts). Reference farm, the statement until
-      then: sensor.power_meter_active_power was unavailable for about 35 seconds at 17:39
+      then: config.solar_production_entity was unavailable for about 35 seconds at 17:39
       and again around 18:43 on 2026-10-05. Such short gaps are normal and must not make
       the controller act.
 
