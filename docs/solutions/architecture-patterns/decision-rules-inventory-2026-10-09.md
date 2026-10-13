@@ -40,7 +40,7 @@ An earlier group always wins. "Decided by: <group> / <rule>" ends every decision
 | 6 | Limits | `rule.sunset-one-by-one`: sunset or sun down, nothing starts or steps up | `limits.check` (`may_step_up`) | `test_decision` (sunset), `test_farm_sim` (10-08 evening) | 10-08 sunset loop (overlap 8) |
 | 7 | Limits | `rule.transition-by-agreement`: sunrise / sunset from production | `transition.py`; fed by `coordinator._update_transition` | `test_transition`, `test_coordinator`, `test_kb` | overlap 2 |
 | 8 | Limits | `rule.temperature-band`: cap in the band, one step down above it | `limits.check` | `test_decision` (temperature) | requirements §3.2 |
-| 9 | Limits | `rule.temperature-is-braiins`: too warm at the lowest step is left to the miner | `limits.check` | `test_decision` (lowest step) | requirements §0.3 |
+| 9 | Limits | `rule.temperature-left-to-miner` (until 2026-10-13 `rule.temperature-is-braiins`): too warm at the lowest step is left to the miner | `limits.check` | `test_decision` (lowest step) | requirements §0.3 |
 | 10 | Target | `rule.small-import-target`: below the range up, above it down, inside hold | `profiles.target` | `test_decision` (Solar-follow section) | 05b2b27, 8003b62; overlap 1 |
 | 11 | Target | `rule.down-slowly-up-promptly`: down only after the delay (longer at sunrise) | `profiles.target`; `coordinator._minutes_import_high` | `test_decision`, `test_coordinator` | 8003b62 |
 | 12 | Target | `rule.forecast-reference-only`: the forecast never decides | (nothing reads it) | `test_decision` (forecast never changes the proposal) | 55e5f48 |

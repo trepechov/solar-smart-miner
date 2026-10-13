@@ -23,7 +23,7 @@ entries:
     statement: >
       A miner's temperature follows its power and its cooling directly. Its own firmware
       cutoff restarts it when too hot; the integration doesn't manage that cutoff
-      (rule.temperature-is-braiins).
+      (rule.temperature-left-to-miner).
     priority: P3
     status: decided
     source: "requirements doc §0 point 5, §3.2"

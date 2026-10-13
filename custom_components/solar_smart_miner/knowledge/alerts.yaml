@@ -45,7 +45,7 @@ not_alerts:
   - id: normal.hot-at-lowest-step
     what: A miner too hot even at its lowest step.
     why: Decided not to be the plugin's job; the miner's own cutoff handles it. At most a line in the decision trace.
-    related: [rule.temperature-is-braiins]
+    related: [rule.temperature-left-to-miner]
   - id: normal.single-ai-error
     what: One failed or slow AI request.
     why: The rules decide; the AI only advises. Only a run of failures matters.

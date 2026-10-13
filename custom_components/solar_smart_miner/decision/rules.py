@@ -19,7 +19,7 @@ RULES: dict[str, tuple[str, ...]] = {
         "rule.sunset-one-by-one",
         "rule.transition-by-agreement",
         "rule.temperature-band",
-        "rule.temperature-is-braiins",
+        "rule.temperature-left-to-miner",
     ),
     "target": (
         "rule.small-import-target",

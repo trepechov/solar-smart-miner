@@ -113,7 +113,10 @@ def test_the_agreed_decisions_are_in_the_base() -> None:
     assert "900 to 2,500 W in 200 W steps" in by_id["rule.power-steps"]["note"]
     assert by_id["rule.guard-above-ai"]["priority"] == "P0"
     assert by_id["rule.one-controller"]["priority"] == "P0"
-    assert by_id["rule.temperature-is-braiins"]["priority"] == "P0"
+    assert by_id["rule.temperature-left-to-miner"]["priority"] == "P0"
+    # Renamed 2026-10-13 (no firmware in ids); the old id stays, retired, for older traces.
+    assert by_id["rule.temperature-is-braiins"]["status"] == "retired"
+    assert "rule.temperature-left-to-miner" in by_id["rule.temperature-is-braiins"]["statement"]
     # Requirements doc rounds 1 to 5 (2026-10-05), moved into the base on 2026-10-06.
     for rule_id in (
         "rule.goal",
