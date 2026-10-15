@@ -11,7 +11,7 @@ import yaml
 import custom_components.solar_smart_miner  # noqa: F401
 
 KB = Path(__file__).parent.parent / "custom_components" / "solar_smart_miner" / "knowledge"
-FACT_FILES = ["site.yaml", "miners.yaml", "energy.yaml", "rules.yaml", "open-questions.yaml"]
+FACT_FILES = ["site.yaml", "miners.yaml", "energy.yaml", "rules.yaml", "messages.yaml", "open-questions.yaml"]
 
 PRIORITIES = {"P0", "P1", "P2", "P3"}
 STATUSES = {"decided", "verified", "assumed", "open", "conflict", "retired"}
@@ -384,6 +384,15 @@ def test_the_decisions_rule_list_and_the_knowledge_base_agree() -> None:
         assert by_id[rule]["stage"] == stage, rule
     pipeline = {e["id"] for e in ACTIVE_RULES if e["stage"] in RULES}
     assert pipeline == set(STAGE_OF), "a rule in a decision group is missing from decision/rules.py"
+
+
+def test_every_message_rule_has_an_entry_and_every_entry_a_rule() -> None:
+    """Each message rule has one place in the code, one test and one entry (plan 2026-10-15-002)."""
+    from custom_components.solar_smart_miner.messages import POLICIES
+
+    in_code = {f"message.{rule.NAME}" for policy in POLICIES.values() for rule in policy}
+    entries = {e["id"] for name, e in FACTS if name == "messages.yaml" and e["status"] != "retired"}
+    assert entries - {"message.policy"} == in_code
 
 
 def test_fewer_rules_than_before_the_audit() -> None:

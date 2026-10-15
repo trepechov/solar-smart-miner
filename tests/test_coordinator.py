@@ -1795,7 +1795,10 @@ async def test_rules_that_fail_again_and_again_are_pushed_once_per_cooldown(
                    limit_attrs={"min": 500.0, "max": 3500.0})
     entry = _make_entry(hass)
     hass.config_entries.async_update_entry(
-        entry, options={**entry.options, "telegram_bot_token": "1:T", "telegram_chat_id": "42"}
+        entry, options={
+            **entry.options, "telegram_bot_token": "1:T", "telegram_chat_id": "42",
+            "telegram_day_messages": False,  # the first poll would pick up the day: not this test's
+        }
     )
     coordinator = SolarMinerCoordinator(hass, entry)
     hass.states.async_set(SOLAR_ENTITY, "2000")
@@ -1830,3 +1833,70 @@ async def test_a_bad_farm_file_never_stops_loading_the_knowledge(hass) -> None:
     await coordinator.async_load_knowledge()
 
     assert coordinator.knowledge and not any(str(f.id) == "5" for f in coordinator.knowledge)
+
+
+# --- the day messages through the coordinator (plan 2026-10-15-002) -------------------
+
+
+async def test_the_day_records_the_integrations_own_commands_when_they_finish(hass) -> None:
+    from custom_components.solar_smart_miner.control import CommandEvent
+    from custom_components.solar_smart_miner.protocols import MinerPlan
+
+    coordinator = SolarMinerCoordinator(hass, _make_entry(hass))
+    coordinator.day_report.state["date"] = "2026-10-12"
+
+    def event(cid: str, action: str, status: str, ts: str) -> CommandEvent:
+        return CommandEvent(cid, "manual", "m1", "Miner 1", MinerPlan(action, 900.0), status, ts=ts)
+
+    await coordinator._async_record_action(event("c1", "start", "pending", "2026-10-12T07:02:00+03:00"))
+    await coordinator._async_record_action(event("c1", "start", "ok", "2026-10-12T07:06:00+03:00"))
+    await coordinator._async_record_action(event("c2", "set_limit", "pending", "2026-10-12T09:00:00+03:00"))
+    await coordinator._async_record_action(event("c2", "set_limit", "failed", "2026-10-12T09:05:00+03:00"))
+    await coordinator._async_record_action(event("c3", "stop", "refused", "2026-10-12T10:00:00+03:00"))
+
+    assert coordinator.day_report.state["commands"] == [
+        {"at": "2026-10-12T07:02:00+03:00", "miner": "Miner 1", "kind": "start"}  # when it was sent
+    ]
+    assert coordinator._command_sent_at == {}
+
+
+async def test_a_miner_started_by_hand_at_night_sends_no_day_message(
+    hass, add_hass_miner, mock_telegram, freezer
+) -> None:
+    """2026-10-14 01:28: "Production is up" and "Day done" went out at night (0.8.4)."""
+    freezer.move_to("2026-10-14T01:28:00+03:00")
+    add_hass_miner(MINER_IP, limit="900", power="900", hashrate="18.0", limit_attrs={"min": 500.0, "max": 3500.0})
+    entry = _make_entry(hass, options={"telegram_bot_token": "1:T", "telegram_chat_id": "42"})
+    hass.states.async_set("sun.sun", "below_horizon", {"rising": True})
+    hass.states.async_set(SOLAR_ENTITY, "0")
+    hass.states.async_set(GRID_ENTITY, "1400")
+    coordinator = SolarMinerCoordinator(hass, entry)
+
+    for _ in range(3):
+        await coordinator._async_update_data()
+        freezer.tick(timedelta(seconds=20))
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    mock_telegram.assert_not_awaited()
+    assert coordinator.day_report.state["first_production_at"] is None
+
+
+async def test_ha_back_in_the_morning_with_the_miners_mining_picks_up_the_day(
+    hass, add_hass_miner, mock_telegram, freezer
+) -> None:
+    """2026-10-15 10:08: HA came back, the miners were mining, and nothing was said (0.8.6)."""
+    freezer.move_to("2026-10-15T10:08:00+03:00")
+    add_hass_miner(MINER_IP, limit="1900", power="1900", hashrate="90.0", limit_attrs={"min": 500.0, "max": 3500.0})
+    entry = _make_entry(hass, options={"telegram_bot_token": "1:T", "telegram_chat_id": "42"})
+    hass.states.async_set("sun.sun", "above_horizon", {"rising": True})
+    hass.states.async_set(SOLAR_ENTITY, "2200")
+    hass.states.async_set(GRID_ENTITY, "2000")
+    coordinator = SolarMinerCoordinator(hass, entry)
+
+    await coordinator._async_update_data()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    texts = [c.args[3] for c in mock_telegram.await_args_list]
+    assert len(texts) == 1 and texts[0].startswith("☀️ Picked up the day at ")  # HA's time zone
+    assert "production is already up." in texts[0] and "mining at 1,900 W" in texts[0]
+    assert coordinator._picking_up is False

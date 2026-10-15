@@ -3,7 +3,7 @@ title: "feat: Telegram: the connection, four day messages, then alerts"
 type: feat
 date: 2026-10-09
 updated: 2026-10-12  # owner's request: the four day messages (U4-U5) replace per-change messages and the 21:00 summary; owner's answers
-status: U1-U5 done (0.8.3, 0.8.4, 2026-10-12); U6 open, U7 deferred
+status: U1-U5 done (0.8.3, 0.8.4, 2026-10-12), U4-U5 superseded by plan 2026-10-15-002 (the message policy); U6 open, U7 deferred
 related_plans:
   - docs/plans/2026-10-06-001-feat-semi-automatic-apply-plan.md  # control.py, apply-failed notification
   - docs/plans/2026-10-09-001-refactor-decision-pipeline-plan.md  # alerts that will push once built

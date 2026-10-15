@@ -26,7 +26,8 @@ from homeassistant.util import dt as dt_util
 from .action_log import ActionLog
 from .ai import async_ask, build_messages
 from .ai_log import AiLog, build_record, complete_record
-from .day_report import DayReport, describe as describe_day
+from .messages import DayMessages, policy_for
+from .messages.context import DayContext
 from .notify import CONF_TELEGRAM_DAY, Notifier
 from .config_flow import (
     CONF_AI_ENABLED,
@@ -62,7 +63,9 @@ from .config_flow import (
 )
 from .const import (
     CONTROL_MODE_AUTO,
+    CONTROL_MODE_LABELS,
     CONF_FARM_BASE_LOAD,
+    CONF_FARM_BATTERY,
     CONF_MOCK_CONSUMPTION_ENABLED,
     CONF_MOCK_SOLAR_ENABLED,
     CONF_MOCK_SOLAR_ENTITY,
@@ -99,6 +102,7 @@ from .const import (
 )
 from .control import (
     RESULT_FAILED,
+    RESULT_OK,
     RESULT_PENDING,
     RESULT_REFUSED,
     TRIGGER_AUTO,
@@ -273,7 +277,9 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         # miner id -> time.monotonic() a Safety or Limits rule brought it down (HELD_DOWN_REASONS)
         self._brought_down: dict[str, float] = {}
         self.transition = Transition()  # sunrise and sunset, from how production changes
-        self.day_report = DayReport()  # the four day messages; loaded by async_load_day_report
+        self.day_report = DayMessages()  # the day messages; loaded by async_load_day_report
+        self._picking_up = True  # no readable poll yet since HA started (messages: picked up)
+        self._command_sent_at: dict[str, str] = {}  # command id -> when it was sent (the day's record)
         self._day_store: Store[dict] = Store(hass, 1, f"{DOMAIN}.day_report.{entry.entry_id}")
         self._building: CoordinatorSnapshot | None = None  # the snapshot of the cycle being worked out
         # miner id -> (plan fingerprint, reason) of the last automatic refusal, so it isn't repeated
@@ -657,7 +663,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
     async def async_load_day_report(self) -> None:
         """The day so far, so a restart of HA neither repeats a day message nor loses the morning."""
         try:
-            self.day_report = DayReport(await self._day_store.async_load())
+            self.day_report = DayMessages(await self._day_store.async_load())
         except Exception:  # noqa: BLE001 - a broken file only costs today's messages
             _LOGGER.exception("The day report could not be loaded; it starts again")
 
@@ -666,34 +672,44 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         await self._day_store.async_save(self.day_report.as_dict())
 
     async def _async_report_day(self, snapshot: CoordinatorSnapshot, inputs: dict) -> None:
-        """Follow the day and send its messages (day_report.py), from what the decision was
-        given. Never stops a cycle."""
+        """Follow the day and send its messages (messages/, the profile's policy), from what the
+        decision was given. Never stops a cycle."""
         options = self._entry.options
         try:
-            events = self.day_report.update(
-                dt_util.now(),
-                snapshot,
+            sun = self.hass.states.get("sun.sun")
+            mode = self.control_mode
+            ctx = DayContext(
+                now=dt_util.now(),
+                snapshot=snapshot,
                 settled=inputs["minutes_since_change"] is None,
                 restarting={m.miner_id for m in snapshot.miners if self.controller.restarting(m.miner_id)},
                 steps=inputs["power_steps"],
                 too_warm_c=too_warm_c(inputs["temp_target"], inputs["temp_tolerance"]),
                 sun_up=inputs["sun_up"],
+                rising=None if sun is None else bool(sun.attributes.get("rising")),
                 sunset=inputs["sunset"],
-                poll_s=self.update_interval.total_seconds() if self.update_interval else 60.0,
+                mode=None if mode == CONTROL_MODE_AUTO else CONTROL_MODE_LABELS.get(mode, mode),
+                battery=options.get(CONF_FARM_BATTERY) == "present",
+                picking_up=self._picking_up,
             )
+            readable = any(m.is_available for m in snapshot.miners) or (
+                snapshot.energy.pv_power_w is not None or snapshot.energy.solar_production_w is not None
+            )
+            if readable:
+                self._picking_up = False
+            events = self.day_report.update(ctx, policy_for(inputs["profile"]))
             if not events:
                 self._day_store.async_delay_save(self.day_report.as_dict, DAY_SAVE_DELAY_S)
                 return
             await self.async_save_day_report()
             if not options.get(CONF_TELEGRAM_DAY, True):
                 return
-            for event in events:
+            for name, text in events:
                 self.notifier.notify(
-                    f"day_{event}", "", describe_day(event, self.day_report.state, snapshot),
-                    push=True, persistent=False, cooldown_min=0,
+                    f"day_{name}", "", text, push=True, persistent=False, cooldown_min=0,
                 )
         except Exception:  # noqa: BLE001 - a report must never stop the cycle
-            _LOGGER.exception("The day report failed")
+            _LOGGER.exception("The day messages failed")
 
     async def async_seed_transition(self) -> None:
         """After a reload during sunset, it stays sunset: the last decision line says so."""
@@ -762,6 +778,12 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         return self._farm_proposal(self.data)[1] if self.data is not None else NO_ACTION_TEXT
 
     async def _async_record_action(self, event: CommandEvent) -> None:
+        if event.status == RESULT_PENDING:
+            self._command_sent_at[event.command_id] = event.ts
+        else:
+            sent_at = self._command_sent_at.pop(event.command_id, event.ts)
+            if event.status == RESULT_OK:  # the day's record of the integration's own commands
+                self.day_report.note_command(sent_at, event.miner_name, event.plan.action)
         if event.status == RESULT_PENDING and self._grid_unknown_since is not None:
             self._estimate_used = True  # one change per meter outage on an estimated import
         if event.status == RESULT_PENDING and event.plan.reason in HELD_DOWN_REASONS:

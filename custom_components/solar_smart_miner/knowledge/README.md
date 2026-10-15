@@ -78,6 +78,7 @@ moving it in that list, replaying the farm's moments and releasing.
 | `miners.yaml` | How the miners behave: power range, tuning, resume/pause cost, noise. |
 | `energy.yaml` | How the energy signals behave and what the sunset looked like. |
 | `rules.yaml` | The control rules (P0 to P2) decided in the requirements doc and since. |
+| `messages.yaml` | The day messages: the message policy and one entry per message rule (`messages/`). Not sent to the AI. |
 | `open-questions.yaml` | What is still undecided or unmeasured, and what would settle it. |
 | `situations.yaml` | Named states that nothing measures directly (sunrise, sunset, night, cloud, miner tuning, inverters throttled, sensor dropout) and the evidence for each. |
 | `alerts.yaml` | Edge cases that should not happen in normal operation, and what each one triggers. |

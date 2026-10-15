@@ -24,7 +24,7 @@ _LOGGER = logging.getLogger(__name__)
 
 CONF_TELEGRAM_TOKEN = "telegram_bot_token"
 CONF_TELEGRAM_CHAT_ID = "telegram_chat_id"
-CONF_TELEGRAM_DAY = "telegram_day_messages"  # the four day messages (day_report.py), on by default
+CONF_TELEGRAM_DAY = "telegram_day_messages"  # the day messages (messages/), on by default
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 TELEGRAM_TIMEOUT_S = 10

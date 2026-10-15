@@ -87,6 +87,10 @@ PROFILES = [
     },
 ]
 
+# The day messages each profile sends (messages/__init__.py POLICIES); a profile without one
+# sends none. The battery profiles bring their own (plan 2026-10-15-002).
+MESSAGE_POLICIES = {"solar_follow": "sun_driven"}
+
 PROFILE_NAMES = [p["name"] for p in PROFILES]
 PROFILES_BY_NAME = {p["name"]: p for p in PROFILES}
 DEFAULT_PROFILE = "solar_follow"

@@ -28,6 +28,8 @@ custom_components/solar_smart_miner/   # HA integration source
   decision/            # the rules, one module per group, run in order by __init__.build_decision:
                        #   safety → pacing → limits → profiles (target) → allocation (+ tidy);
                        #   context.py carries one decision through them, describe.py the words
+  messages/            # the day messages: a message policy per profile (ordered message rules,
+                       #   each once a day, only observing), run after every decision
   control.py           # the one place that touches the miners: guards, service calls, and the
                        #   Settling record per miner (a command is ok once the miner did it)
   transition.py        # sunrise / sunset as periods of changing production (decision + kb)

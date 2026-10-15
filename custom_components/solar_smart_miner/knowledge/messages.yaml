@@ -1,0 +1,76 @@
+# The day messages: one entry per message rule, and the policy they belong to (messages/).
+# Not given to the AI: the messages report the day, they never decide. Read the README for the format.
+entries:
+  - id: message.policy
+    title: Day messages are a policy per profile
+    statement: >
+      The day messages come from a message policy: message rules run in a fixed order after
+      every decision, each fires at most once a day, and each farm profile names its own policy.
+      The rules only observe what the decision was given and decided; they never change it. A
+      policy changes by release, never by a setting.
+    priority: P3
+    status: decided
+    source: "owner; plan 2026-10-15-002"
+    date: "2026-10-15"
+    tags: [always, messages]
+    note: >
+      Solar-follow uses the sun-driven policy (morning, peak, going down, evening). The battery
+      profiles will bring their own.
+
+  - id: message.morning
+    title: Morning is the first usable production
+    statement: >
+      The morning message goes out once, at the day's first usable production: the
+      integration's own first start, or the PV at the lowest configured power step on two polls
+      in a row, while the sun is up. A start made outside the integration, or any start at
+      night, opens nothing. When Home Assistant starts with production already there, the
+      morning goes out at once and says the day was picked up.
+    priority: P3
+    status: decided
+    source: "owner, 2026-10-15; plan 2026-10-15-002"
+    date: "2026-10-15"
+    tags: [sunrise, messages]
+    note: >
+      Reference farm, 2026-10-14: a miner started by hand at night sent the morning and the
+      evening at night and swallowed the real morning (0.8.4 opened the day at any miner seen
+      mining). 2026-10-15: back from an overnight outage with the miners mining, nothing was
+      said. On a zero-export site the PV follows the load, so it reaches the lowest step only
+      once a miner runs.
+
+  - id: message.peak
+    title: Peak is every miner at its top step
+    statement: >
+      The peak message goes out once, after the morning, when every miner seen today mines at
+      its top power step, nothing is settling and every hottest chip is below the top of the
+      temperature band, on two polls in a row. It gives the time since the morning.
+    priority: P3
+    status: decided
+    source: "owner, 2026-10-15"
+    date: "2026-10-15"
+    tags: [midday, messages]
+
+  - id: message.going-down
+    title: Going down is a step down as the sun declines
+    statement: >
+      The going-down message goes out once, at the first step down or stop after the morning
+      that comes after solar noon while the forecast for the next hour is below the forecast
+      now. Without a next-hour forecast, after solar noon is enough. Any other step down is a
+      cloud: nothing is sent and the evening counts it, once per poll.
+    priority: P3
+    status: decided
+    source: "owner, 2026-10-15"
+    date: "2026-10-15"
+    tags: [sunset, cloud, messages]
+
+  - id: message.evening
+    title: Evening is the sun below the horizon
+    statement: >
+      The evening message goes out once, when the sun seen up today is below the horizon: when
+      the last miner stopped, the cloud step-downs, the peak if it never came, and the miners
+      still mining. It is sent on a day without usable production too. With a battery the
+      miners may mine on, so the day is not called done.
+    priority: P3
+    status: decided
+    source: "owner, 2026-10-15"
+    date: "2026-10-15"
+    tags: [sunset, night, messages]

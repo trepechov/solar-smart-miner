@@ -263,7 +263,7 @@ async def test_a_sunrise_climbs_in_bigger_steps_with_fewer_restarts(hass, add_ha
     assert [c for c in farm.commands if c[2] in ("down", "stop")] == [], farm.commands
 
 
-async def test_a_sunrise_sends_the_morning_and_all_at_max_messages_and_changes_nothing(
+async def test_a_sunrise_sends_the_morning_and_peak_messages_and_changes_nothing(
     hass, add_hass_miner, monkeypatch, mock_telegram, freezer
 ) -> None:
     """The day messages only observe: the same sunrise sends the same commands with them on or off."""
@@ -282,7 +282,7 @@ async def test_a_sunrise_sends_the_morning_and_all_at_max_messages_and_changes_n
     texts = [c.args[3] for c in mock_telegram.await_args_list]
 
     assert [t[0] for t in texts] == ["☀", "⚡"], texts
-    assert texts[0].startswith("☀️ Production is up: Miner ")
+    assert texts[0].startswith("☀️ Production is up (")
     assert texts[1].startswith("⚡ All 3 miners run at their top step, settled")
 
     mock_telegram.reset_mock()
