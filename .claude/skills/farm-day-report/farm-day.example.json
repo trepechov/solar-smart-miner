@@ -1,0 +1,12 @@
+{
+  "name": "Solar mining farm",
+  "solar_energy_today": ["sensor.inverter_a_daily_yield", "sensor.inverter_b_daily_yield"],
+  "solar_power": ["sensor.inverter_a_active_power", "sensor.inverter_b_active_power"],
+  "grid_import_total": "sensor.grid_meter_imported_energy",
+  "grid_export_total": "sensor.grid_meter_exported_energy",
+  "last_action": "sensor.solar_smart_miner_last_action",
+  "miners": [
+    {"name": "Miner 1", "energy_total": "sensor.miner_1_energy", "hashrate": "sensor.miner_1_hashrate"},
+    {"name": "Miner 2", "energy_total": "sensor.miner_2_energy", "hashrate": "sensor.miner_2_hashrate"}
+  ]
+}

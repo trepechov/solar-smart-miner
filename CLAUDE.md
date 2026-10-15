@@ -58,7 +58,8 @@ docs/
                        #   architectural patterns), organised by category with YAML
                        #   frontmatter (module, tags, problem_type). Useful when
                        #   implementing or debugging in documented areas.
-scripts/               # dev utilities (install-git-hooks.sh, replay.py: replays and collision report)
+scripts/               # dev utilities (install-git-hooks.sh, replay.py: replays and collision report,
+                       #   farm_day.py: the day report card + text, the /farm-day-report skill)
 .github/workflows/     # release.yml (version bump on main → tag + GitHub release), validate.yml (HACS + hassfest)
 ```
 

@@ -42,3 +42,6 @@ Thumbs.db
 
 # Local secrets folder (HA API token etc.)
 secrets/
+
+# The owner's working copy of the reference farm (coordinates, array)
+docs/reference-farm/
