@@ -1,7 +1,7 @@
-"""Message rule 4, evening: the sun is below the horizon (message.evening).
+"""Message rule 5, evening: the sun is below the horizon (message.evening).
 
 Once the sun, seen up today, is down (without sun.sun: the sunset transition, after the
-morning). Sent on a day without usable production too. With a battery the miners may mine on,
+morning). Sent on a day the integration started no miner too. With a battery the miners may mine on,
 so the day isn't called done.
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ NAME = "evening"
 
 def check(ctx: DayContext, state: dict) -> str | None:
     if ctx.sun_up is None:
-        down = ctx.sunset and state["first_production_at"] is not None
+        down = ctx.sunset and state["first_start_at"] is not None
     else:
         down = ctx.sun_up is False and state["sun_seen_up"]
     if not down:
@@ -25,8 +25,8 @@ def check(ctx: DayContext, state: dict) -> str | None:
         else f"🌙 Day done: the sun has set ({time_of(ctx.stamp)})."
     )
     lines = []
-    if state["first_production_at"] is None:
-        lines.append("No usable production today.")
+    if state["first_start_at"] is None:
+        lines.append("The integration started no miner today." if state["last_mining_at"] else "No miner mined today.")
     else:
         if not ctx.mining and state["last_mining_at"]:
             lines.append(f"The last miner stopped at {time_of(state['last_mining_at'])}.")

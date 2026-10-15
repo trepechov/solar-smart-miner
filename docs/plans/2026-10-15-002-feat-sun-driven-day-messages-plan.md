@@ -3,6 +3,7 @@ title: "feat: day messages follow the solar day as a message policy, and a day r
 type: feat
 date: 2026-10-15
 origin: docs/brainstorms/2026-10-15-sun-driven-day-messages-requirements.md
+status: shipped (U1–U4 in 0.8.7, U5–U7 in 0.8.8); the morning is revised by plan 2026-10-15-003 (0.8.9)
 ---
 
 # feat: day messages follow the solar day as a message policy, and a day report at midnight

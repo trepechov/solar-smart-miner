@@ -14,28 +14,42 @@ entries:
     date: "2026-10-15"
     tags: [always, messages]
     note: >
-      Solar-follow uses the sun-driven policy (morning, peak, going down, evening). The battery
-      profiles will bring their own.
+      Solar-follow uses the sun-driven policy (Manual-mode reminder, morning, peak, going down,
+      evening, day report). The battery profiles will bring their own.
 
-  - id: message.morning
-    title: Morning is the first usable production
+  - id: message.manual-reminder
+    title: Manual mode reminds once when a start is proposed
     statement: >
-      The morning message goes out once, at the day's first usable production: the
-      integration's own first start, or the PV at the lowest configured power step on two polls
-      in a row, while the sun is up. A start made outside the integration, or any start at
-      night, opens nothing. When Home Assistant starts with production already there, the
-      morning goes out at once and says the day was picked up.
+      In Manual mode the reminder goes out once a day, the first time the decision proposes
+      starting a miner while the sun is up and before the morning: the moment Automatic would
+      have started one. It says that nothing starts until the owner applies the proposal or
+      switches to Automatic. It only reads the proposal; it never applies it.
     priority: P3
     status: decided
-    source: "owner, 2026-10-15; plan 2026-10-15-002"
+    source: "owner, 2026-10-15; plan 2026-10-15-003"
+    date: "2026-10-15"
+    tags: [sunrise, messages]
+
+  - id: message.morning
+    title: Morning is the integration's first start
+    statement: >
+      The morning message goes out once, at the integration's first start of the day that the
+      miner carried out, while the sun is up. Applying a proposal in Manual mode counts; a
+      miner started outside the integration, or any start at night, opens nothing, and a day
+      the integration never starts gets no morning, peak or going down. When Home Assistant
+      starts with miners mining, the morning goes out at once and says the day was picked up.
+      Its forecast for the rest of the day is a rough figure, kept for the day report.
+    priority: P3
+    status: decided
+    source: "owner, 2026-10-15; plans 2026-10-15-002 and -003"
     date: "2026-10-15"
     tags: [sunrise, messages]
     note: >
       Reference farm, 2026-10-14: a miner started by hand at night sent the morning and the
       evening at night and swallowed the real morning (0.8.4 opened the day at any miner seen
       mining). 2026-10-15: back from an overnight outage with the miners mining, nothing was
-      said. On a zero-export site the PV follows the load, so it reaches the lowest step only
-      once a miner runs.
+      said. 0.8.7 and 0.8.8 also opened the day at the PV reaching the lowest power step; the
+      owner wants the first message at the first start, so that trigger went (2026-10-15).
 
   - id: message.peak
     title: Peak is every miner at its top step
@@ -67,7 +81,7 @@ entries:
     statement: >
       The evening message goes out once, when the sun seen up today is below the horizon: when
       the last miner stopped, the cloud step-downs, the peak if it never came, and the miners
-      still mining. It is sent on a day without usable production too. With a battery the
+      still mining. It is sent on a day the integration started no miner too, and says so. With a battery the
       miners may mine on, so the day is not called done.
     priority: P3
     status: decided
@@ -80,13 +94,13 @@ entries:
     statement: >
       After midnight one report covers the day that ended: the solar, the miners' energy and its
       share from the sun, the house and other loads as the rest of the balance, the grid in and
-      out, each miner's figures, the commands and any start/stop flip-flop, and the morning's
-      forecast against what came. Every figure is computed, never written by the AI. A reading
+      out, each miner's figures, the commands and any start/stop flip-flop, and the morning
+      message's rough forecast against the solar that came after the first start. Every figure is computed, never written by the AI. A reading
       missing for a short while holds its last value; a longer gap, or Home Assistant not
       running, marks the day incomplete. A report that couldn't go out is sent on the next poll.
     priority: P3
     status: decided
-    source: "owner, 2026-10-15; plan 2026-10-15-002"
+    source: "owner, 2026-10-15; plans 2026-10-15-002 and -003"
     date: "2026-10-15"
     tags: [night, messages]
     note: >

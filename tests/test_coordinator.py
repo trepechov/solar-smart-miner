@@ -1855,7 +1855,7 @@ async def test_the_day_records_the_integrations_own_commands_when_they_finish(ha
     await coordinator._async_record_action(event("c3", "stop", "refused", "2026-10-12T10:00:00+03:00"))
 
     assert coordinator.day_report.state["commands"] == [
-        {"at": "2026-10-12T07:02:00+03:00", "miner": "Miner 1", "kind": "start"}  # when it was sent
+        {"at": "2026-10-12T07:02:00+03:00", "miner": "Miner 1", "kind": "start", "limit_w": 900.0}  # when it was sent
     ]
     assert coordinator._command_sent_at == {}
 
@@ -1878,7 +1878,7 @@ async def test_a_miner_started_by_hand_at_night_sends_no_day_message(
     await hass.async_block_till_done(wait_background_tasks=True)
 
     mock_telegram.assert_not_awaited()
-    assert coordinator.day_report.state["first_production_at"] is None
+    assert coordinator.day_report.state["first_start_at"] is None
 
 
 async def test_ha_back_in_the_morning_with_the_miners_mining_picks_up_the_day(
@@ -1897,6 +1897,6 @@ async def test_ha_back_in_the_morning_with_the_miners_mining_picks_up_the_day(
     await hass.async_block_till_done(wait_background_tasks=True)
 
     texts = [c.args[3] for c in mock_telegram.await_args_list]
-    assert len(texts) == 1 and texts[0].startswith("☀️ Picked up the day at ")  # HA's time zone
-    assert "production is already up." in texts[0] and "mining at 1,900 W" in texts[0]
+    assert len(texts) == 1 and texts[0].startswith("⛏️ Picked up the day at ")  # HA's time zone
+    assert "1 miner already mining." in texts[0] and "mining at 1,900 W" in texts[0]
     assert coordinator._picking_up is False

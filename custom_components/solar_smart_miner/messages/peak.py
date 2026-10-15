@@ -1,4 +1,4 @@
-"""Message rule 2, peak: the miners at full load (message.peak).
+"""Message rule 3, peak: the miners at full load (message.peak).
 
 Every miner seen today mines at its top power step, nothing is settling, every hottest chip is
 below the top of the temperature band; seen on two polls in a row, after the morning.
@@ -12,7 +12,7 @@ NAME = "peak"
 
 def check(ctx: DayContext, state: dict) -> str | None:
     full = (
-        state["first_production_at"] is not None
+        state["first_start_at"] is not None
         and ctx.miners
         and len(ctx.miners) >= state["miners"]  # none of today's miners is missing
         and len(ctx.at_top) == len(ctx.miners)
@@ -27,7 +27,7 @@ def check(ctx: DayContext, state: dict) -> str | None:
     first = f"⚡ All {len(ctx.miners)} miners run at their top step, settled ({time_of(ctx.stamp)}"
     first += f", PV {kw(pv)})." if pv is not None else ")."
     took = (
-        f"It took {duration(state['first_production_at'], ctx.stamp)} from the morning "
-        f"({time_of(state['first_production_at'])})."
+        f"It took {duration(state['first_start_at'], ctx.stamp)} from the morning "
+        f"({time_of(state['first_start_at'])})."
     )
     return message(first, took, status_lines(ctx))

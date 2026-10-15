@@ -39,6 +39,7 @@ from custom_components.solar_smart_miner.config_flow import (
 from custom_components.solar_smart_miner.const import (
     CONF_CONTROL_MODE,
     CONTROL_MODE_AUTO,
+    CONTROL_MODE_MANUAL,
     DOMAIN,
     SOLAR_ENTITY_TYPE_NET_EXPORT,
 )
@@ -281,8 +282,9 @@ async def test_a_sunrise_sends_the_morning_and_peak_messages_and_changes_nothing
     await hass.async_block_till_done(wait_background_tasks=True)
     texts = [c.args[3] for c in mock_telegram.await_args_list]
 
-    assert [t[0] for t in texts] == ["☀", "⚡"], texts
-    assert texts[0].startswith("☀️ Production is up (")
+    assert [t[0] for t in texts] == ["⛏", "⚡"], texts
+    assert texts[0].startswith("⛏️ First miner started at "), texts[0]  # HA's time zone
+    assert "(Miner 1, 900 W)." in texts[0].splitlines()[0]
     assert texts[1].startswith("⚡ All 3 miners run at their top step, settled")
 
     mock_telegram.reset_mock()
@@ -294,3 +296,23 @@ async def test_a_sunrise_sends_the_morning_and_peak_messages_and_changes_nothing
 
     mock_telegram.assert_not_awaited()
     assert [c[1:] for c in quiet.commands] == [c[1:] for c in farm.commands]
+
+
+async def test_a_sunrise_in_manual_mode_sends_one_reminder_and_starts_nothing(
+    hass, add_hass_miner, monkeypatch, mock_telegram, freezer
+) -> None:
+    """Plan 2026-10-15-003: in Manual mode the decision proposes a start; nothing applies it, so a
+    reminder goes out once and no morning comes."""
+    freezer.move_to("2026-10-12T07:00:00+03:00")
+    farm = await _run(hass, add_hass_miner, monkeypatch, [900, 900, 900], [True] * 3,
+                      lambda s: min(9000.0, 1500.0 + s / 60 * 50), minutes=60, rising=True,
+                      freezer=freezer, options={
+                          CONF_CONTROL_MODE: CONTROL_MODE_MANUAL,
+                          "telegram_bot_token": "1:T", "telegram_chat_id": "42",
+                      })
+    await hass.async_block_till_done(wait_background_tasks=True)
+    texts = [c.args[3] for c in mock_telegram.await_args_list]
+
+    assert farm.commands == []
+    assert len(texts) == 1 and texts[0].startswith("🖐 Manual mode: the sun could run a miner now"), texts
+    assert "Proposed: start Miner " in texts[0] and texts[0].endswith("Mode: Manual")

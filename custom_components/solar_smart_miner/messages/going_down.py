@@ -1,4 +1,4 @@
-"""Message rule 3, going down: a step down that matches the sun's decline (message.going-down).
+"""Message rule 4, going down: a step down that matches the sun's decline (message.going-down).
 
 After the morning, the first step down or stop (DayMessages finds it: one per poll, a restart
 after a limit change excluded, a stop seen on two polls) that comes after solar noon while the
@@ -15,6 +15,11 @@ NAME = "going-down"
 
 
 def _declining(ctx: DayContext) -> bool:
+    # TODO(owner, 2026-10-15): a forecast that stops updating silences this message. Forecast.Solar
+    # stayed flat all day on 2026-10-13 and 10-14; with next hour == now, `falling` is False, so
+    # every afternoon step down counts as a cloud. Decide once the forecast service is chosen
+    # (docs/plans/2026-10-15-001-feat-solar-forecast-comparison-plan.md), e.g. treat a forecast
+    # unchanged for hours as missing.
     energy = ctx.energy
     falling = (
         None
@@ -28,7 +33,7 @@ def _declining(ctx: DayContext) -> bool:
 
 
 def check(ctx: DayContext, state: dict) -> str | None:
-    if ctx.down is None or state["first_production_at"] is None:
+    if ctx.down is None or state["first_start_at"] is None:
         return None
     if not _declining(ctx):
         state["cloud_step_downs"] += 1

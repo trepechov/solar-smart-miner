@@ -1,4 +1,4 @@
-"""Message rule 5, the day report: one calendar day, closed after midnight (message.day-report).
+"""Message rule 6, the day report: one calendar day, closed after midnight (message.day-report).
 
 When a new date begins, DayMessages keeps the day that ended (its totals, made into the report's
 figures by `build_report`) as not yet reported. This rule sends the newest kept day that isn't
@@ -96,6 +96,10 @@ def build_report(state: dict, *, incomplete: bool = False) -> dict:
         "j_per_th": miners * 3.6e6 / th_total if th_total else None,
         "commands": {"total": len(commands), "start": kinds["start"], "stop": kinds["stop"], "limit": kinds["limit"]},
         "forecast_kwh": state["forecast_at_start_kwh"],
+        "forecast_from": _hhmm(state["first_start_at"]),  # the forecast covers the day from then on
+        "solar_after_start": (
+            solar - state["solar_at_start_kwh"] if state["solar_at_start_kwh"] is not None else None
+        ),
         "incomplete": incomplete or totals["incomplete"],
     }
 
@@ -106,12 +110,26 @@ def finish_day(state: dict, incomplete: bool) -> dict:
     return {"date": state["date"], "report": build_report(state, incomplete=incomplete), "reported": False}
 
 
+def forecast_after(report: dict) -> float | None:
+    """The solar that came in the span the morning's forecast covered: from the first start on
+    (a day kept by 0.8.8 has no start mark, so the whole day's solar)."""
+    if "solar_after_start" not in report:  # kept by 0.8.8
+        return report["totals"]["solar"]
+    return report["solar_after_start"]
+
+
 def forecast_ratio(report: dict) -> float | None:
-    """The solar that came against the morning's forecast for the day (1.0 = spot on)."""
+    """The solar that came against the morning's rough forecast (1.0 = spot on); the forecast
+    accuracy sensor and the report's line both use it."""
+    # TODO(owner, 2026-10-15): when the forecast service or its settings change (the forecast
+    # comparison, docs/plans/2026-10-15-001-...), the sensor's history mixes days before and
+    # after. Decide then: note the change date (knowledge base), or reset nothing and read the
+    # history with it.
     forecast = report.get("forecast_kwh")
-    if not forecast or not report.get("solar_known"):
+    after = forecast_after(report)
+    if not forecast or after is None or not report.get("solar_known"):
         return None
-    return report["totals"]["solar"] / forecast
+    return after / forecast
 
 
 # --- the words ------------------------------------------------------------------
@@ -161,11 +179,12 @@ def format_text(d: dict, test: bool = False) -> str:
     lines.append(f"🔌 Grid bought: {t['import']:.1f} kWh · exported: {t['export']:.1f} kWh")
     if d["self_use_pct"] is not None and d.get("solar_known", True):
         lines.append(f"✅ {d['self_use_pct']}% of the solar energy was used on site")
-    forecast = d.get("forecast_kwh")
-    if forecast and d.get("solar_known", True):
+    ratio = forecast_ratio({**d, "solar_known": d.get("solar_known", True)})
+    if ratio is not None:
+        since = f" from {d['forecast_from']} on" if d.get("forecast_from") else ""
         lines.append(
-            f"🔮 Forecast this morning: {forecast:.1f} kWh; the panels gave {t['solar']:.1f} kWh "
-            f"({t['solar'] / forecast:.0%})"
+            f"🔮 Forecast this morning (rough): about {d['forecast_kwh']:.1f} kWh{since}; "
+            f"the panels gave {forecast_after(d):.1f} kWh ({ratio:.0%})"
         )
     mining = [m for m in d["miners"] if m["kwh"] > 0.05]
     if mining:

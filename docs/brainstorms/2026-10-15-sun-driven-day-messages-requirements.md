@@ -28,7 +28,8 @@ The integration exists to use the solar production. Miners, however, can be star
 ## Key Decisions
 
 - **The sun and the production drive the messages; the miners are reported, not followed.** Every milestone is sent on time and carries the farm's status. A milestone isn't sent just because a miner started.
-- **Morning is the first usable production, not the sun's horizon.** At sunrise the panels can't run a miner. A message then says nothing useful.
+- **Morning is the integration's first start, not the sun's horizon.** At sunrise the panels can't run a miner. A message then says nothing useful. (Changed 2026-10-15, plan 2026-10-15-003: 0.8.7 and 0.8.8 also opened the day at the PV reaching the lowest power step. The owner wants the first message at the first start; a start by hand opens nothing.)
+- **Manual mode gets a reminder.** In Manual mode nothing starts on its own, so once a day, when the decision first proposes a start while the sun is up, a reminder says so (owner, 2026-10-15).
 - **Peak is the miners at full load.** It keeps today's "all at max" meaning: every miner at its top step, settled, below the temperature band, seen on two polls in a row. The owner wants to know when the farm uses all it can, not when the sun is highest.
 - **"Going down" pairs a step down with the sun's decline.** A step down at noon is a cloud; the same step down in the late afternoon, with the forecast falling, is the evening trend. Only the second one is a milestone.
 - **The day messages are a message policy: ordered message rules, one policy per farm profile.** The policy mirrors the decision pipeline's discipline. Each message rule has one place in the code, one test and one knowledge-base entry. It is chosen by the farm's profile, and it is changed by editing and releasing, never by a runtime setting. Today there is one profile (Solar-follow), so there is one policy.
@@ -55,14 +56,14 @@ The integration exists to use the solar production. Miners, however, can be star
 
 **The sun-driven policy (Solar-follow)**
 
-- R7. Morning: sent once at the first usable production of the day, with the forecast for the rest of the day and the farm's status.
+- R7. Morning: sent once at the integration's first start of the day (a Manual-mode Apply counts; a start by hand doesn't), with a rough forecast for the rest of the day and the farm's status. A day the integration never starts gets no morning, peak or going down.
 - R8. Morning is never sent while the sun is below the horizon, whatever the miners do.
-- R9. When HA starts after the day's first usable production, the morning message is sent at once and says the integration picked up the day, and what it found.
+- R9. When HA starts during the day with miners mining, the morning message is sent at once and says the integration picked up the day, and what it found.
 - R10. Peak: sent once when every miner is at its top step, settled and below the temperature band, seen on two polls in a row, with the time it took from the morning.
 - R11. Going down: sent once at the first step down or stop that comes after solar noon while the forecast for the next hour is below the forecast now.
 - R12. A step down or stop that doesn't meet R11 sends nothing; the evening summary counts it as a cloud step-down.
 - R13. Evening: sent once when the sun goes below the horizon. It says when the last miner stopped and how many cloud step-downs the day had, and points to the report at midnight; the day's totals are in the report (R20), not here.
-- R14. Evening is sent even on a day with no usable production, and then says so.
+- R14. Evening is sent even on a day the integration started no miner, and then says so.
 
 **The farm's status in every message**
 
@@ -83,10 +84,14 @@ The integration exists to use the solar production. Miners, however, can be star
 - R23. Per miner it gives the energy, mining hours, average hashrate and J/TH. It also gives the first and last production, the best 15 minutes of solar, and the commands by kind (starts, stops, limit changes).
 - R24. It names a start/stop flip-flop (3 or more starts of one miner within an hour) as a warning line. It reports the flip-flop and changes nothing.
 - R25. The house load is shown as a remainder and says so.
-- R26. Forecast against actual: the report gives the forecast for the day as it stood in the morning, before the first production, the solar that came, and the ratio between them. The integration keeps the ratio for each day where Home Assistant records its history (a sensor), so its trend over weeks can be watched. Without forecast sensors the line is left out.
+- R26. Forecast against actual: the report gives the rough forecast the morning message showed, the solar that came from the first start on (the span that forecast covers), and the ratio between them. The integration keeps the ratio for each day where Home Assistant records its history (a sensor), so its trend over weeks can be watched. Without forecast sensors the line is left out.
 - R27. The latest report's text is also shown in Home Assistant (a sensor or its attribute), so it can be read without Telegram.
 - R28. A reading that is missing leaves its line out. A reading missing for a short gap holds its last value; when the integration wasn't running for part of the day, the report says its figures are incomplete.
 - R29. The report only observes, like the day messages: it reads energy, the miners' hashrate and the integration's own command record, and never changes a decision.
+
+**Manual mode**
+
+- R30. In Manual mode, a reminder is sent once a day, the first time the decision proposes starting a miner while the sun is up and before the morning: what it proposes, and that nothing starts until the owner applies it or switches to Automatic. It only reads the proposal.
 
 ---
 

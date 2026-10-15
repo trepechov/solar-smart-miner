@@ -1,4 +1,4 @@
-"""The day messages (plan 2026-10-15-002): the sun-driven policy's rules, one group each."""
+"""The day messages (plans 2026-10-15-002 and -003): the sun-driven policy's rules, one group each."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -57,19 +57,21 @@ class Day:
     def state(self) -> dict:
         return self.messages.state
 
-    def start(self, miner: str = "Miner 1") -> None:
+    def start(self, miner: str = "Miner 1", limit_w: float = 900.0) -> None:
         """The integration started a miner (its command finished ok), sent a minute from now."""
-        self.messages.note_command((self.now + timedelta(minutes=1)).isoformat(timespec="seconds"), miner, ACTION_START)
+        self.messages.note_command(
+            (self.now + timedelta(minutes=1)).isoformat(timespec="seconds"), miner, ACTION_START, limit_w
+        )
 
     def poll(
         self, snapshot, *, minutes: float = 1, settled=True, sun_up=True, rising=True, sunset=False,
-        restarting=frozenset(), mode=None, battery=False, picking_up=False, policy=POLICY,
+        restarting=frozenset(), mode=None, manual=False, battery=False, picking_up=False, policy=POLICY,
     ):
         self.now += timedelta(minutes=minutes)
         ctx = DayContext(
             now=self.now, snapshot=snapshot, settled=settled, restarting=set(restarting),
             steps=STEPS, too_warm_c=BAND_TOP, sun_up=sun_up, rising=rising, sunset=sunset,
-            mode=mode, battery=battery, picking_up=picking_up,
+            mode=mode, manual=manual, battery=battery, picking_up=picking_up,
         )
         events = self.messages.update(ctx, policy)
         for name, text in events:
@@ -108,8 +110,8 @@ def test_a_sunny_day_sends_each_message_once_in_order() -> None:
 
     assert day.events == ["morning", "peak", "going-down", "evening"]
     assert day.texts["morning"] == (
-        "☀️ Production is up (07:02).\n"
-        "Forecast: 31.4 kWh for the rest of today, 2.5 kW next hour.\n"
+        "⛏️ First miner started at 07:02 (Miner 1, 900 W).\n"
+        "Forecast, rough: about 31 kWh for the rest of today, 2.5 kW next hour.\n"
         "• Miner 1: mining at 900 W\n"
         "• Miner 2: stopped"
     )
@@ -146,6 +148,79 @@ def test_each_message_once_a_day_and_again_the_next_day() -> None:
     assert day.events == ["morning", "peak", "day-report", "morning"]  # yesterday's report first
 
 
+# --- manual reminder ----------------------------------------------------------
+
+PROPOSED_START = {"192.0.2.1": MinerPlan(ACTION_START, limit_w=900.0, reason="room for the lowest step")}
+
+
+def test_manual_mode_reminds_once_at_the_first_proposed_start() -> None:
+    day = Day()
+    day.poll(_snap(_off(1, 2), pv=600), manual=True, mode="Manual")
+    day.poll(_snap(_off(1, 2), pv=1200, plans=PROPOSED_START), manual=True, mode="Manual")
+    day.poll(_snap(_off(1, 2), pv=1300, plans=PROPOSED_START), manual=True, mode="Manual")
+
+    assert day.events == ["manual-reminder"]
+    assert day.texts["manual-reminder"] == (
+        "🖐 Manual mode: the sun could run a miner now (solar 1.2 kW).\n"
+        "Proposed: start Miner 1 at 900 W.\n"
+        "Nothing starts until you press Apply or switch to Automatic.\n"
+        "• Miner 1: stopped\n"
+        "• Miner 2: stopped\n"
+        "Mode: Manual"
+    )
+
+
+def test_automatic_mode_needs_no_reminder() -> None:
+    day = Day()
+    day.poll(_snap(_off(1), pv=1200, plans=PROPOSED_START))
+
+    assert day.events == []
+
+
+def test_no_reminder_for_a_proposal_at_night() -> None:
+    day = Day()
+    day.poll(_snap(_off(1), plans=PROPOSED_START), manual=True, sun_up=False)
+
+    assert day.events == []
+
+
+def test_apply_after_the_reminder_opens_the_morning() -> None:
+    day = Day()
+    day.poll(_snap(_off(1), pv=1200, plans=PROPOSED_START), manual=True, mode="Manual")
+    day.start()  # the owner pressed Apply: the integration sent the start
+    day.poll(_snap([_miner(1, 900)], pv=1300), manual=True, mode="Manual")
+    day.poll(_snap([_miner(1, 900)], pv=1300, plans=PROPOSED_START), manual=True, mode="Manual")
+
+    assert day.events == ["manual-reminder", "morning"]
+
+
+def test_manual_without_a_proposed_start_stays_quiet_until_the_evening() -> None:
+    day = Day()
+    day.poll(_snap(_off(1), pv=300), manual=True, mode="Manual")  # overcast: nothing proposed
+    day.poll(_snap(_off(1), pv=0), minutes=600, manual=True, mode="Manual", sun_up=False)
+
+    assert day.events == ["evening"]
+    assert "No miner mined today." in day.texts["evening"] and day.texts["evening"].endswith("Mode: Manual")
+
+
+def test_switching_to_manual_after_the_morning_sends_no_reminder() -> None:
+    day = _morning()
+    day.poll(_snap([_miner(1, 900), *_off(2)], pv=2000, plans={
+        "192.0.2.2": MinerPlan(ACTION_START, limit_w=900.0, reason="room"),
+    }), manual=True, mode="Manual")
+
+    assert day.events == ["morning"]
+
+
+def test_the_reminder_isnt_sent_again_after_a_restart() -> None:
+    day = Day()
+    day.poll(_snap(_off(1), pv=1200, plans=PROPOSED_START), manual=True, mode="Manual")
+    again = Day(DayMessages(day.messages.as_dict()), start=day.now)
+    again.poll(_snap(_off(1), pv=1200, plans=PROPOSED_START), manual=True, mode="Manual", picking_up=True)
+
+    assert day.events == ["manual-reminder"] and again.events == []
+
+
 # --- morning ------------------------------------------------------------------
 
 
@@ -158,18 +233,21 @@ def test_a_start_by_hand_at_night_sends_nothing_and_the_morning_still_comes() ->
     day.poll(_snap(_off(1, 2)), sun_up=False)
     assert day.events == []
 
-    day.poll(_snap([_miner(1, 900), *_off(2)], pv=950), minutes=400)
+    day.poll(_snap(_off(1, 2), pv=950), minutes=400)  # 08:10
+    day.start()
     day.poll(_snap([_miner(1, 900), *_off(2)], pv=1000))
     assert day.events == ["morning"]
-    assert day.texts["morning"].startswith("☀️ Production is up (08:11).")
+    assert day.texts["morning"].startswith("⛏️ First miner started at 08:11 (Miner 1, 900 W).")
 
 
-def test_a_house_load_switching_off_at_sunrise_is_not_the_morning() -> None:
+def test_solar_alone_doesnt_open_the_morning() -> None:
+    """Plan 2026-10-15-003: the morning is the integration's first start, not the PV at the
+    lowest step (0.8.7 and 0.8.8)."""
     day = Day()
-    for pv in (250, 450, 450, 450):  # 200 W more on the meter: still below the lowest step
+    for pv in (250, 950, 1500, 2000):
         day.poll(_snap(_off(1), pv=pv))
 
-    assert day.events == [] and day.state["first_production_at"] is None
+    assert day.events == [] and day.state["first_start_at"] is None
 
 
 def test_picked_up_with_the_miners_mining_sends_the_morning_at_once() -> None:
@@ -179,7 +257,7 @@ def test_picked_up_with_the_miners_mining_sends_the_morning_at_once() -> None:
 
     assert day.events == ["morning"]
     assert day.texts["morning"] == (
-        "☀️ Picked up the day at 10:08: production is already up.\n"
+        "⛏️ Picked up the day at 10:08: 3 miners already mining.\n"
         "• Miner 1: mining at 1,100 W\n"
         "• Miner 2: mining at 1,100 W\n"
         "• Miner 3: mining at 1,100 W"
@@ -200,7 +278,7 @@ def test_picked_up_on_the_same_date_after_a_restart() -> None:
     day = Day(DayMessages(night.messages.as_dict()), start=datetime.fromisoformat("2026-10-15T10:07:00+03:00"))
     day.poll(_snap([_miner(1, 1100)]), picking_up=True)
 
-    assert day.events == ["morning"] and day.texts["morning"].startswith("☀️ Picked up the day at 10:08")
+    assert day.events == ["morning"] and day.texts["morning"].startswith("⛏️ Picked up the day at 10:08: 1 miner already")
 
 
 def test_picked_up_at_night_waits_for_the_day() -> None:
@@ -212,14 +290,28 @@ def test_picked_up_at_night_waits_for_the_day() -> None:
 
 def test_a_start_by_hand_in_daylight_doesnt_open_the_morning() -> None:
     day = Day()
-    day.poll(_snap(_off(1)))
-    day.poll(_snap([_miner(1, 900)]))  # no command of ours, no PV reading
-    day.poll(_snap([_miner(1, 900)]))
-
+    day.poll(_snap(_off(1, 2)))
+    day.poll(_snap([_miner(1, 900), *_off(2)], pv=2000))  # no command of ours
+    day.poll(_snap([_miner(1, 900), *_off(2)], pv=2000))
     assert day.events == []
 
+    day.start("Miner 2")  # the integration's start later that day opens it
+    day.poll(_snap([_miner(1, 900), _miner(2, 900)], pv=2000))
+    assert day.events == ["morning"] and day.texts["morning"].startswith("⛏️ First miner started at 07:04 (Miner 2")
 
-def test_an_own_start_on_an_overcast_day_is_usable_production() -> None:
+
+def test_a_day_of_hand_starts_gets_only_the_evening() -> None:
+    day = Day()
+    for _ in range(3):
+        day.poll(_snap([_miner(1, 1300), _miner(2, 1300)], pv=3000))  # by hand, at the top step
+    day.poll(_snap([_miner(1, 1300), _miner(2, 1100)], pv=2000), minutes=420, rising=False)
+    day.poll(_snap(_off(1, 2)), minutes=120, sun_up=False, rising=False)
+
+    assert day.events == ["evening"]
+    assert "The integration started no miner today." in day.texts["evening"]
+
+
+def test_an_own_start_on_an_overcast_day_opens_the_morning() -> None:
     """A Manual-mode Apply counts too: the controller sent it and it finished ok."""
     day = Day()
     day.poll(_snap(_off(1), pv=300))
@@ -229,7 +321,7 @@ def test_an_own_start_on_an_overcast_day_is_usable_production() -> None:
 
     assert day.events == ["morning", "evening"]
     assert day.texts["morning"].endswith("• Miner 1: mining at 900 W\nMode: Manual")
-    assert "No usable production" not in day.texts["evening"]
+    assert "started no miner" not in day.texts["evening"]
 
 
 def test_the_morning_uses_the_time_the_start_was_sent() -> None:
@@ -239,17 +331,28 @@ def test_the_morning_uses_the_time_the_start_was_sent() -> None:
     day.poll(_snap(_off(1)), minutes=4)  # it finishes ok later; the morning says 07:02
     day.poll(_snap([_miner(1, 900)]))
 
-    assert day.texts["morning"].startswith("☀️ Production is up (07:02).")
+    assert day.texts["morning"].startswith("⛏️ First miner started at 07:02 (Miner 1, 900 W).")
 
 
-def test_the_morning_forecast_is_the_last_one_before_production() -> None:
+def test_the_morning_forecast_is_the_one_the_message_showed() -> None:
     day = Day()
     day.poll(_snap(_off(1), remaining=30.0), sun_up=False)
-    day.poll(_snap(_off(1), remaining=32.5))
-    day.poll(_snap([_miner(1, 900)], pv=950, remaining=31.0))
+    day.poll(_snap(_off(1), pv=600, remaining=32.5), minutes=30)
+    day.start()
+    day.poll(_snap([_miner(1, 900)], pv=950, remaining=31.4))
     day.poll(_snap([_miner(1, 900)], pv=950, remaining=30.9))
 
-    assert day.events == ["morning"] and day.state["forecast_at_start_kwh"] == 31.0
+    assert day.events == ["morning"]
+    assert "Forecast, rough: about 31 kWh for the rest of today." in day.texts["morning"]
+    assert day.state["forecast_at_start_kwh"] == 31.4
+    assert day.state["solar_at_start_kwh"] > 0  # the solar before the first start
+
+
+def test_a_pickup_keeps_the_forecast_it_showed() -> None:
+    day = Day(start=datetime.fromisoformat("2026-10-15T10:07:00+03:00"))
+    day.poll(_snap([_miner(1, 1100)], pv=2000, remaining=12.0), picking_up=True)
+
+    assert day.state["picked_up"] and day.state["forecast_at_start_kwh"] == 12.0
 
 
 def test_without_sun_sun_an_own_start_opens_and_the_sunset_closes() -> None:
@@ -267,7 +370,7 @@ def test_the_messages_leave_out_what_is_missing() -> None:
     day.start()
     day.poll(_snap([_miner(1, 900)]))  # no forecast sensors
 
-    assert day.texts["morning"] == "☀️ Production is up (07:01).\n• Miner 1: mining at 900 W"
+    assert day.texts["morning"] == "⛏️ First miner started at 07:01 (Miner 1, 900 W).\n• Miner 1: mining at 900 W"
 
 
 # --- peak ---------------------------------------------------------------------
@@ -405,7 +508,7 @@ def test_an_overcast_day_still_gets_its_evening() -> None:
     day.poll(_snap(_off(1, 2), pv=0), minutes=600, sun_up=False)
 
     assert day.events == ["evening"]
-    assert day.texts["evening"].startswith("🌙 Day done: the sun has set (17:01).\nNo usable production today.\n")
+    assert day.texts["evening"].startswith("🌙 Day done: the sun has set (17:01).\nNo miner mined today.\n")
 
 
 def test_no_evening_before_the_sun_was_seen_up() -> None:
@@ -449,15 +552,36 @@ def test_a_restart_of_ha_repeats_nothing_and_keeps_the_morning() -> None:
     again.poll(_snap([_miner(1, 1300), _miner(2, 1300)], pv=3400))
 
     assert again.events == []
-    assert again.state["first_production_at"] == "2026-10-12T07:02:00+03:00"
+    assert again.state["first_start_at"] == "2026-10-12T07:02:00+03:00"
 
 
-def test_a_day_saved_by_0_8_6_loads_with_todays_names() -> None:
-    saved = {"date": "2026-10-12", "sent": ["morning", "all_max"], "first_start_at": "x", "pv_kwh": 3.0}
+def test_a_day_saved_by_an_older_version_loads_with_todays_names() -> None:
+    saved = {
+        "date": "2026-10-12", "sent": ["morning", "all_max"], "pv_kwh": 3.0,  # 0.8.4 to 0.8.6
+        "first_production_at": "2026-10-12T07:02:00+03:00",  # 0.8.7 and 0.8.8
+    }
     messages = DayMessages(saved)
 
     assert messages.state["sent"] == ["morning", "peak"]
-    assert "first_start_at" not in messages.state and "pv_kwh" not in messages.state
+    assert messages.state["first_start_at"] == "2026-10-12T07:02:00+03:00"
+    assert "first_production_at" not in messages.state and "pv_kwh" not in messages.state
+
+
+def test_a_day_opened_by_the_pv_in_0_8_8_still_gets_its_morning() -> None:
+    saved = {"date": "2026-10-12", "sent": [], "first_production_at": "2026-10-12T07:30:00+03:00"}
+    day = Day(DayMessages(saved), start=datetime.fromisoformat("2026-10-12T07:30:00+03:00"))
+    day.poll(_snap([_miner(1, 900)]))
+
+    assert day.events == ["morning"] and day.texts["morning"].startswith("⛏️ The day started at 07:30.")
+
+
+def test_after_the_update_the_morning_isnt_sent_again() -> None:
+    saved = {"date": "2026-10-12", "sent": ["morning"], "first_production_at": "2026-10-12T07:02:00+03:00"}
+    day = Day(DayMessages(saved), start=datetime.fromisoformat("2026-10-12T10:00:00+03:00"))
+    day.poll(_snap([_miner(1, 900)]), picking_up=True)
+    day.poll(_snap([_miner(1, 900)]))
+
+    assert day.events == []
 
 
 def test_the_day_records_every_kind_of_command_and_starts_afresh() -> None:
@@ -470,7 +594,9 @@ def test_the_day_records_every_kind_of_command_and_starts_afresh() -> None:
 
     day = Day(messages, start=datetime.fromisoformat("2026-10-13T00:00:00+03:00"))
     day.poll(_snap(_off(1)), sun_up=False)
-    assert messages.state["commands"] == [{"at": "2026-10-13T00:00:05+03:00", "miner": "Miner 2", "kind": "start"}]
+    assert messages.state["commands"] == [
+        {"at": "2026-10-13T00:00:05+03:00", "miner": "Miner 2", "kind": "start", "limit_w": None}
+    ]
 
 
 def test_the_saved_day_is_a_copy() -> None:

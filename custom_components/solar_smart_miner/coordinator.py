@@ -64,6 +64,7 @@ from .config_flow import (
 )
 from .const import (
     CONTROL_MODE_AUTO,
+    CONTROL_MODE_MANUAL,
     CONTROL_MODE_LABELS,
     CONF_FARM_BASE_LOAD,
     CONF_FARM_BATTERY,
@@ -690,6 +691,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 rising=None if sun is None else bool(sun.attributes.get("rising")),
                 sunset=inputs["sunset"],
                 mode=None if mode == CONTROL_MODE_AUTO else CONTROL_MODE_LABELS.get(mode, mode),
+                manual=mode == CONTROL_MODE_MANUAL,
                 battery=options.get(CONF_FARM_BATTERY) == "present",
                 picking_up=self._picking_up,
             )
@@ -798,7 +800,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         else:
             sent_at = self._command_sent_at.pop(event.command_id, event.ts)
             if event.status == RESULT_OK:  # the day's record of the integration's own commands
-                self.day_report.note_command(sent_at, event.miner_name, event.plan.action)
+                self.day_report.note_command(sent_at, event.miner_name, event.plan.action, event.plan.limit_w)
         if event.status == RESULT_PENDING and self._grid_unknown_since is not None:
             self._estimate_used = True  # one change per meter outage on an estimated import
         if event.status == RESULT_PENDING and event.plan.reason in HELD_DOWN_REASONS:

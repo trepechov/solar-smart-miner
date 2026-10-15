@@ -234,17 +234,37 @@ def test_today_so_far_and_a_kept_day_on_request() -> None:
     assert messages.report("2026-10-01") is None
 
 
-def test_the_forecast_against_what_came() -> None:
+def test_the_forecast_against_the_solar_after_the_first_start() -> None:
+    """Plan 2026-10-15-003: the morning message's rough forecast covers the rest of the day, so
+    the report and the sensor compare it with the solar from the first start on."""
     messages = DayMessages()
     _poll(messages, T0.replace(hour=6), _snap(pv=0, grid=-300, remaining=20.0), sun_up=False)
-    _poll(messages, T0.replace(hour=7), _snap(pv=0, grid=-300, remaining=10.0))  # the last before production
-    for k in range(1, 4 * 60 + 1):  # 4 h at 2.5 kW = 10 kWh... plus the hold
-        _poll(messages, T0.replace(hour=7) + timedelta(minutes=k), _snap([_miner(1, w=900.0, th=20.0)], pv=2500, grid=-100))
+    for k in range(60):  # 07:00-08:00 at 1 kW before any start: 1 kWh the forecast doesn't cover
+        _poll(messages, T0.replace(hour=7) + timedelta(minutes=k), _snap(pv=1000, grid=-300, remaining=10.0))
+    messages.note_command(T0.replace(hour=8).isoformat(), "Miner 1", ACTION_START, 900.0)
+    for k in range(4 * 60 + 1):  # 4 h at 2.5 kW = 10 kWh after the start
+        _poll(messages, T0.replace(hour=8) + timedelta(minutes=k), _snap([_miner(1, w=900.0, th=20.0)], pv=2500, grid=-100, remaining=10.0))
     d = messages.report()
 
-    assert d["forecast_kwh"] == 10.0
+    assert d["forecast_kwh"] == 10.0 and d["forecast_from"] == "08:00"
+    assert round(d["solar_after_start"], 1) == 10.0 and round(d["totals"]["solar"], 1) == 11.0
     assert round(forecast_ratio(d), 2) == 1.0
-    assert "🔮 Forecast this morning: 10.0 kWh; the panels gave 10.0 kWh (100%)" in format_text(d)
+    assert "🔮 Forecast this morning (rough): about 10.0 kWh from 08:00 on; the panels gave 10.0 kWh (100%)" in format_text(d)
+
+
+def test_a_day_kept_by_0_8_8_compares_with_the_whole_day() -> None:
+    d = {"forecast_kwh": 20.0, "solar_known": True, "totals": {"solar": 30.0}}
+
+    assert forecast_ratio(d) == 1.5
+
+
+def test_no_start_no_forecast_line() -> None:
+    messages = DayMessages()
+    for k in range(3):  # miners started by hand: the morning, and its forecast, never come
+        _poll(messages, T0 + timedelta(hours=5, minutes=k), _snap([_miner(1, w=900.0, th=20.0)], pv=3000, grid=-100, remaining=15.0))
+    d = messages.report()
+
+    assert d["forecast_kwh"] is None and forecast_ratio(d) is None and "Forecast" not in format_text(d)
 
 
 def test_no_forecast_sensors_no_forecast_line() -> None:

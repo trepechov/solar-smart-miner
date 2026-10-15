@@ -13,7 +13,7 @@ from ..control import is_mining
 from ..decision.describe import _w
 from ..protocols import CoordinatorSnapshot, EnergySnapshot, MinerSnapshot
 
-CONFIRM_POLLS = 2  # all at max, a stop, and the PV at the lowest step must be seen this many polls in a row
+CONFIRM_POLLS = 2  # all at max and a stop must be seen this many polls in a row
 
 
 @dataclass
@@ -28,6 +28,7 @@ class DayContext:
     rising: bool | None  # sun.sun's `rising`: true until solar noon
     sunset: bool  # the sunset transition's latch; used only without sun.sun
     mode: str | None = None  # the control mode's label when it isn't Automatic
+    manual: bool = False  # Manual mode: the decision's plans wait for the Apply button
     battery: bool = False  # Configure -> Farm says a battery is present
     picking_up: bool = False  # the first readable poll since HA started
     # Worked out by DayMessages before the rules run

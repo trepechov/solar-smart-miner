@@ -12,7 +12,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .config_flow import CONF_BATTERY_ENTITY, CONF_GRID_ENTITY
 from .const import DOMAIN
 from .coordinator import SolarMinerCoordinator
-from .messages.day_report import forecast_ratio, format_text
+from .messages.day_report import forecast_after, forecast_ratio, format_text
 from .protocols import MinerSnapshot
 
 
@@ -359,8 +359,9 @@ class DayReportSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
 
 
 class ForecastAccuracySensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
-    """The solar that came against the morning's forecast, for the latest finished day (100% =
-    spot on). Its history in the recorder shows how far to trust the forecast."""
+    """The solar that came after the first start against the rough forecast the morning message
+    showed, for the latest finished day (100% = spot on). Its history in the recorder shows how
+    far to trust the forecast."""
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:weather-partly-cloudy"
@@ -388,7 +389,11 @@ class ForecastAccuracySensor(CoordinatorEntity[SolarMinerCoordinator], SensorEnt
         d = self._latest
         if not d:
             return {}
-        return {"date": d["date"], "forecast_kwh": d.get("forecast_kwh"), "solar_kwh": round(d["totals"]["solar"], 2)}
+        after = forecast_after(d)
+        return {
+            "date": d["date"], "forecast_kwh": d.get("forecast_kwh"), "forecast_from": d.get("forecast_from"),
+            "solar_kwh": round(after, 2) if after is not None else None,
+        }
 
 
 class BatterySocSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
