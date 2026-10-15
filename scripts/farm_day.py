@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """One farm day as a report: the totals, an infographic card (PNG) and a Telegram text.
 
-Run from the repo root:
+Run from the repo root, with the dev environment (it formats with the integration's template):
 
-  python3 scripts/farm_day.py build 2026-10-12 [--test] [--out DIR]
+  .venv/bin/python scripts/farm_day.py build 2026-10-12 [--test] [--out DIR]
       Download the day from the farm's Home Assistant (recorder history), work out the energy
       and the miners' day, and write farm-day-<date>.json / .txt / .png into DIR
       (default config/farm-history/reports/). --test marks the card and the text as a test.
 
-  python3 scripts/farm_day.py send 2026-10-12 [--test] [--out DIR]
+  .venv/bin/python scripts/farm_day.py send 2026-10-12 [--test] [--out DIR]
       Build, then send the card (photo with a short caption) and the long text to the Telegram
       chat in secrets/telegram.env (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID). Neither is printed.
 
@@ -40,6 +40,13 @@ import uuid
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))  # the integration's template: the same words as its day report
+from custom_components.solar_smart_miner.messages.day_report import (  # noqa: E402
+    TEST_LINE,
+    format_text,
+    sci,
+    start_burst,
+)
 CARD_TEMPLATE = Path(__file__).with_name("farm_day_card.html")
 DEFAULT_OUT = ROOT / "config" / "farm-history" / "reports"
 BIN_MIN = 15
@@ -48,7 +55,6 @@ MINING_TH_S = 1.0  # hashrate above this counts as mining
 LIGHT_W = 50  # inverter output above this counts as production
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
-TEST_LINE = "🧪 TEST MESSAGE: daily report preview, please ignore"
 
 Points = list[tuple[dt.datetime, float]]
 
@@ -259,80 +265,10 @@ def _grid_window(h_mgrid: list[float], width: int = 3) -> tuple[str, str] | None
 # ---------------------------------------------------------------- words
 
 
-def sci(x: float) -> str:
-    """6.81e18 → '6.8 × 10¹⁸'."""
-    if x <= 0:
-        return "0"
-    exp = int(math.floor(math.log10(x)))
-    sup = str(exp).translate(str.maketrans("-0123456789", "⁻⁰¹²³⁴⁵⁶⁷⁸⁹"))
-    return f"{x / 10 ** exp:.1f} × 10{sup}"
-
-
-def start_burst(starts: list[str], within_min: int = 60, least: int = 3) -> list[str]:
-    """The largest run of starts ("HH:MM") inside one window, when it has at least `least`."""
-    mins = [int(s[:2]) * 60 + int(s[3:]) for s in starts]
-    best: list[str] = []
-    for i, a in enumerate(mins):
-        run = [starts[j] for j in range(i, len(mins)) if mins[j] - a <= within_min]
-        if len(run) > len(best):
-            best = run
-    return best if len(best) >= least else []
-
-
 def headline(d: dict) -> str:
     if not d["totals"]["miners"]:
         return "No mining today"
     return f"{d['solar_share_pct']}% of the miners' power came from the sun"
-
-
-def format_text(d: dict, test: bool = False) -> str:
-    """The long Telegram text. A reading that is missing leaves its part out."""
-    t = d["totals"]
-    lines = [TEST_LINE, ""] if test else []
-    lines.append(f"📊 Farm day: {d['day_label']}")
-    lines.append("")
-    extra = []
-    if d["light"]:
-        extra.append(f"{d['light'][0]}–{d['light'][1]}")
-    if d["best_slice"]:
-        extra.append(f"best 15 min {d['best_slice']['kw']:.1f} kW at {d['best_slice']['at']}")
-    lines.append(f"☀️ Solar: {t['solar']:.1f} kWh" + (f" ({', '.join(extra)})" if extra else ""))
-    if t["miners"]:
-        lines.append(
-            f"⛏️ Miners: {t['miners']:.1f} kWh, {d['solar_share_pct']}% from the sun "
-            f"({t['miners_solar']:.1f} solar + {t['miners_grid']:.1f} grid)"
-        )
-    else:
-        lines.append("⛏️ Miners: no mining today")
-    lines.append(f"🏠 House & other: {t['house']:.1f} kWh ({t['house_grid']:.1f} from the grid)")
-    lines.append(f"🔌 Grid bought: {t['import']:.1f} kWh · exported: {t['export']:.1f} kWh")
-    if d["self_use_pct"] is not None:
-        lines.append(f"✅ {d['self_use_pct']}% of the solar energy was used on site")
-    mining = [m for m in d["miners"] if m["kwh"] > 0.05]
-    if mining:
-        lines += ["", "Miners"]
-        for m in mining:
-            parts = [f"{m['kwh']:.1f} kWh", f"{m['hours']:.1f} h", f"avg {m['avg_th_s']:.1f} TH/s"]
-            if m["j_per_th"]:
-                parts.append(f"{m['j_per_th']:.1f} J/TH")
-            lines.append(f"• {m['name']}: " + " · ".join(parts))
-    lines.append("")
-    c = d["commands"]
-    facts = []
-    if d["hashes"]:
-        facts.append(f"{sci(d['hashes'])} hashes")
-    if c["total"]:
-        facts.append(f"{c['total']} commands ({c['start']} starts, {c['stop']} stops, {c['limit']} limit changes)")
-    if facts:
-        lines.append("🔢 " + " · ".join(facts))
-    if d["grid_topup"]:
-        g = d["grid_topup"]
-        lines.append(f"☁️ Grid topped up the miners with {g['kwh']:.1f} kWh, most between {g['from']} and {g['to']}")
-    for m in d["miners"]:
-        burst = start_burst(m["starts"])
-        if burst:
-            lines.append(f"⚠️ {m['name']} started {len(burst)}× between {burst[0]} and {burst[-1]} (start/stop flip-flop)")
-    return "\n".join(lines).rstrip() + "\n"
 
 
 def format_caption(d: dict, test: bool = False) -> str:

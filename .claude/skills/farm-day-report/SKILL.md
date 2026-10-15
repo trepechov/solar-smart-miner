@@ -30,8 +30,8 @@ the numbers and words come from `scripts/farm_day.py`, the card from `scripts/fa
      missing, ask the owner to create it. Don't read the token out of the integration's options.
 2. Build (and send, when asked), from the repo root:
    ```bash
-   python3 scripts/farm_day.py build 2026-10-12 --test     # card + text + data
-   python3 scripts/farm_day.py send 2026-10-12 --test      # the same, then photo + text to Telegram
+   .venv/bin/python scripts/farm_day.py build 2026-10-12 --test     # card + text + data
+   .venv/bin/python scripts/farm_day.py send 2026-10-12 --test      # the same, then photo + text to Telegram
    ```
    Output goes to `config/farm-history/reports/farm-day-<date>.{png,txt,json}` (git-ignored).
 3. Look at the PNG once (Read it) for clipped labels or overlaps before sending.

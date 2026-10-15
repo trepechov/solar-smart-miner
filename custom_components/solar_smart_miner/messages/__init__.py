@@ -13,11 +13,13 @@ The sun-driven policy (Solar-follow), in order:
 3. going-down (going_down.py): a step down that matches the sun's decline; other step downs
    are clouds, counted.
 4. evening (evening.py): the sun below the horizon.
+5. day-report (day_report.py): the calendar day that ended, after midnight.
 
 The rules only observe: they read the snapshot and the decision's own definitions (mining,
 settled, the ladder, the band, sun.sun) and never feed a decision. Each has one test group and
-one knowledge-base entry (knowledge/messages.yaml). The day survives a restart of HA (the
-coordinator saves `as_dict`).
+one knowledge-base entry (knowledge/messages.yaml). Each poll also adds to the day's totals
+(totals.py). The day survives a restart of HA (the coordinator saves `as_dict`), and the last
+KEPT_DAYS finished days stay for a report on request.
 """
 from __future__ import annotations
 
@@ -34,11 +36,11 @@ from ..protocols import (
     CoordinatorSnapshot,
     MinerSnapshot,
 )
-from . import evening, going_down, morning, peak
+from . import day_report, evening, going_down, morning, peak, totals
 from .context import CONFIRM_POLLS, DayContext, actual_pv_w
 
 POLICIES = {
-    "sun_driven": (morning, peak, going_down, evening),
+    "sun_driven": (morning, peak, going_down, evening, day_report),
 }
 
 COMMAND_KINDS = {ACTION_START: "start", ACTION_STOP: "stop", ACTION_SET_LIMIT: "limit"}
@@ -67,6 +69,8 @@ def new_day(date: str | None) -> dict:
         "last_mining_at": None,  # ISO time of the last poll a miner mined
         "evening_at": None,
         "commands": [],  # {"at", "miner", "kind"}: the integration's commands that finished ok
+        "totals": totals.new_totals(),
+        "kept_days": [],  # finished days, newest last: {"date", "report", "reported"}
     }
 
 
@@ -95,6 +99,12 @@ class DayMessages:
         self._down_polls: dict[str, int] = {}  # polls in a row not mining (restarts excluded)
         self._reasons: dict[str, str] = {}  # the reason of the plan that lowered or stopped it
 
+    def report(self, date: str | None = None) -> dict | None:
+        """The day report's figures: a kept day, or today so far (None: not kept)."""
+        if date is None or date == self.state["date"]:
+            return day_report.build_report(self.state) if self.state["date"] else None
+        return next((k["report"] for k in self.state["kept_days"] if k["date"] == date), None)
+
     def as_dict(self) -> dict:
         return copy.deepcopy(self.state)  # Store serialises it in a thread
 
@@ -107,6 +117,7 @@ class DayMessages:
     def update(self, ctx: DayContext, policy: tuple) -> list[tuple[str, str]]:
         """One poll, after the decision. Returns (rule name, text) for each rule that fired."""
         self._begin_day(ctx.now)
+        totals.add_poll(self.state["totals"], ctx.now, ctx.energy, ctx.snapshot.miners)
         self._observe(ctx)
         ctx.memory = self._memory
         state = self.state
@@ -124,9 +135,14 @@ class DayMessages:
         today = now.date().isoformat()
         if self.state["date"] == today:
             return
-        commands = [c for c in self.state["commands"] if c["at"][:10] == today]  # sent just before
+        old = self.state
+        kept = old["kept_days"]
+        if old["date"] is not None and old["totals"]["last_poll"] is not None:
+            ended_early = totals.ended_early(old["totals"], old["date"])
+            kept = [*kept, day_report.finish_day(old, ended_early)][-day_report.KEPT_DAYS:]
+        commands = [c for c in old["commands"] if c["at"][:10] == today]  # sent just before
         self.state = new_day(today)
-        self.state["commands"] = commands
+        self.state.update(commands=commands, kept_days=kept)
         self._memory, self._reasons, self._usable_polls = {}, {}, 0
 
     def _observe(self, ctx: DayContext) -> None:
@@ -166,7 +182,8 @@ class DayMessages:
         elif self._usable_polls >= CONFIRM_POLLS:
             state["first_production_at"] = ctx.stamp
         else:
-            state["forecast_at_start_kwh"] = ctx.energy.forecast_remaining_kwh
+            if ctx.energy.forecast_remaining_kwh is not None:  # the last one read before production
+                state["forecast_at_start_kwh"] = ctx.energy.forecast_remaining_kwh
             return
         if state["picked_up"]:
             state["forecast_at_start_kwh"] = None  # the morning's forecast wasn't seen

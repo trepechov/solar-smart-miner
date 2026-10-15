@@ -44,7 +44,10 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: SolarMinerCoordinator = entry.runtime_data
-    async_add_entities([AddToDashboardButton(entry), AskAiButton(entry), ApplyAllButton(coordinator, entry)])
+    async_add_entities([
+        AddToDashboardButton(entry), AskAiButton(entry), ApplyAllButton(coordinator, entry),
+        SendDayReportButton(coordinator, entry),
+    ])
 
 
 
@@ -264,3 +267,19 @@ def _decision_log_card(
         "      {% endfor %}",
         *ai_lines,
     ]
+
+
+class SendDayReportButton(ButtonEntity):
+    """Sends today's day report so far to Telegram, marked as a test (messages/day_report.py)."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Send day report"
+    _attr_icon = "mdi:file-chart-outline"
+
+    def __init__(self, coordinator: SolarMinerCoordinator, entry: ConfigEntry) -> None:
+        self._coordinator = coordinator
+        self._attr_unique_id = f"{entry.entry_id}_send_day_report"
+        self._attr_device_info = _hub_device_info(entry)
+
+    async def async_press(self) -> None:
+        await self._coordinator.async_send_day_report(test=True)

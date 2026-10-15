@@ -12,6 +12,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .config_flow import CONF_BATTERY_ENTITY, CONF_GRID_ENTITY
 from .const import DOMAIN
 from .coordinator import SolarMinerCoordinator
+from .messages.day_report import forecast_ratio, format_text
 from .protocols import MinerSnapshot
 
 
@@ -37,6 +38,8 @@ async def async_setup_entry(
         AiAdviceSensor(coordinator, entry),
         LastActionSensor(coordinator, entry),
         ActivitySensor(coordinator, entry),
+        DayReportSensor(coordinator, entry),
+        ForecastAccuracySensor(coordinator, entry),
     ]
 
     if entry.data.get(CONF_GRID_ENTITY, ""):
@@ -326,6 +329,66 @@ class ActivitySensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
             "fingerprint": fingerprint,
             "feed": feed,
         }
+
+
+class DayReportSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
+    """The latest finished day's report: its date, and the text in `text` (messages/day_report.py)."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:file-chart-outline"
+    _unrecorded_attributes = frozenset({"text"})
+
+    def __init__(self, coordinator: SolarMinerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.unique_id or entry.entry_id}_day_report"
+        self._attr_name = "Day report"
+        self._attr_device_info = _hub_device_info(entry)
+
+    @property
+    def _latest(self) -> dict | None:
+        kept = self.coordinator.day_report.state["kept_days"]
+        return kept[-1] if kept else None
+
+    @property
+    def native_value(self) -> str | None:
+        return self._latest["date"] if self._latest else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"text": format_text(self._latest["report"]) if self._latest else None}
+
+
+class ForecastAccuracySensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
+    """The solar that came against the morning's forecast, for the latest finished day (100% =
+    spot on). Its history in the recorder shows how far to trust the forecast."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:weather-partly-cloudy"
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator: SolarMinerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.unique_id or entry.entry_id}_forecast_accuracy"
+        self._attr_name = "Forecast accuracy"
+        self._attr_device_info = _hub_device_info(entry)
+
+    @property
+    def _latest(self) -> dict | None:
+        kept = self.coordinator.day_report.state["kept_days"]
+        return kept[-1]["report"] if kept else None
+
+    @property
+    def native_value(self) -> float | None:
+        ratio = forecast_ratio(self._latest) if self._latest else None
+        return round(100 * ratio) if ratio is not None else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        d = self._latest
+        if not d:
+            return {}
+        return {"date": d["date"], "forecast_kwh": d.get("forecast_kwh"), "solar_kwh": round(d["totals"]["solar"], 2)}
 
 
 class BatterySocSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):

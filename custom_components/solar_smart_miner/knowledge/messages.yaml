@@ -74,3 +74,22 @@ entries:
     source: "owner, 2026-10-15"
     date: "2026-10-15"
     tags: [sunset, night, messages]
+
+  - id: message.day-report
+    title: The day report closes the calendar day
+    statement: >
+      After midnight one report covers the day that ended: the solar, the miners' energy and its
+      share from the sun, the house and other loads as the rest of the balance, the grid in and
+      out, each miner's figures, the commands and any start/stop flip-flop, and the morning's
+      forecast against what came. Every figure is computed, never written by the AI. A reading
+      missing for a short while holds its last value; a longer gap, or Home Assistant not
+      running, marks the day incomplete. A report that couldn't go out is sent on the next poll.
+    priority: P3
+    status: decided
+    source: "owner, 2026-10-15; plan 2026-10-15-002"
+    date: "2026-10-15"
+    tags: [night, messages]
+    note: >
+      Reference farm, 2026-10-12: the PV reading dropped out 143 times (the longest 577 s);
+      counted as 0 W the solar was 29.6 kWh, held through the gaps 42.15 kWh, against 42.10 on
+      the inverters' own counters. The last seven finished days are kept for a report on request.

@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import logging
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry
+import voluptuous as vol
+
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import config_validation as cv, entity_registry
+from homeassistant.helpers.typing import ConfigType
 
 from .const import (  # noqa: F401
     CONF_CONTROL_MODE,
@@ -33,6 +37,38 @@ RETIRED_ENTITIES: tuple[tuple[str, str], ...] = (
     ("sensor", "_proposed_action"),
     ("select", "_profile"),
 )
+
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+SERVICE_SEND_DAY_REPORT = "send_day_report"
+SEND_DAY_REPORT_SCHEMA = vol.Schema({
+    vol.Optional("date"): cv.date,
+    vol.Optional("test", default=False): cv.boolean,
+    vol.Optional("config_entry_id"): cv.string,
+})
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """The actions, registered once for every farm (config entry)."""
+
+    async def send_day_report(call: ServiceCall) -> None:
+        entry_id = call.data.get("config_entry_id")
+        loaded = [
+            e for e in hass.config_entries.async_entries(DOMAIN)
+            if e.state is ConfigEntryState.LOADED and (entry_id is None or e.entry_id == entry_id)
+        ]
+        if not loaded:
+            raise ServiceValidationError("No Solar Smart Miner farm is loaded" + (f" with id {entry_id}." if entry_id else "."))
+        if len(loaded) > 1:
+            raise ServiceValidationError("There are several farms: say which one with config_entry_id.")
+        day = call.data.get("date")
+        await loaded[0].runtime_data.async_send_day_report(
+            day.isoformat() if day else None, test=call.data["test"]
+        )
+
+    hass.services.async_register(DOMAIN, SERVICE_SEND_DAY_REPORT, send_day_report, schema=SEND_DAY_REPORT_SCHEMA)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

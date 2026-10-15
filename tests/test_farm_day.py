@@ -121,3 +121,11 @@ def test_a_day_without_mining_says_so() -> None:
 
 def test_sci() -> None:
     assert farm_day.sci(6.81e18) == "6.8 × 10¹⁸"
+
+
+def test_the_prototype_and_the_integration_use_one_template() -> None:
+    from custom_components.solar_smart_miner.messages import day_report
+
+    assert farm_day.format_text is day_report.format_text
+    d = farm_day.compute_day(a_day(), FARM, DAY, TZ)
+    assert farm_day.format_text(d) == day_report.format_text(d)

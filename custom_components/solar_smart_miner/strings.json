@@ -183,5 +183,25 @@
       "telegram_incomplete": "Enter both the bot token and the chat ID, or clear both to turn Telegram off.",
       "telegram_failed": "The test message didn't arrive ({reason}). Check the token, that you pressed Start in the bot, and the chat ID."
     }
+  },
+  "services": {
+    "send_day_report": {
+      "name": "Send day report",
+      "description": "Sends a farm day report to the Telegram chat: today so far, or one of the last 7 finished days.",
+      "fields": {
+        "date": {
+          "name": "Date",
+          "description": "The day to report. Leave empty for today so far."
+        },
+        "test": {
+          "name": "Test",
+          "description": "Mark the report as a test message."
+        },
+        "config_entry_id": {
+          "name": "Farm",
+          "description": "The farm, when there is more than one."
+        }
+      }
+    }
   }
 }

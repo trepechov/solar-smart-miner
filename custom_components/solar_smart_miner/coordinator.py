@@ -16,7 +16,7 @@ import yaml
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry, entity_registry
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
@@ -28,7 +28,8 @@ from .ai import async_ask, build_messages
 from .ai_log import AiLog, build_record, complete_record
 from .messages import DayMessages, policy_for
 from .messages.context import DayContext
-from .notify import CONF_TELEGRAM_DAY, Notifier
+from .messages.day_report import KEPT_DAYS, format_text as format_day_report
+from .notify import CONF_TELEGRAM_DAY, Notifier, telegram_target
 from .config_flow import (
     CONF_AI_ENABLED,
     CONF_AI_INTERVAL,
@@ -710,6 +711,20 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 )
         except Exception:  # noqa: BLE001 - a report must never stop the cycle
             _LOGGER.exception("The day messages failed")
+
+    async def async_send_day_report(self, date: str | None = None, *, test: bool = False) -> None:
+        """Send a day report on request: today so far, or one of the kept days (the button, the
+        send_day_report action). Sent whatever the Day messages switch says."""
+        report = self.day_report.report(date)
+        if report is None:
+            raise ServiceValidationError(
+                f"There is no day report for {date}: the integration keeps the last {KEPT_DAYS} days."
+            )
+        if telegram_target(self._entry.options) is None:
+            raise ServiceValidationError("Telegram isn't set up: add the bot token and chat ID under Configure → Telegram.")
+        self.notifier.notify(
+            "day_report_request", "", format_day_report(report, test), push=True, persistent=False, cooldown_min=0,
+        )
 
     async def async_seed_transition(self) -> None:
         """After a reload during sunset, it stays sunset: the last decision line says so."""

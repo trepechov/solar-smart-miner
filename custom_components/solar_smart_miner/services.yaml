@@ -1,0 +1,14 @@
+send_day_report:
+  fields:
+    date:
+      example: "2026-10-12"
+      selector:
+        date:
+    test:
+      default: false
+      selector:
+        boolean:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: solar_smart_miner

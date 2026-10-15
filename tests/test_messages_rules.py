@@ -143,7 +143,7 @@ def test_each_message_once_a_day_and_again_the_next_day() -> None:
     day.start()
     day.poll(_snap([_miner(1, 900), *_off(2)]))
 
-    assert day.events == ["morning", "peak", "morning"]
+    assert day.events == ["morning", "peak", "day-report", "morning"]  # yesterday's report first
 
 
 # --- morning ------------------------------------------------------------------
