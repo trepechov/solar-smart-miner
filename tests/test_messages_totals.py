@@ -137,7 +137,7 @@ def test_a_one_minute_pv_gap_holds_the_last_reading() -> None:
     totals = messages.state["totals"]
 
     assert round(totals["solar_kwh"], 4) == round(3000 * 165 / 3600 / 1000, 4)
-    assert not totals["incomplete"]
+    assert not totals["reading_gap"] and not totals["missed"]
 
 
 def test_a_long_pv_gap_is_not_filled_and_the_day_is_incomplete() -> None:
@@ -148,7 +148,10 @@ def test_a_long_pv_gap_is_not_filled_and_the_day_is_incomplete() -> None:
     totals = messages.state["totals"]
 
     assert round(totals["solar_kwh"], 4) == round(3000 * 675 / 3600 / 1000, 4)  # last read at 75 s, held 600 s
-    assert totals["incomplete"]
+    assert totals["reading_gap"] and not totals["missed"]
+    text = format_text(messages.report())
+    assert "⚠️ A solar or grid reading was missing for over 10 min: the figures are incomplete" in text
+    assert "Not counted" not in text
 
 
 def test_a_reading_that_isnt_configured_leaves_its_line_out() -> None:
@@ -163,13 +166,53 @@ def test_a_reading_that_isnt_configured_leaves_its_line_out() -> None:
 
 def test_ha_down_over_midnight_marks_both_days_incomplete() -> None:
     messages = DayMessages()
-    _poll(messages, T0.replace(hour=21), _snap(pv=0, grid=-400), sun_up=False)
+    _poll(messages, T0.replace(hour=21, minute=59), _snap(pv=0, grid=-400), sun_up=False)
     _poll(messages, T0.replace(hour=22), _snap(pv=0, grid=-400), sun_up=False)  # last poll at 22:00
     events = _poll(messages, T0 + timedelta(days=1, hours=8), _snap(pv=500, grid=-400))
 
     assert events[0][0] == "day-report"
-    assert events[0][1].rstrip().endswith("Home Assistant wasn't running all day: the figures are incomplete")
-    assert messages.state["totals"]["incomplete"]  # today began at 08:00
+    assert events[0][1].rstrip().endswith(
+        "⚠️ Not counted 00:00–21:59, 22:00–24:00: the integration wasn't running, so the figures are incomplete"
+    )
+    assert messages.state["totals"]["missed"] == [["00:00", "08:00"]]  # today began at 08:00
+
+
+def test_the_report_names_each_span_that_wasnt_counted() -> None:
+    """2026-10-15 on the reference farm: the day's totals began with an update at 16:57, and
+    the report said HA wasn't running all day."""
+    messages = DayMessages()
+    _poll(messages, T0.replace(hour=16, minute=57), _snap(pv=800, grid=-400))
+    _poll(messages, T0.replace(hour=16, minute=58), _snap(pv=800, grid=-400))
+    _poll(messages, T0.replace(hour=17, minute=30), _snap(pv=300, grid=-400))  # restarted
+    _poll(messages, T0.replace(hour=17, minute=31), _snap(pv=300, grid=-400))
+    for k in range(1, 10):
+        _poll(messages, T0.replace(hour=23, minute=50) + timedelta(minutes=k), _snap(pv=0, grid=-400), sun_up=False)
+    events = _poll(messages, T0 + timedelta(days=1, minutes=1), _snap(pv=0, grid=-400), sun_up=False)
+
+    report = messages.report(T0.date().isoformat())
+    assert report["missed"] == [["00:00", "16:57"], ["16:58", "17:30"], ["17:31", "23:51"]]
+    assert report["incomplete"] and not report["reading_gap"]
+    assert "⚠️ Not counted 00:00–16:57, 16:58–17:30, 17:31–23:51: the integration wasn't running" in events[0][1]
+    assert "Home Assistant" not in events[0][1]
+    assert messages.state["totals"]["missed"] == []  # polled from 00:01
+
+
+def test_a_day_saved_before_the_missed_spans_loads_and_still_reports() -> None:
+    saved = DayMessages()
+    _poll(saved, T0.replace(hour=10), _snap(pv=800, grid=-400))
+    data = saved.as_dict()
+    for key in ("missed", "reading_gap"):
+        del data["totals"][key]
+    data["totals"]["incomplete"] = True  # as 0.8.9 saved it
+    data["kept_days"] = [{"date": "2026-10-11", "reported": False, "report": {
+        **saved.report(), "date": "2026-10-11", "incomplete": True}}]
+    for key in ("missed", "reading_gap"):
+        del data["kept_days"][0]["report"][key]
+    messages = DayMessages(data)
+
+    assert messages.state["totals"]["missed"] == [] and "incomplete" not in messages.state["totals"]
+    events = _poll(messages, T0.replace(hour=10, minute=1), _snap(pv=800, grid=-400))
+    assert "⚠️ Part of the day wasn't counted: the figures are incomplete" in events[0][1]
 
 
 def test_the_night_import_counts_without_mining() -> None:
@@ -274,3 +317,19 @@ def test_no_forecast_sensors_no_forecast_line() -> None:
     d = messages.report()
 
     assert forecast_ratio(d) is None and "Forecast" not in format_text(d)
+
+
+def test_an_update_during_the_day_loses_nothing() -> None:
+    """HA restarted for an update (2026-10-15 on the reference farm: about 40 s): the day saved
+    on unload is loaded, and the restart's gap is counted at the reading after it."""
+    messages = DayMessages()
+    for k in range(5):
+        _poll(messages, T0 + timedelta(minutes=k), _snap(pv=3000, grid=-500))
+    messages = DayMessages(messages.as_dict())  # saved on unload, loaded by the new version
+    for k in range(7, 10):  # back 3 minutes later
+        _poll(messages, T0 + timedelta(minutes=k), _snap(pv=3000, grid=-500))
+
+    d = messages.report()
+    assert d["missed"] == [] and not d["incomplete"]
+    assert round(d["totals"]["solar"], 3) == round(3000 * 9 / 60 / 1000, 3)
+    assert "Not counted" not in format_text(d)

@@ -96,8 +96,9 @@ entries:
       share from the sun, the house and other loads as the rest of the balance, the grid in and
       out, each miner's figures, the commands and any start/stop flip-flop, and the morning
       message's rough forecast against the solar that came after the first start. Every figure is computed, never written by the AI. A reading
-      missing for a short while holds its last value; a longer gap, or Home Assistant not
-      running, marks the day incomplete. A report that couldn't go out is sent on the next poll.
+      missing for a short while holds its last value; a longer gap marks the day incomplete, and
+      the hours without polls (Home Assistant or the integration not running) are named as not
+      counted. A report that couldn't go out is sent on the next poll.
     priority: P3
     status: decided
     source: "owner, 2026-10-15; plans 2026-10-15-002 and -003"
@@ -107,3 +108,5 @@ entries:
       Reference farm, 2026-10-12: the PV reading dropped out 143 times (the longest 577 s);
       counted as 0 W the solar was 29.6 kWh, held through the gaps 42.15 kWh, against 42.10 on
       the inverters' own counters. The last seven finished days are kept for a report on request.
+      2026-10-15: the totals began with the update at 16:57 and the report said Home Assistant
+      wasn't running all day; it now names the spans not counted (0.8.10).

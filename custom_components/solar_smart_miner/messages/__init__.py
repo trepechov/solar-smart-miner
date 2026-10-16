@@ -86,6 +86,8 @@ def _load(data: dict | None) -> dict:
         if key in state:
             state[key] = value
     state["sent"] = [OLD_NAMES.get(name, name) for name in state["sent"]]
+    fresh = totals.new_totals()  # 0.8.8 and 0.8.9 had no missed spans
+    state["totals"] = {**fresh, **{k: v for k, v in state["totals"].items() if k in fresh}}
     return state
 
 
@@ -142,8 +144,7 @@ class DayMessages:
         old = self.state
         kept = old["kept_days"]
         if old["date"] is not None and old["totals"]["last_poll"] is not None:
-            ended_early = totals.ended_early(old["totals"], old["date"])
-            kept = [*kept, day_report.finish_day(old, ended_early)][-day_report.KEPT_DAYS:]
+            kept = [*kept, day_report.finish_day(old)][-day_report.KEPT_DAYS:]
         commands = [c for c in old["commands"] if c["at"][:10] == today]  # sent just before
         self.state = new_day(today)
         self.state.update(commands=commands, kept_days=kept)

@@ -13,7 +13,7 @@ from datetime import date, datetime
 import math
 
 from .context import DayContext
-from .totals import SLICE_MIN, close_slice
+from .totals import READING_HOLD_S, SLICE_MIN, close_day
 
 NAME = "day-report"
 TEST_LINE = "🧪 TEST MESSAGE: daily report preview, please ignore"
@@ -43,7 +43,7 @@ def _grid_window(h_mgrid: list[float], width: int = 3) -> tuple[str, str] | None
     return f"{best:02d}:00", f"{best + width:02d}:00"
 
 
-def build_report(state: dict, *, incomplete: bool = False) -> dict:
+def build_report(state: dict) -> dict:
     """The day's figures as the template reads them (the prototype's shape). Leaves the
     totals as they are, so it works for today so far too."""
     totals = state["totals"]
@@ -100,14 +100,16 @@ def build_report(state: dict, *, incomplete: bool = False) -> dict:
         "solar_after_start": (
             solar - state["solar_at_start_kwh"] if state["solar_at_start_kwh"] is not None else None
         ),
-        "incomplete": incomplete or totals["incomplete"],
+        "missed": totals["missed"],
+        "reading_gap": totals["reading_gap"],
+        "incomplete": bool(totals["missed"]) or totals["reading_gap"],
     }
 
 
-def finish_day(state: dict, incomplete: bool) -> dict:
+def finish_day(state: dict) -> dict:
     """The day that ended, as a kept day not yet reported."""
-    close_slice(state["totals"])
-    return {"date": state["date"], "report": build_report(state, incomplete=incomplete), "reported": False}
+    close_day(state["totals"])
+    return {"date": state["date"], "report": build_report(state), "reported": False}
 
 
 def forecast_after(report: dict) -> float | None:
@@ -210,6 +212,11 @@ def format_text(d: dict, test: bool = False) -> str:
         burst = start_burst(m["starts"])
         if burst:
             lines.append(f"⚠️ {m['name']} started {len(burst)}× between {burst[0]} and {burst[-1]} (start/stop flip-flop)")
-    if d.get("incomplete"):
-        lines.append("⚠️ Home Assistant wasn't running all day: the figures are incomplete")
+    if d.get("missed"):
+        spans = ", ".join(f"{a}–{b}" for a, b in d["missed"])
+        lines.append(f"⚠️ Not counted {spans}: the integration wasn't running, so the figures are incomplete")
+    if d.get("reading_gap"):
+        lines.append(f"⚠️ A solar or grid reading was missing for over {READING_HOLD_S // 60} min: the figures are incomplete")
+    if d.get("incomplete") and "missed" not in d:  # kept by 0.8.8 or 0.8.9
+        lines.append("⚠️ Part of the day wasn't counted: the figures are incomplete")
     return "\n".join(lines).rstrip() + "\n"

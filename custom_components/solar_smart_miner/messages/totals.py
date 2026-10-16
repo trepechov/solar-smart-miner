@@ -7,9 +7,10 @@ energy of the time since the last poll is the reading now times that time.
 - A PV or grid reading missing for up to READING_HOLD_S holds its last value: on the reference
   farm the inverters' readings drop out 143 times a day (2026-10-12), mostly for about a minute,
   the longest for 577 s, and counting those as 0 W made the day's solar 30% short (0.8.4).
-  Missing for longer, it adds nothing and the day is incomplete.
-- A gap between polls longer than MAX_GAP_S (HA not running) adds nothing and makes the day
-  incomplete; so does a first poll that long after midnight or a last poll that long before.
+  Missing for longer, it adds nothing and the day is incomplete (`reading_gap`).
+- A gap between polls longer than MAX_GAP_S (HA or the integration not running) adds nothing
+  and is kept as a missed span ("HH:MM", "HH:MM"); so is a first poll that long after midnight
+  (00:00 to it) or a last poll that long before (it to 24:00). The report names the spans.
 - A miner adds its draw only while readable (a paused miner's reading goes unknown: 0 W).
 - The house and other loads are a remainder: solar + import - export - miners.
 
@@ -46,7 +47,8 @@ def new_totals() -> dict:
         "last_poll": None,  # ISO time
         "held": {},  # reading -> [last value, ISO time it was read]
         "solar_known": False,  # a solar reading was seen today
-        "incomplete": False,
+        "missed": [],  # ["HH:MM", "HH:MM"]: spans not counted, no polls (HA or the integration not running)
+        "reading_gap": False,  # a PV or grid reading was missing longer than READING_HOLD_S
     }
 
 
@@ -59,12 +61,25 @@ def _held(totals: dict, key: str, value: float | None, now: datetime) -> float |
         return None  # not configured, or not read yet today
     if (now - datetime.fromisoformat(last[1])).total_seconds() <= READING_HOLD_S:
         return last[0]
-    totals["incomplete"] = True
+    totals["reading_gap"] = True
     return None
 
 
 def _midnight(now: datetime) -> datetime:
     return now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _hhmm(at: datetime) -> str:
+    return at.strftime("%H:%M")
+
+
+def _miss(totals: dict, start: str, end: str) -> None:
+    """A span not counted; one that starts where the last ended extends it."""
+    missed = totals["missed"]
+    if missed and missed[-1][1] == start:
+        missed[-1][1] = end
+    else:
+        missed.append([start, end])
 
 
 def add_poll(totals: dict, now: datetime, energy: EnergySnapshot, miners: list[MinerSnapshot]) -> None:
@@ -81,13 +96,13 @@ def add_poll(totals: dict, now: datetime, energy: EnergySnapshot, miners: list[M
     totals["last_poll"] = stamp
     if last is None:
         if (now - _midnight(now)).total_seconds() > MAX_GAP_S:
-            totals["incomplete"] = True  # the day began without us
+            _miss(totals, "00:00", _hhmm(now))  # the day began without us
         return
     seconds = (now - datetime.fromisoformat(last)).total_seconds()
     if seconds <= 0:
         return
     if seconds > MAX_GAP_S:
-        totals["incomplete"] = True
+        _miss(totals, _hhmm(datetime.fromisoformat(last)), _hhmm(now))
         return
     hours = seconds / 3600
     miners_w = 0.0
@@ -125,11 +140,9 @@ def close_slice(totals: dict) -> None:
         totals["best"] = {"slice": totals["slice"], "kwh": totals["slice_kwh"]}
 
 
-def ended_early(totals: dict, date: str) -> bool:
-    """The day's last poll came more than MAX_GAP_S before its end (midnight)."""
-    last = totals["last_poll"]
-    if last is None:
-        return True
-    end = datetime.fromisoformat(last)
-    end = _midnight(end) + timedelta(days=1)
-    return last[:10] != date or (end - datetime.fromisoformat(last)).total_seconds() > MAX_GAP_S
+def close_day(totals: dict) -> None:
+    """The day ended: a last poll more than MAX_GAP_S before midnight misses the rest of it."""
+    last = datetime.fromisoformat(totals["last_poll"])
+    if (_midnight(last) + timedelta(days=1) - last).total_seconds() > MAX_GAP_S:
+        _miss(totals, _hhmm(last), "24:00")
+    close_slice(totals)
