@@ -75,6 +75,7 @@ def build_decision(
     low_voltage_v: float = DEFAULT_LOW_VOLTAGE_V,
     held_down: list[str] | tuple[str, ...] = (),
     estimate_used: bool = False,
+    recovering: dict[str, float | None] | None = None,
 ) -> Decision:
     """One plan per miner. Apart from safety, at most one miner changes per decision.
 
@@ -93,9 +94,10 @@ def build_decision(
     holds for the grace period, then an import estimated with `base_load_w` decides, only
     downwards (safety.py). `voltage_low_seconds` is how long the voltage has been below
     `low_voltage_v` outside ramp locks; after `voltage_debounce_s` one miner stops. Miners in
-    `held_down` were brought down by Safety or Limits within the hold-down time and aren't
+    `held_down` were brought down by Safety within the hold-down time and aren't
     raised or started again yet. `estimate_used`: a change was already made on the estimated
-    import during this meter outage.
+    import during this meter outage. `recovering` names the miners whose chips haven't warmed
+    again since their last change (recovery.py), with the hottest chip before it (None: unknown).
     """
     # One profile: an older stored name (before the migration ran) reads as Solar-follow.
     profile_def = PROFILES_BY_NAME.get(profile, PROFILES[0])
@@ -126,6 +128,7 @@ def build_decision(
         low_voltage_v=low_voltage_v,
         held_down=held_down,
         estimate_used=estimate_used,
+        recovering=dict(recovering or {}),
     )
     try:
         return _run(ctx)

@@ -35,7 +35,8 @@ entries:
       farm.cooling). Reference farm, the statement until then: The miners are immersion
       cooled and have no fans. Temperature follows power and the cooling directly. The
       only firmware temperature setting that matters is the cutoff, about 80 deg C,
-      which restarts the miner.
+      which restarts the miner. That figure was never read from the firmware: on 2026-10-10
+      miner 3 ran at 80 to 82 deg C for over 30 minutes without a cutout.
 
   - id: miner.draw-vs-limit
     title: A settled miner draws about its limit

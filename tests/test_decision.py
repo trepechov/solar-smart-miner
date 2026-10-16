@@ -448,6 +448,50 @@ def test_band_follows_the_configured_target_and_tolerance() -> None:
     }
 
 
+def test_a_miner_near_the_target_isnt_raised_while_its_chips_recover() -> None:
+    # Reference farm, 2026-10-11: stepped down at 74 °C, its restart cooled the chips to 55 °C
+    # and the import raised it straight back. It was near the target before the change (within
+    # the tolerance below it), so its restart-cooled reading isn't headroom; the next miner is.
+    miners = [_miner("a", limit=1100.0, temp=55.0), _miner("b", limit=1300.0)]
+    decision = _decide(_metered(BELOW, miners), recovering={"a": 74.0})
+
+    assert decision.proposals == {"b": 1500.0}
+    assert "M-a: 55 °C, chips still warming after its restart (was 74 °C) → no step up" in decision.trace
+
+
+def test_a_miner_far_below_the_target_steps_up_while_its_chips_recover() -> None:
+    # A cold miner (2026-10-15: 34 to 47 °C over 38 minutes at 1,100 W) isn't held back: one
+    # step can't take it over the band.
+    miners = [_miner("a", limit=1100.0, temp=40.0)]
+    decision = _decide(_metered(BELOW, miners), recovering={"a": 50.0})
+
+    assert decision.proposals == {"a": 1300.0}
+    assert "M-a: 40 °C, 35 °C below the step-down" in decision.trace
+
+
+def test_a_recovering_miner_with_no_reading_before_its_change_counts_as_near() -> None:
+    decision = _decide(_metered(BELOW, [_miner("a", limit=1100.0, temp=45.0)]), recovering={"a": None})
+
+    assert decision.proposals == {}
+    assert any("unknown before" in line for line in decision.trace)
+
+
+def test_a_recovering_miner_still_steps_down_when_too_warm_or_for_the_import() -> None:
+    warm = _decide(_metered(BELOW, [_miner("a", limit=1300.0, temp=76.0)]), recovering={"a": 70.0})
+    cut = _decide(_metered(_over(300.0), [_miner("a", limit=1500.0, temp=50.0)]), recovering={"a": 70.0})
+
+    assert warm.proposals == {"a": 1100.0}
+    assert cut.proposals == {"a": 1100.0}
+
+
+def test_with_every_miner_recovering_near_the_target_nothing_steps_up() -> None:
+    miners = [_miner("a", limit=1100.0, temp=50.0), _miner("b", limit=1300.0, temp=52.0)]
+    decision = _decide(_metered(BELOW, miners), recovering={"a": 66.0, "b": 60.0})
+
+    assert decision.proposals == {}
+    assert sum("chips still warming" in line for line in decision.trace) == 2
+
+
 def test_too_warm_at_the_lowest_step_is_left_to_the_miner() -> None:
     decision = _decide(_metered(BELOW, [_miner("a", limit=900.0, temp=85.0)]))
 
@@ -892,14 +936,14 @@ def test_a_short_voltage_dip_changes_nothing() -> None:
 
 
 def test_a_miner_brought_down_is_not_raised_or_started_again_within_the_delay() -> None:
-    # A voltage stop or a too-warm step down clears its own condition; the target must not
-    # undo it at the next cycle.
+    # A voltage or battery stop clears its own condition; the target must not undo it at the
+    # next cycle.
     miners = [_miner("a", limit=1100.0), _miner("b", stopped=True)]
     decision = _decide(_metered(BELOW, miners), held_down=["b", "a"])
 
     assert decision.proposals == {}
     assert set(_actions(decision).values()) == {ACTION_HOLD}
-    assert any("M-b was brought down by a safety or limit rule" in line for line in decision.trace)
+    assert any("M-b was brought down by a safety rule" in line for line in decision.trace)
     # Another miner still takes the increment.
     assert _decide(_metered(BELOW, miners), held_down=["b"]).proposals == {"a": 1300.0}
 

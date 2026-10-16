@@ -45,6 +45,7 @@ from .protocols import (
     MinerPlan,
     MinerSnapshot,
 )
+from .recovery import ChipRecovery
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -190,6 +191,7 @@ class MinerController:
         self._pending: dict[str, PendingCommand] = {}  # miner id -> command being verified
         self.settling: dict[str, Settling] = {}  # miner id -> its last change, until it is over
         self.last_change_at: float | None = None  # time.monotonic() of the last change, kept
+        self.recovery = ChipRecovery()  # whether each miner's chips have warmed again after it
 
     def is_pending(self, miner_id: str) -> bool:
         return miner_id in self._pending
@@ -206,6 +208,7 @@ class MinerController:
         """
         now = time.monotonic()
         self.last_change_at = now
+        self.recovery.note_change(miner.miner_id, now)
         record = self.settling.get(miner.miner_id)
         if record is not None and record.stopping == stopping and record.age_min(now) < self._ramp_lock():
             record.since = now
@@ -229,6 +232,8 @@ class MinerController:
     def _observe(self, miners: dict[str, MinerSnapshot]) -> None:
         """Feed this cycle's readings to every record; forget the ones past the ramp lock."""
         now = time.monotonic()
+        for miner_id, miner in miners.items():
+            self.recovery.observe(miner_id, miner.temperature_c, now)
         for miner_id, record in list(self.settling.items()):
             record.observe(miners.get(miner_id))
             if record.age_min(now) >= self._ramp_lock() and miner_id not in self._pending:

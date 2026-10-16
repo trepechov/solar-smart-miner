@@ -33,6 +33,7 @@ custom_components/solar_smart_miner/   # HA integration source
   control.py           # the one place that touches the miners: guards, service calls, and the
                        #   Settling record per miner (a command is ok once the miner did it)
   transition.py        # sunrise / sunset as periods of changing production (decision + kb)
+  recovery.py          # whether a miner's chips have warmed again after its restart (the band)
   action_log.py        # actions.jsonl: every command sent, refused or finished
   jsonl_log.py         # the rotating JSONL file shared by the logs
   ai.py                # OpenRouter client: prompt, chat completion, JSON answer parsing, free-model list

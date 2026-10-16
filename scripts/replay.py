@@ -17,13 +17,15 @@ Run with the project's virtualenv from the repo root (it imports the integration
       JSON file per day) instead of the integration's own logs.
 
   .venv/bin/python scripts/replay.py export --recorder <day.json> --at 16:50 17:10 ... \\
-        [--solar-noon 09:56] [--sunset 18:47] [--tz Europe/Sofia]
+        [--solar-noon 09:56] [--sunset 18:47] [--temp-target 60 --temp-tolerance 10] [--tz Europe/Sofia]
       Rebuild the decision inputs at those local times from a recorder download, run them
       through the current code and print them as decisions.jsonl lines (the replay fixtures in
       tests/replay/ were made this way). Readings the recorder lacks are approximated: the
       ramp lock from the limit and switch history, the import-high time from the meter, the
       sun's direction from --solar-noon (UTC), sunrise and sunset by running transition.py over
-      the day's readings (--sunset, local, is when the sun sets).
+      the day's readings (--sunset, local, is when the sun sets). The temperature is the hottest
+      chip, and the miners still recovering from a restart come from running recovery.py over
+      the hour before. The band is the farm's at the time (--temp-target, --temp-tolerance).
 
 This is a development tool; nothing in the integration imports it.
 """
@@ -368,7 +370,34 @@ def _transition_at(rec: Recorder, t: datetime, rising_until: datetime | None, se
     return transition
 
 
-def inputs_at(rec: Recorder, t: datetime, solar_noon: str | None, sunset: str | None = None) -> dict:
+def _hottest_chip(rec: Recorder, name: str, t: datetime) -> float | None:
+    temps = [rec.number(e, t) for e in rec.find(rf"sensor\.{name}_.*chip.*temperature")]
+    temps = [x for x in temps if x]
+    return max(temps) if temps else rec.number(f"sensor.{name}_temperature", t)
+
+
+def _recovering(rec: Recorder, names: list[str], t: datetime) -> dict[str, float | None]:
+    """recovery.py run over the hour before t at the 15-second poll, as the coordinator does."""
+    from custom_components.solar_smart_miner.recovery import ChipRecovery
+
+    recovery = ChipRecovery()
+    tick, seen = t - timedelta(hours=1), {}
+    while tick <= t:
+        for n, name in enumerate(names, start=1):
+            mid = f"miner{n}"
+            key = (rec.number(f"number.{name}_power_limit", tick), rec.state(f"switch.{name}_active", tick))
+            if mid in seen and seen[mid] != key:
+                recovery.note_change(mid, tick.timestamp())
+            seen[mid] = key
+            recovery.observe(mid, _hottest_chip(rec, name, tick), tick.timestamp())
+        tick += timedelta(seconds=15)
+    return recovery.recovering()
+
+
+def inputs_at(
+    rec: Recorder, t: datetime, solar_noon: str | None, sunset: str | None = None,
+    temp_target: float = 60.0, temp_tolerance: float = 10.0,
+) -> dict:
     """A decisions.jsonl record rebuilt from the recorder at time t, decided by the current code."""
     from custom_components.solar_smart_miner.decision_log import build_record
     from custom_components.solar_smart_miner.protocols import (
@@ -382,10 +411,10 @@ def inputs_at(rec: Recorder, t: datetime, solar_noon: str | None, sunset: str | 
     ramp = timedelta(minutes=DEFAULT_RAMP_LOCK_MINUTES)
     ages: list[float] = []
     done: list[str] = []
-    for n, eid in enumerate(rec.find(r"sensor\.(\w+)_miner_consumption"), start=1):
-        name = eid.split(".")[1].removesuffix("_miner_consumption")
+    names = [e.split(".")[1].removesuffix("_miner_consumption") for e in rec.find(r"sensor\.(\w+)_miner_consumption")]
+    for n, name in enumerate(names, start=1):
         label = name[:1].upper() + name[1:]
-        power = rec.number(eid, t)
+        power = rec.number(f"sensor.{name}_miner_consumption", t)
         limit = rec.number(f"number.{name}_power_limit", t)
         switch = rec.state(f"switch.{name}_active", t)
         hashrate = rec.number(f"sensor.{name}_hashrate", t)
@@ -401,7 +430,7 @@ def inputs_at(rec: Recorder, t: datetime, solar_noon: str | None, sunset: str | 
         miner = MinerSnapshot(
             miner_id=f"miner{n}", ip=f"192.0.2.{n}", name=label, power_w=power, power_limit_w=limit,
             min_power_w=500.0, max_power_w=3500.0,
-            temperature_c=rec.number(f"sensor.{name}_temperature", t), is_available=power is not None,
+            temperature_c=_hottest_chip(rec, name, t), is_available=power is not None,
             power_limit_entity_id=f"number.miner{n}_power_limit", hashrate_th=hashrate,
             switch_entity_id=f"switch.miner{n}_active", is_stopped=stopped,
             minutes_since_limit_change=None if limit_changed is None else (t - limit_changed).total_seconds() / 60,
@@ -437,15 +466,16 @@ def inputs_at(rec: Recorder, t: datetime, solar_noon: str | None, sunset: str | 
         sets_at = t.replace(hour=hh, minute=mm, second=0, microsecond=0)
     transition = _transition_at(rec, t, rising_until, sets_at)
     inputs = {
-        "profile": "solar_max", "temp_target": 60.0, "temp_tolerance": 10.0, "battery_floor": 20.0,
-        "power_steps": [900, 1100, 1300, 1500, 1700, 1900, 2100, 2300, 2500],
-        "tuning_settle_minutes": 5.0, "import_min_w": 200.0, "import_max_w": float(DEFAULT_IMPORT_MAX_W),
+        "profile": "solar_follow", "temp_target": temp_target, "temp_tolerance": temp_tolerance,
+        "battery_floor": 20.0, "power_steps": [900, 1100, 1300, 1500, 1700, 1900, 2100, 2300, 2500],
+        "import_min_w": 200.0, "import_max_w": float(DEFAULT_IMPORT_MAX_W),
         "minutes_since_change": since_change, "ramp_lock_minutes": float(DEFAULT_RAMP_LOCK_MINUTES),
         "ramp_done": done,
         "minutes_import_high": _import_high(rec, t, since_change),
         "step_down_delay_minutes": 5.0, "morning_step_down_delay_minutes": 30.0,
         "sun_up": None if sun is None else sun == "above_horizon",
         "sunrise": transition.sunrise, "sunset": transition.sunset,
+        "recovering": _recovering(rec, names, t),
     }
     snapshot = CoordinatorSnapshot(energy=energy, miners=miners)
     decision = build_decision(snapshot, **inputs)
@@ -487,6 +517,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--recorder", type=Path, nargs="*", default=[])
     p.add_argument("--tz", default="Europe/Sofia")
     p = sub.add_parser("export")
+    p.add_argument("--temp-target", type=float, default=60.0)
+    p.add_argument("--temp-tolerance", type=float, default=10.0)
     p.add_argument("--recorder", type=Path, required=True)
     p.add_argument("--at", nargs="+", required=True, help="local times, HH:MM or HH:MM:SS")
     p.add_argument("--solar-noon", help="UTC, HH:MM")
@@ -515,7 +547,8 @@ def main(argv: list[str] | None = None) -> int:
     for at in args.at:
         parts = [int(x) for x in at.split(":")] + [0]
         local = datetime(day.year, day.month, day.day, parts[0], parts[1], parts[2], tzinfo=tz)
-        print(json.dumps(inputs_at(rec, local, args.solar_noon, args.sunset), ensure_ascii=False, separators=(",", ":")))
+        record = inputs_at(rec, local, args.solar_noon, args.sunset, args.temp_target, args.temp_tolerance)
+        print(json.dumps(record, ensure_ascii=False, separators=(",", ":")))
     return 0
 
 

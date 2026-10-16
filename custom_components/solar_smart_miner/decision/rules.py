@@ -30,13 +30,15 @@ RULES: dict[str, tuple[str, ...]] = {
     "tidy": ("rule.power-steps",),
 }
 STAGE_OF = {rule: stage for stage, rules in RULES.items() for rule in rules}
-# Plan reasons of the Safety and Limits rules that bring a miner down. A miner brought down by
-# one isn't raised or started again within the hold-down time (rule.step-down-allocation):
-# otherwise its condition clears once it has acted and the target undoes it the next cycle.
+# Plan reasons of the Safety rules that bring a miner down. A miner brought down by one isn't
+# raised or started again within the hold-down time (rule.step-down-allocation): otherwise its
+# condition clears once it has acted and the target undoes it the next cycle. A too-warm miner
+# needs no hold-down: the band waits until its chips have recovered from the restart
+# (rule.temperature-band, recovery.py).
 REASON_LOW_VOLTAGE = "low voltage"
 REASON_TOO_WARM = "too warm"
 REASON_BATTERY_LOW = "battery low"
-HELD_DOWN_REASONS = (REASON_LOW_VOLTAGE, REASON_TOO_WARM, REASON_BATTERY_LOW)
+HELD_DOWN_REASONS = (REASON_LOW_VOLTAGE, REASON_BATTERY_LOW)
 
 
 def decided_by(rule: str) -> str:

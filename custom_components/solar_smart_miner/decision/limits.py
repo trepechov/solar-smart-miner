@@ -7,7 +7,11 @@ Even load may still step down. Sunset lasts until the next sunrise (transition.p
 cloud that clears starts nothing until the morning (owner, 2026-10-09).
 
 The temperature band: below the target a miner may step up; up to target + tolerance it holds
-(its step becomes its cap); at or above that it steps down one step.
+(its step becomes its cap); at or above that it steps down one step. The tolerance is the
+headroom a step-up leaves for the step itself, the other miners and the day's warming. A reading
+below the target counts only once the chips have recovered from the miner's own restart, if the
+miner was near the target before it (within the tolerance below it): a restart cools the chips
+15 to 25 °C, and read as headroom it raised a too-warm miner straight back (2026-10-11).
 """
 from __future__ import annotations
 
@@ -33,6 +37,16 @@ def check(ctx: Context) -> Decision | None:
         lv = _nearest_level(ladder, m.power_limit_w)
         temp = f"{m.temperature_c:.0f} °C"
         if m.temperature_c < ctx.temp_target:
+            if m.miner_id in ctx.recovering:
+                before = ctx.recovering[m.miner_id]
+                if before is None or before >= ctx.temp_target - ctx.temp_tolerance:
+                    was = f"was {before:.0f} °C" if before is not None else "unknown before"
+                    ctx.trace.append(
+                        f"{m.name}: {temp}, chips still warming after its restart ({was}) → no step up"
+                    )
+                    ctx.caps[m.miner_id] = lv
+                    continue
+            ctx.trace.append(f"{m.name}: {temp}, {ctx.too_warm_c - m.temperature_c:.0f} °C below the step-down")
             continue
         if m.temperature_c < ctx.too_warm_c or lv == 0:
             if m.temperature_c >= ctx.too_warm_c:

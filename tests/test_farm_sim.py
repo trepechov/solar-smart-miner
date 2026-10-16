@@ -10,7 +10,10 @@ each other show up as they did on the reference farm (2026-10-08: a stop/start l
 - a limit change restarts the miner as measured on 2026-10-08: the number shows the new value
   at once, after ~40 s its pause switch reads off, power and hashrate are gone for ~90 s, then
   it draws ~85% of the new limit for a minute and its limit after that; a start boots the
-  same way without the switch going off; a stop is immediate.
+  same way without the switch going off; a stop is immediate;
+- with `chips`, the hottest chip as measured on 2026-10-15: settled at 40 °C at 900 W plus 3 °C
+  per 200 W (plus a slow `drift` per minute, the room warming), a restart drops it to 40 °C and
+  it is back within 2 °C about 5 minutes later.
 
 Checks (the collision checks of scripts/replay.py): no change reversed within 15 minutes and
 nothing started or stepped up during the sunset, no two changes within a minute, and no start
@@ -19,6 +22,7 @@ of a miner that is only restarting.
 from __future__ import annotations
 
 import json
+import math
 import time as time_module
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -55,6 +59,9 @@ SUNSET_PV = json.loads((Path(__file__).parent / "replay" / "2026-10-08-sunset-pv
 RESTART_SWITCH_OFF_S = 40
 RESTART_DARK_S = 90  # no power, no hashrate
 RESTART_LOW_S = 150  # ~85% of the new limit until then
+CHIP_COLD_C = 40.0  # chips at the restart's low point, and settled at 900 W
+CHIP_C_PER_W = 3.0 / 200  # settled rise per watt (2026-10-15: about 3 °C per 200 W)
+CHIP_WARM_TAU_S = 90  # warm-up time constant after the restart: within 2 °C after ~5 minutes
 
 
 @dataclass
@@ -64,11 +71,25 @@ class SimMiner:
     stopped: bool = False
     changed_at: float | None = None  # a restart (limit change) or a boot (start) began
     booting: bool = False  # a start, not a limit change: the switch stays on
+    drift: float = 0.0  # °C per minute the settled chip temperature rises (the room warming)
+    restarted_at: float | None = None  # the last restart or boot, for the chips
+
+    def chip(self, now: float) -> float:
+        settled = CHIP_COLD_C + (self.limit - 900.0) * CHIP_C_PER_W + self.drift * now / 60
+        if self.stopped:
+            return CHIP_COLD_C
+        if self.restarted_at is None:
+            return settled
+        warm_s = now - self.restarted_at - RESTART_DARK_S
+        if warm_s < 0:
+            return CHIP_COLD_C
+        return settled - (settled - CHIP_COLD_C) * math.exp(-warm_s / CHIP_WARM_TAU_S)
 
     def set_limit(self, watts: float, now: float) -> None:
         self.limit = watts
         if not self.stopped and (self.changed_at is None or not self.booting):
             self.changed_at, self.booting = now, False
+            self.restarted_at = now
 
     def stop(self) -> None:
         self.stopped, self.changed_at = True, None
@@ -76,6 +97,7 @@ class SimMiner:
     def start(self, now: float) -> None:
         if self.stopped:
             self.stopped, self.changed_at, self.booting = False, now, True
+            self.restarted_at = now
 
     def reading(self, now: float) -> tuple[float | None, str, float]:
         """(power, switch, hashrate) as hass-miner would show them."""
@@ -130,6 +152,8 @@ class Farm:
             self.hass.states.async_set(m.reg["active"].entity_id, switch)
             self.hass.states.async_set(m.reg["hashrate"].entity_id, f"{hashrate:.1f}")
             self.hass.states.async_set(m.reg["power_limit"].entity_id, f"{m.limit:.0f}", LIMITS)
+            if "0-chip_temperature" in m.reg:
+                self.hass.states.async_set(m.reg["0-chip_temperature"].entity_id, f"{m.chip(self.now):.0f}")
 
 
 def _kind(farm: Farm, miner: SimMiner, service: str, value: float | None) -> str:
@@ -143,7 +167,7 @@ def _kind(farm: Farm, miner: SimMiner, service: str, value: float | None) -> str
 async def _run(
     hass, add_hass_miner, monkeypatch, limits, stopped, pv_potential, minutes: int,
     sets_after_min: float | None = None, rising: bool = False, options: dict | None = None,
-    freezer=None,
+    freezer=None, chips: bool = False, drift: float = 0.0,
 ) -> Farm:
     clock = [0.0]
     monkeypatch.setattr(time_module, "monotonic", lambda: clock[0] + 10_000.0)
@@ -151,8 +175,8 @@ async def _run(
     for n, (limit, off) in enumerate(zip(limits, stopped), start=1):
         reg = add_hass_miner(f"192.0.2.{n}", name=f"Miner {n}", limit=f"{limit:.0f}", power="0",
                              temperature="50", hashrate="0", active="off" if off else "on",
-                             limit_attrs=LIMITS)
-        sims.append(SimMiner(reg, limit, stopped=off))
+                             limit_attrs=LIMITS, chips=("50",) if chips else ())
+        sims.append(SimMiner(reg, limit, stopped=off, drift=drift))
     farm = Farm(hass, sims, pv_potential, None if sets_after_min is None else sets_after_min * 60,
                 rising=rising)
 
@@ -316,3 +340,34 @@ async def test_a_sunrise_in_manual_mode_sends_one_reminder_and_starts_nothing(
     assert farm.commands == []
     assert len(texts) == 1 and texts[0].startswith("🖐 Manual mode: the sun could run a miner now"), texts
     assert "Proposed: start Miner " in texts[0] and texts[0].endswith("Mode: Manual")
+
+
+async def test_a_warming_miner_steps_down_once_and_isnt_raised_on_its_restart(
+    hass, add_hass_miner, monkeypatch
+) -> None:
+    # 2026-10-11: the room warmed a miner at the top step into the step-down; the restart cooled
+    # its chips and the import raised it straight back, every 12 minutes for hours. Here the
+    # chips warm 0.1 °C a minute: at 2,500 W the band steps it down; back at 2,300 W it waits for
+    # its chips and reads inside the band, and when the room makes that step too warm as well
+    # it steps down again. One restart per step, never raised back on cooled chips.
+    farm = await _run(hass, add_hass_miner, monkeypatch, [2300], [False], lambda s: 7000.0,
+                      minutes=110, chips=True, drift=0.1,
+                      options={"temp_target": 62, "temp_tolerance": 10})
+
+    kinds = [kind for _, _, kind, _ in farm.commands]
+    assert kinds == ["up", "down", "down"], farm.commands
+    down_at = [t for t, _, kind, _ in farm.commands if kind == "down"]
+    assert down_at[1] - down_at[0] > 25 * 60  # the room, not the restart, brought the second
+    assert _reversals(farm) == []
+
+
+async def test_a_sunrise_with_warming_chips_still_reaches_the_top(hass, add_hass_miner, monkeypatch) -> None:
+    # The chips recover from every restart before a miner near the target may step up again;
+    # far below it they don't wait. The farm's band (67 / 77 °C) settles 2,500 W at about 64 °C.
+    farm = await _run(hass, add_hass_miner, monkeypatch, [900, 900, 900], [True] * 3,
+                      lambda s: min(9000.0, 1500.0 + s / 60 * 50), minutes=180, rising=True,
+                      chips=True, options={"transition_steps": 2, "temp_target": 67, "temp_tolerance": 10})
+
+    assert [m.limit for m in farm.miners] == [2500.0] * 3, farm.commands
+    assert [c for c in farm.commands if c[2] in ("down", "stop")] == [], farm.commands
+    assert _close_pairs(farm) == []

@@ -276,7 +276,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         self._estimate_used = False  # a change was made on the estimate during this outage
         self._rules_failed = False  # the "rules failed" notification is up
         self._voltage_low_since: float | None = None  # time.monotonic() it went low (outside locks)
-        # miner id -> time.monotonic() a Safety or Limits rule brought it down (HELD_DOWN_REASONS)
+        # miner id -> time.monotonic() a Safety rule brought it down (HELD_DOWN_REASONS)
         self._brought_down: dict[str, float] = {}
         self.transition = Transition()  # sunrise and sunset, from how production changes
         self.day_report = DayMessages()  # the day messages; loaded by async_load_day_report
@@ -559,7 +559,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         return time.monotonic() - self._voltage_low_since
 
     def _held_down(self, delay_minutes: float) -> list[str]:
-        """Miners a Safety or Limits rule brought down within the hold-down time."""
+        """Miners a Safety rule brought down within the hold-down time."""
         now = time.monotonic()
         for miner_id, when in list(self._brought_down.items()):
             if now - when >= delay_minutes * 60:
@@ -1191,6 +1191,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             "held_down": self._held_down(
                 float(options.get(CONF_HOLD_DOWN, DEFAULT_HOLD_DOWN_MINUTES))
             ),
+            "recovering": self.controller.recovery.recovering(),
         }
         decision = build_decision(snapshot, **inputs)
         try:

@@ -43,11 +43,10 @@ DEFAULT_IMPORT_MAX_W = 400
 # sunrise it waits longer, since production is catching up. Minutes.
 DEFAULT_STEP_DOWN_DELAY_MINUTES = 5
 DEFAULT_MORNING_STEP_DOWN_DELAY_MINUTES = 30
-# A miner a Safety or Limits rule brought down isn't raised or started again for this long
-# (rule.step-down-allocation). Its restart cools the chips for a while, so a shorter hold reads
-# the cooled miner as cool and steps it straight back up: on the reference farm, 2026-10-11, the
-# chips took about 12 minutes from the command to warm again, and a 5-minute hold flip-flopped
-# two miners 2,500 <-> 2,300 W every 12 minutes for over three hours. Setting. Minutes.
+# A miner a Safety rule (low voltage, battery low) brought down isn't raised or started again for
+# this long (rule.step-down-allocation): once it has acted, its condition clears and the target
+# would undo it the next cycle. A too-warm miner waits for its chips to recover instead
+# (recovery.py). Setting. Minutes.
 DEFAULT_HOLD_DOWN_MINUTES = 15
 # Power steps per change while production moves on its own (rule.step-down-allocation): an
 # increment during sunrise and a cut during sunset skip this many steps, so a morning costs

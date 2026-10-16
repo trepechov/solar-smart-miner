@@ -91,7 +91,7 @@ def _one_change(
     """The one miner to change, its new step (index; None = stop) and the reason.
 
     `caps` is the highest step a miner may step up to (a warm miner: its current one).
-    `held_down` miners were brought down by Safety or Limits within the hold-down time: they
+    `held_down` miners were brought down by Safety within the hold-down time: they
     aren't raised or started again yet.
     `excess_w` is how far the import is over the maximum, for a step down.
     `up_steps` / `down_steps`: how many steps an increment / a cut moves at least (sunrise /
@@ -115,7 +115,7 @@ def _one_change(
     running = [m for m in candidates if level[m.miner_id] is not None]
     for m in candidates:
         if m.miner_id in held_down:
-            trace.append(f"{m.name} was brought down by a safety or limit rule → not raised again yet")
+            trace.append(f"{m.name} was brought down by a safety rule → not raised again yet")
 
     if direction == DOWN:
         # The hungriest miner that can take the whole cut and keep running, on the highest

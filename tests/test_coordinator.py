@@ -1658,7 +1658,7 @@ async def test_the_step_down_delay_counts_again_from_the_last_change(hass) -> No
     assert lasted == pytest.approx(2)  # not 10: the next step down waits the delay again
 
 
-async def test_held_down_records_safety_and_limit_reductions_and_expires(hass, monkeypatch) -> None:
+async def test_held_down_records_safety_reductions_and_expires(hass, monkeypatch) -> None:
     import time as time_module
 
     from custom_components.solar_smart_miner.control import CommandEvent
@@ -1672,10 +1672,12 @@ async def test_held_down_records_safety_and_limit_reductions_and_expires(hass, m
         return CommandEvent("c1", "auto", "m1", "Miner 1", MinerPlan("set_limit", 1100.0, reason), status)
 
     await coordinator._async_record_action(event("import above the maximum"))
-    await coordinator._async_record_action(event("too warm", status="refused"))
+    await coordinator._async_record_action(event("low voltage", status="refused"))
+    # A too-warm step down needs no hold-down: the band waits for the chips (recovery.py).
+    await coordinator._async_record_action(event("too warm"))
     assert coordinator._held_down(5) == []
 
-    await coordinator._async_record_action(event("too warm"))
+    await coordinator._async_record_action(event("low voltage"))
     assert coordinator._held_down(5) == ["m1"]
     now[0] += 5 * 60
     assert coordinator._held_down(5) == []
@@ -1705,7 +1707,7 @@ async def test_a_held_down_miner_is_not_started_again_after_the_ramp_lock(hass, 
     now[0] += 6 * 60  # past the ramp lock, inside the 10-minute hold-down
     decision = (await coordinator._async_update_data()).decision
     assert decision.plans[miner_id].action == "hold"
-    assert any("brought down by a safety or limit rule" in line for line in decision.trace)
+    assert any("brought down by a safety rule" in line for line in decision.trace)
 
     now[0] += 5 * 60
     assert (await coordinator._async_update_data()).decision.plans[miner_id].action == "start"
@@ -1715,38 +1717,44 @@ async def test_a_too_warm_miner_isnt_raised_again_while_its_chips_are_cooled_by_
     hass, add_hass_miner, monkeypatch
 ) -> None:
     """Reference farm, 2026-10-11 (0.8.1): Brod3 stepped down 2,500 -> 2,300 W for temperature,
-    its restart cooled the chips to 45 °C, the 5-minute hold ended and the import raised it
-    straight back to 2,500 W: a flip-flop every 12 minutes for over an hour. The chips took
-    about 12 minutes to warm again; the hold-down (default 15 minutes) outlasts that, and it no
-    longer follows the step-down delay."""
+    its restart cooled the chips to 45 to 59 °C and the import raised it straight back to
+    2,500 W: a flip-flop every 12 minutes for hours. It waits until its chips have recovered
+    from the restart (risen less than 1 °C in 5 minutes since their low point), then the band
+    decides on the real reading."""
     import time as time_module
 
     from custom_components.solar_smart_miner.const import CONF_CONTROL_MODE
-    from custom_components.solar_smart_miner.control import CommandEvent
-    from custom_components.solar_smart_miner.protocols import MinerPlan
 
     now = [1000.0]
     monkeypatch.setattr(time_module, "monotonic", lambda: now[0])
-    add_hass_miner(
-        MINER_IP, limit="2300", power="2300", active="on", chips=("45", "45", "45"),
+    created = add_hass_miner(
+        MINER_IP, limit="2500", power="2500", active="on", chips=("72", "72", "72"),
         limit_attrs={"min": 500.0, "max": 3500.0},
     )
     hass.states.async_set(SOLAR_ENTITY, "3000")
     hass.states.async_set(GRID_ENTITY, "500")  # spare energy: an increment is due
     coordinator = SolarMinerCoordinator(hass, _make_entry(hass, options={CONF_CONTROL_MODE: "manual"}))
     miner_id = (await coordinator._async_update_data()).miners[0].miner_id
-    await coordinator._async_record_action(
-        CommandEvent("c1", "auto", miner_id, "Brod3", MinerPlan("set_limit", 2300.0, "too warm"), "pending")
-    )
 
-    now[0] += 6 * 60  # past the ramp lock and the 5-minute step-down delay; chips still cool
-    decision = (await coordinator._async_update_data()).decision
-    assert decision.plans[miner_id].action == "hold"
-    assert any("brought down by a safety or limit rule" in line for line in decision.trace)
+    def chips(temp: str) -> None:
+        for board in range(3):
+            hass.states.async_set(created[f"{board}-chip_temperature"].entity_id, temp)
 
-    now[0] += 9 * 60  # 15 minutes: the chips have warmed again, the band decides once more
-    decision = (await coordinator._async_update_data()).decision
-    assert (decision.plans[miner_id].action, decision.plans[miner_id].limit_w) == ("set_limit", 2500.0)
+    # The step down, seen on the miner: the limit drops and the restart cools the chips.
+    hass.states.async_set(created["power_limit"].entity_id, "2300", {"min": 500.0, "max": 3500.0})
+    hass.states.async_set(created["miner_consumption"].entity_id, "2300")
+    decisions = {}
+    for minute, temp in enumerate(["45", "50", "55", "57", "58", "58", "58", "58", "58", "58"]):
+        chips(temp)
+        decisions[minute] = (await coordinator._async_update_data()).decision
+        now[0] += 60
+
+    warming = decisions[6]  # past the ramp lock; the chips rose 8 °C over the last 5 minutes
+    assert warming.plans[miner_id].action == "hold"
+    assert any("chips still warming after its restart (was 72 °C)" in line for line in warming.trace)
+
+    recovered = decisions[9]  # flat for 5 minutes: 58 °C is the real reading, below the target
+    assert (recovered.plans[miner_id].action, recovered.plans[miner_id].limit_w) == ("set_limit", 2500.0)
 
 
 async def test_a_failing_pending_check_or_log_write_doesnt_stop_the_cycle(hass, monkeypatch) -> None:

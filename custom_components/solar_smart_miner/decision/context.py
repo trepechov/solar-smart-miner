@@ -52,6 +52,7 @@ class Context:
     low_voltage_v: float
     held_down: list[str] | tuple[str, ...]
     estimate_used: bool
+    recovering: dict[str, float | None]
     trace: list[str] = field(default_factory=list)
     plans: dict[str, MinerPlan] = field(default_factory=dict)
     candidates: list[MinerSnapshot] = field(default_factory=list)

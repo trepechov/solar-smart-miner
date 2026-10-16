@@ -99,7 +99,9 @@ entries:
     date: "2026-10-09"
     tags: [always, temperature]
     note: >
-      On the reference farm the cutoff is the firmware's, at about 80 deg C; the statement was made
+      On the reference farm the cutoff is the firmware's; "about 80 deg C" was never read from
+      the firmware, and on 2026-10-10 miner 3 ran at 80 to 82 deg C for over 30 minutes at its top
+      step without a cutout (to be read from the miners, plan 2026-10-16-002 P0). The statement was made
       generic on 2026-10-09 (the integration is for any farm). Until 2026-10-13 the id was
       rule.temperature-is-braiins, named after the reference farm's firmware (owner: it reads as
       that firmware only, and hass-miner serves many).
@@ -529,19 +531,19 @@ entries:
   - id: rule.temperature-band
     title: Follow a target temperature with a tolerance
     statement: >
-      A miner's temperature is its hottest chip; the boards' average counts only when no chip
-      reads. Temperature only limits; a low temperature is never a reason to step up. Below the target
-      it doesn't block a step-up the energy calls for. Between the target and target plus
-      tolerance the miner holds, even with spare energy. At or above target plus tolerance it
-      steps down. There is no extra margin below the target. Temperature steps follow the
-      normal pace and never skip the queue. The tolerance must be wider than one power step's
-      temperature change. A miner it brings down stays down until its chips have warmed again
-      after the restart (the hold-down time).
+      A miner's temperature is its hottest chip (the boards' average only when no chip reads).
+      Temperature only limits. Below the target it doesn't block a step-up the energy calls
+      for; between the target and target plus tolerance the miner holds; at or above that it
+      steps down, at the normal pace. The tolerance is the headroom a step-up leaves: one power
+      step's change plus the other miners' and the day's warming. A change restarts the miner
+      and cools its chips: a miner that was within the tolerance below the target before its
+      change doesn't step up until its chips have recovered (risen under 1 deg C in 5 minutes
+      since their low point).
     priority: P1
     status: decided
     stage: limits
-    source: "requirements doc §0 point 6, §3.2, §0.6 round 7; owner 2026-10-10 (chip, not board)"
-    date: "2026-10-10"
+    source: "requirements doc §0 point 6, §3.2, §0.6 round 7; owner 2026-10-10 (chip, not board); owner 2026-10-16 (recovery, the band as the headroom)"
+    date: "2026-10-16"
     tags: [always, temperature, allocation]
     note: >
       Default target 60 deg C, tolerance 10 deg C (owner, 2026-10-07; 65 deg C before). In the
@@ -555,8 +557,23 @@ entries:
       Reference farm, 2026-10-11 (0.8.1, target 70, tolerance 5): one top step moved the
       hottest chip about 5 to 6 deg C (2,300 W about 69 to 70, 2,500 W about 75 to 77), more
       than the 5 deg C band, so a settled miner was either free to step up or too warm. Owner,
-      2026-10-11: target 67, tolerance 10 on the farm (step down at 77 deg C, the miners' own
-      cutoff 80 deg C). Defaults unchanged.
+      2026-10-11: target 67, tolerance 10 on the farm (step down at 77 deg C). Defaults unchanged.
+      0.8.11 (2026-10-16): the recovery replaces the hold-down after a too-warm step down; same
+      number of rules (the band gains the clause, the hold-down loses the case). Reference farm,
+      2026-10-11: stepped down at 74 to 75 deg C, the restart cooled the chips to 53 to 59 and the
+      import raised the miner straight back, 19 rounds in 3.5 hours; the hold-down that followed
+      never met a temperature step-down on the farm (10-12 to 10-16). The same cold read
+      happened after a miner's own energy change: 5 step-ups decided 3 to 8 minutes after it, on
+      chips at 47 to 61 deg C. 2026-10-15, five raises: the miner drew its new limit 3 to 4
+      minutes after the command (the ramp lock ended there, chips at 44 to 54 deg C), the chips
+      were within 2 deg C of settled at 5 to 6 minutes, and flat for 5 minutes at about 10.
+      Hashrate settled later (8 to 10 minutes) and is too noisy to tell. A window across the
+      restart reads flat (61 deg C before, 61 after), so it starts at the low point. A miner far
+      below the target isn't held: at 1,100 W one rose from 34 to 47 deg C over 38 minutes.
+      After the chips have recovered the band decides on the real reading; the headroom is
+      fixed by the tolerance (owner, 2026-10-16: no predicted rise per step, no memory of the
+      day's steps). The day can still warm a settled miner into the step-down (2026-10-15: 4 to
+      7 deg C over 2.5 hours at constant power); the band then steps it down one step at a time.
 
   - id: rule.temperature-after-change
     title: Ignore temperature right after a change
@@ -718,8 +735,8 @@ entries:
       coolest) one step. At sunrise an increment, at sunset a cut, moves the configured
       transition steps within the miner's ladder (an overshoot goes the sun's way). Once every miner runs, two limits two or more
       steps apart come closer: the weakest up, or the hungriest one step down only while
-      nothing may step up and the import isn't low. A miner a safety or limit rule brought
-      down isn't raised or started again within the hold-down time.
+      nothing may step up and the import isn't low. A miner a safety rule brought down isn't
+      raised or started again within the hold-down time.
     priority: P2
     status: decided
     stage: allocation
@@ -755,6 +772,9 @@ entries:
       minutes in 12. The chips took about 12 minutes from the command to warm again
       (miner 3 11:34 command, 45 deg C at 11:38, 74 deg C at 11:46). Now its own setting, the
       hold-down time, default 15 minutes; same number of rules.
+      0.8.11 (2026-10-16): a too-warm step down no longer starts the hold-down; the band waits
+      for the chips to recover (rule.temperature-band). The hold-down stays for low voltage and
+      a low battery.
 
   - id: rule.resume-next-at-sunrise
     title: Start the next miner rather than raise the last
