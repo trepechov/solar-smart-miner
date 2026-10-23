@@ -26,6 +26,7 @@ from custom_components.solar_smart_miner.protocols import (
     MinerSnapshot,
 )
 from custom_components.solar_smart_miner.sensor import (
+    miner_sensor_unique_ids,
     AiAdviceSensor,
     BatterySocSensor,
     GridConsumptionSensor,
@@ -641,3 +642,47 @@ async def test_sensors_show_the_control_mode(hass, add_hass_miner) -> None:
         state = next(s for s in hass.states.async_all("sensor") if s.entity_id.endswith(suffix))
         assert state.attributes["control_mode"] == "auto", suffix
         assert "preview_only" not in state.attributes, suffix
+
+
+# --- managed miners: an unticked miner's sensors go, and come back -------------------
+
+
+async def test_an_unmanaged_miners_sensors_are_removed_and_come_back(hass, add_hass_miner) -> None:
+    from homeassistant.helpers import entity_registry as er_module
+
+    from custom_components.solar_smart_miner.config_flow import CONF_UNMANAGED_MINERS
+
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1500")
+    add_hass_miner("192.168.1.1", name="Brod1")
+    add_hass_miner("192.168.1.10", name="Brod10")  # .1 must not match .10
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_SOLAR_ENTITY: SOLAR_ENTITY, CONF_GRID_ENTITY: GRID_ENTITY},
+        options={CONF_POLLING_INTERVAL: 15},
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    er = er_module.async_get(hass)
+
+    def ids(ip: str) -> list[str | None]:
+        return [er.async_get_entity_id("sensor", DOMAIN, uid) for uid in miner_sensor_unique_ids(entry, ip)]
+
+    before = ids("192.168.1.1")
+    assert all(before) and all(ids("192.168.1.10"))
+    hub = er.async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_total_miner_consumption")
+
+    # Untick .1: the options update reloads the entry.
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, CONF_UNMANAGED_MINERS: ["192.168.1.1"]}
+    )
+    await hass.async_block_till_done()
+    assert ids("192.168.1.1") == [None] * len(before)
+    assert all(ids("192.168.1.10"))
+    assert er.async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_total_miner_consumption") == hub
+
+    # Ticked again: the same entity ids, so the history carries on.
+    hass.config_entries.async_update_entry(entry, options={**entry.options, CONF_UNMANAGED_MINERS: []})
+    await hass.async_block_till_done()
+    assert ids("192.168.1.1") == before

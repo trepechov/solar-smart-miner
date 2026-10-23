@@ -20,7 +20,7 @@ from .const import (  # noqa: F401
     RETIRED_OPTIONS,
     control_mode_of,
 )
-from .config_flow import CONF_PROFILE
+from .config_flow import CONF_PROFILE, CONF_UNMANAGED_MINERS
 from .coordinator import SolarMinerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -78,6 +78,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _drop_retired_options(hass, entry)
     _migrate_profile(hass, entry)
     _remove_retired_entities(hass, entry)
+    _remove_unmanaged_miner_entities(hass, entry)
     coordinator = SolarMinerCoordinator(hass, entry)
     await coordinator.ai_log.async_load_history()
     await coordinator.action_log.async_load_history()
@@ -111,6 +112,18 @@ def _remove_retired_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
             for domain, suffix in RETIRED_ENTITIES
         ):
             er.async_remove(entity.entity_id)
+
+
+def _remove_unmanaged_miner_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """A miner left out under Managed miners loses its sensors rather than keeping them
+    unavailable; ticked again, they come back with the same ids (and so their history)."""
+    from .sensor import miner_sensor_unique_ids
+
+    er = entity_registry.async_get(hass)
+    for miner_id in entry.options.get(CONF_UNMANAGED_MINERS) or []:
+        for unique_id in miner_sensor_unique_ids(entry, miner_id):
+            if entity_id := er.async_get_entity_id("sensor", DOMAIN, unique_id):
+                er.async_remove(entity_id)
 
 
 def _migrate_control_mode(hass: HomeAssistant, entry: ConfigEntry) -> None:

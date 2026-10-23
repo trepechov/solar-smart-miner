@@ -458,6 +458,12 @@ _MINER_METRICS: list[dict] = [
 ]
 
 
+def miner_sensor_unique_ids(entry: ConfigEntry, miner_id: str) -> list[str]:
+    """The unique ids of one miner's sensors, one per metric (also how __init__ finds them)."""
+    prefix = f"{entry.unique_id or entry.entry_id}_{miner_id.replace('.', '_')}"
+    return [f"{prefix}_{metric['key']}" for metric in _MINER_METRICS]
+
+
 class MinerSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
     _attr_has_entity_name = True
 
@@ -470,12 +476,9 @@ class MinerSensor(CoordinatorEntity[SolarMinerCoordinator], SensorEntity):
         metric: dict,
     ) -> None:
         super().__init__(coordinator)
-        id_slug = miner_id.replace(".", "_")
         self._miner_id = miner_id
         self._metric_key: str = metric["key"]
-        self._attr_unique_id = (
-            f"{entry.unique_id or entry.entry_id}_{id_slug}_{metric['key']}"
-        )
+        self._attr_unique_id = miner_sensor_unique_ids(entry, miner_id)[_MINER_METRICS.index(metric)]
         self._attr_name = f"{miner_name} {metric['label']}"
         self._attr_device_class = metric["device_class"]
         self._attr_native_unit_of_measurement = metric["unit"]
