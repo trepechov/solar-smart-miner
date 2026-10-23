@@ -2001,3 +2001,15 @@ async def test_sunset_watches_production_with_every_miner_taken_out(hass, add_ha
 
     # The sun's side of the balance (PV less the house besides the miners) hasn't moved.
     assert seen == [pytest.approx(500.0), pytest.approx(500.0)]
+
+
+async def test_the_trace_and_mock_consumption_count_the_unmanaged_draw(hass, add_hass_miner) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    add_hass_miner(MINER_IP, power="600")
+    add_hass_miner(MINER_IP_2, power="700")
+    entry = _make_entry(hass, mock_consumption_enabled=True, options={CONF_UNMANAGED_MINERS: [MINER_IP_2]})
+
+    snapshot = await SolarMinerCoordinator(hass, entry)._async_update_data()
+
+    assert snapshot.energy.grid_consumption_w == pytest.approx(1300.0)  # house load includes it
+    assert any(line.startswith("Unmanaged miners drawing: 700 W") for line in snapshot.decision.trace)

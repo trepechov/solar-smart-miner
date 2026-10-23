@@ -4,13 +4,23 @@ entries:
     title: Miners as hass-miner shows them
     statement: >
       The miners are read through hass-miner, one config entry per miner. Each has a power
-      limit (a number entity with the miner's own range) and a pause/resume switch.
+      limit (a number entity with the miner's own range) and a pause/resume switch. The
+      integration manages every one of them except those the owner leaves out (Configure,
+      Managed miners); a new miner is managed at once. A miner left out gets no plan and no
+      command and is outside every safety rule, the low-voltage stop included. Its draw is
+      house load: the meter-lost estimate and the production watched for sunrise and sunset
+      add it (0 W when it doesn't read), and its restarts hold none of the others up.
     priority: P3
     status: verified
-    source: "measured: HA entity registry, 2026-10-05"
-    date: "2026-10-09"
+    source: "measured: HA entity registry, 2026-10-05; managed miners: owner, 2026-10-23"
+    date: "2026-10-23"
     tags: [always]
     note: >
+      Managed miners added 2026-10-23 for a miner that failed and couldn't be controlled
+      (plan 2026-10-23-001). A left-out miner that keeps restarting looks like spare sun while
+      it is dark, so the others step up then; if it is back for less than the step-down delay
+      each time, the farm imports its draw while it runs (farm sim, 2026-10-23). Switch such a
+      miner off if that matters.
       Made a principle 2026-10-09 (the integration is for any farm). The farm's own
       figures are farm data (Configure, Farm: Miner model and firmware; farm.miners).
       Reference farm, the statement until then: Three miners run their own

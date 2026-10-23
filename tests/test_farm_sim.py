@@ -73,6 +73,7 @@ class SimMiner:
     booting: bool = False  # a start, not a limit change: the switch stays on
     drift: float = 0.0  # °C per minute the settled chip temperature rises (the room warming)
     restarted_at: float | None = None  # the last restart or boot, for the chips
+    dark_every_s: float | None = None  # faulty: dark (restarting) every other such period
 
     def chip(self, now: float) -> float:
         settled = CHIP_COLD_C + (self.limit - 900.0) * CHIP_C_PER_W + self.drift * now / 60
@@ -102,6 +103,8 @@ class SimMiner:
     def reading(self, now: float) -> tuple[float | None, str, float]:
         """(power, switch, hashrate) as hass-miner would show them."""
         if self.stopped:
+            return None, "off", 0.0
+        if self.dark_every_s and int(now // self.dark_every_s) % 2:
             return None, "off", 0.0
         age = None if self.changed_at is None else now - self.changed_at
         if age is not None and age < RESTART_DARK_S:
@@ -167,7 +170,7 @@ def _kind(farm: Farm, miner: SimMiner, service: str, value: float | None) -> str
 async def _run(
     hass, add_hass_miner, monkeypatch, limits, stopped, pv_potential, minutes: int,
     sets_after_min: float | None = None, rising: bool = False, options: dict | None = None,
-    freezer=None, chips: bool = False, drift: float = 0.0,
+    freezer=None, chips: bool = False, drift: float = 0.0, dark_every_s: dict | None = None,
 ) -> Farm:
     clock = [0.0]
     monkeypatch.setattr(time_module, "monotonic", lambda: clock[0] + 10_000.0)
@@ -176,7 +179,8 @@ async def _run(
         reg = add_hass_miner(f"192.0.2.{n}", name=f"Miner {n}", limit=f"{limit:.0f}", power="0",
                              temperature="50", hashrate="0", active="off" if off else "on",
                              limit_attrs=LIMITS, chips=("50",) if chips else ())
-        sims.append(SimMiner(reg, limit, stopped=off, drift=drift))
+        sims.append(SimMiner(reg, limit, stopped=off, drift=drift,
+                             dark_every_s=(dark_every_s or {}).get(n)))
     farm = Farm(hass, sims, pv_potential, None if sets_after_min is None else sets_after_min * 60,
                 rising=rising)
 
@@ -267,6 +271,23 @@ async def test_a_sunny_farm_ramps_up_one_restart_at_a_time(hass, add_hass_miner,
                       lambda s: 7000.0, minutes=60)
 
     assert len(farm.commands) >= 4
+    assert all(kind == "up" for _, _, kind, _ in farm.commands), farm.commands
+    assert _close_pairs(farm) == []
+    assert _reversals(farm) == []
+
+
+@pytest.mark.parametrize("dark_every_s", [None, 300], ids=["steady", "restarting"])
+async def test_an_unmanaged_miner_is_left_alone_and_holds_nothing_up(
+    hass, add_hass_miner, monkeypatch, dark_every_s
+) -> None:
+    # Miner 3 left out (Configure -> Managed miners) at 2,500 W: house load to the others. Steady,
+    # or faulty and restarting every 5 minutes on its own: its swings start no ramp lock, so
+    # miners 1 and 2 keep stepping up, one restart at a time, and nothing is sent to miner 3.
+    farm = await _run(hass, add_hass_miner, monkeypatch, [1300, 1100, 2500], [False] * 3,
+                      lambda s: 6000.0, minutes=60, options={"unmanaged_miners": ["192.0.2.3"]},
+                      dark_every_s=None if dark_every_s is None else {3: dark_every_s})
+
+    assert {miner for _, miner, _, _ in farm.commands} == {"Miner 1", "Miner 2"}
     assert all(kind == "up" for _, _, kind, _ in farm.commands), farm.commands
     assert _close_pairs(farm) == []
     assert _reversals(farm) == []

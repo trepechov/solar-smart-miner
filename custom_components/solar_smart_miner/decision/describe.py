@@ -38,6 +38,8 @@ def _describe_energy(energy: EnergySnapshot) -> list[str]:
     if energy.battery_soc_pct is not None:
         lines.append(f"Battery: {energy.battery_soc_pct:.0f}%")
     lines.append(f"Miners drawing: {_w(energy.miner_consumption_sum_w)}")
+    if energy.unmanaged_miners_w is not None:
+        lines.append(f"Unmanaged miners drawing: {_w(energy.unmanaged_miners_w)} (house load, not planned for)")
     lines.append(f"Available for miners: {_w(energy.available_for_miners_w)}")
     if energy.pv_power_w is not None:
         lines.append(f"Actual PV output: {_w(energy.pv_power_w)}")

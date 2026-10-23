@@ -1,7 +1,7 @@
 ---
 title: "feat: Choose which miners the integration manages"
 type: feat
-status: active
+status: completed
 date: 2026-10-23
 ---
 

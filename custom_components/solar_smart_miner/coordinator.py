@@ -1152,10 +1152,11 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         energy.unmanaged_miners_w = unmanaged_w
 
         if self._entry.options.get(CONF_MOCK_CONSUMPTION_ENABLED, False):
-            if miner_sum is not None:
-                energy.grid_consumption_w = miner_sum
+            if miner_sum is not None or unmanaged_w is not None:
+                # Every miner: an unmanaged one is house load too.
+                energy.grid_consumption_w = energy.every_miner_w
                 energy.mock_consumption = True
-                _LOGGER.debug("[MOCK CONSUMPTION] Using miner sum: %.1f W", miner_sum)
+                _LOGGER.debug("[MOCK CONSUMPTION] Using miner sum: %.1f W", energy.every_miner_w)
             else:
                 _LOGGER.warning(
                     "[MOCK CONSUMPTION] Miner sum unavailable; keeping real grid entity read"
