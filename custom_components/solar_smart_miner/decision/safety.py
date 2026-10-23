@@ -29,11 +29,12 @@ from .rules import REASON_BATTERY_LOW, REASON_LOW_VOLTAGE
 
 
 def estimated_import_w(energy: EnergySnapshot, base_load_w: float | None) -> float | None:
-    """What the grid import should be: miners + the house besides them − actual PV (None if any
-    of them is unknown). One definition, for the decision and the step-down timer."""
+    """What the grid import should be: every miner (the unmanaged ones too) + the house besides
+    them − actual PV (None if the house or PV is unknown). One definition, for the decision and
+    the step-down timer."""
     if base_load_w is None or energy.pv_power_w is None:
         return None
-    return (energy.miner_consumption_sum_w or 0.0) + base_load_w - energy.pv_power_w
+    return energy.every_miner_w + base_load_w - energy.pv_power_w
 
 
 def check(ctx: Context) -> Decision | None:
@@ -85,7 +86,9 @@ def check(ctx: Context) -> Decision | None:
         ctx.may_step_up, ctx.no_up_reason = False, "the import is estimated"
         ctx.trace.append(
             f"SAFETY: grid meter unknown for {lost:.0f} min → estimated import {_w(estimate)} "
-            f"(miners {_w(energy.miner_consumption_sum_w)} + house {_w(ctx.base_load_w)} − PV "
+            f"(miners {_w(energy.miner_consumption_sum_w)}"
+            + (f" + unmanaged miners {_w(energy.unmanaged_miners_w)}" if energy.unmanaged_miners_w else "")
+            + f" + house {_w(ctx.base_load_w)} − PV "
             f"{_w(energy.pv_power_w)}); it can show a shortfall, never spare sun → nothing starts "
             "or steps up"
         )

@@ -8,6 +8,7 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.solar_smart_miner.config_flow import (
+    CONF_UNMANAGED_MINERS,
     CONF_BATTERY_ENTITY,
     CONF_GRID_ENTITY,
     CONF_POLLING_INTERVAL,
@@ -1908,3 +1909,95 @@ async def test_ha_back_in_the_morning_with_the_miners_mining_picks_up_the_day(
     assert len(texts) == 1 and texts[0].startswith("⛏️ Picked up the day at ")  # HA's time zone
     assert "1 miner already mining." in texts[0] and "mining at 1,900 W" in texts[0]
     assert coordinator._picking_up is False
+
+
+# --- managed miners (Configure -> Managed miners) ---------------------------------------
+
+
+async def test_an_unmanaged_miner_is_left_out_and_its_draw_kept_apart(hass, add_hass_miner) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    hass.states.async_set(GRID_ENTITY, "1800")
+    add_hass_miner(MINER_IP, power="600")
+    add_hass_miner(MINER_IP_2, power="700")
+    add_hass_miner("192.168.1.102", power="900")
+    entry = _make_entry(hass, options={CONF_UNMANAGED_MINERS: [MINER_IP_2]})
+
+    snapshot = await SolarMinerCoordinator(hass, entry)._async_update_data()
+
+    assert [m.miner_id for m in snapshot.miners] == [MINER_IP, "192.168.1.102"]
+    assert snapshot.energy.miner_consumption_sum_w == pytest.approx(1500.0)
+    assert snapshot.energy.unmanaged_miners_w == pytest.approx(700.0)
+    assert MINER_IP_2 not in snapshot.decision.plans
+    assert not any(MINER_IP_2 in line for line in snapshot.decision.trace)
+
+
+async def test_without_the_option_every_miner_is_managed(hass, add_hass_miner) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    add_hass_miner(MINER_IP)
+    add_hass_miner(MINER_IP_2)
+
+    snapshot = await SolarMinerCoordinator(hass, _make_entry(hass))._async_update_data()
+
+    assert len(snapshot.miners) == 2
+    assert snapshot.energy.unmanaged_miners_w is None
+
+
+async def test_an_unreadable_unmanaged_miner_adds_nothing(hass, add_hass_miner) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    add_hass_miner(MINER_IP)
+    add_hass_miner(MINER_IP_2, power="unavailable")
+    entry = _make_entry(hass, options={CONF_UNMANAGED_MINERS: [MINER_IP_2]})
+
+    snapshot = await SolarMinerCoordinator(hass, entry)._async_update_data()
+
+    assert snapshot.energy.unmanaged_miners_w is None
+    assert len(snapshot.miners) == 1
+
+
+async def test_with_every_miner_left_out_there_is_nothing_to_manage(hass, add_hass_miner) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    add_hass_miner(MINER_IP)
+    entry = _make_entry(hass, options={CONF_UNMANAGED_MINERS: [MINER_IP]})
+
+    snapshot = await SolarMinerCoordinator(hass, entry)._async_update_data()
+
+    assert snapshot.miners == []
+    assert snapshot.decision.summary == "No miners to manage"
+    assert snapshot.energy.unmanaged_miners_w == pytest.approx(600.0)
+
+
+async def test_a_change_on_an_unmanaged_miner_settles_nothing(hass, add_hass_miner) -> None:
+    hass.states.async_set(SOLAR_ENTITY, "2000")
+    add_hass_miner(MINER_IP)
+    other = add_hass_miner(MINER_IP_2, limit="900", active="on")
+    entry = _make_entry(hass, options={CONF_UNMANAGED_MINERS: [MINER_IP_2]})
+    coord = SolarMinerCoordinator(hass, entry)
+    await coord._async_update_data()
+
+    # Changed by hand, then restarting: house load, not a change the farm waits out.
+    hass.states.async_set(other["power_limit"].entity_id, "1500", {"min": 200.0, "max": 1500.0})
+    hass.states.async_set(other["active"].entity_id, "off")
+    miners, _ = await coord._async_read_miners()
+
+    assert MINER_IP_2 not in coord.controller.settling
+    assert coord._minutes_since_change(miners) is None
+
+
+async def test_sunset_watches_production_with_every_miner_taken_out(hass, add_hass_miner) -> None:
+    # A faulty unmanaged miner dropping 1,000 W must not read as the sun going down.
+    hass.states.async_set(SOLAR_ENTITY, "1500")
+    hass.states.async_set(GRID_ENTITY, "3000")  # importing 1,500 W; 1,000 W of it the house
+    add_hass_miner(MINER_IP, power="1000")
+    other = add_hass_miner(MINER_IP_2, power="1000")
+    entry = _make_entry(hass, options={CONF_UNMANAGED_MINERS: [MINER_IP_2]})
+    coord = SolarMinerCoordinator(hass, entry)
+    seen = []
+    coord.transition.update = lambda now, production, **_kw: seen.append(production)
+
+    await coord._async_update_data()
+    hass.states.async_set(other["miner_consumption"].entity_id, "0")
+    hass.states.async_set(GRID_ENTITY, "2000")  # the house meter loses the same 1,000 W
+    await coord._async_update_data()
+
+    # The sun's side of the balance (PV less the house besides the miners) hasn't moved.
+    assert seen == [pytest.approx(500.0), pytest.approx(500.0)]

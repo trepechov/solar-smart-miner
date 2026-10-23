@@ -9,7 +9,10 @@ class EnergySnapshot:
     solar_production_w: float | None
     grid_consumption_w: float | None = None  # house consumption, miners included
     battery_soc_pct: float | None = None
-    miner_consumption_sum_w: float | None = None
+    miner_consumption_sum_w: float | None = None  # the managed miners
+    # The miners the owner left out (Configure -> Managed miners), whose power reads: part of
+    # the house load, never planned for. None when there are none or none reads.
+    unmanaged_miners_w: float | None = None
     solar_fault: bool = False
     mock_solar: bool = False
     mock_consumption: bool = False
@@ -21,6 +24,12 @@ class EnergySnapshot:
     forecast_next_hour_w: float | None = None
     forecast_remaining_kwh: float | None = None  # forecast: energy still to come today
     voltage_v: float | None = None  # supply voltage, if a voltage sensor is configured (rules use it)
+
+    @property
+    def every_miner_w(self) -> float:
+        """Every miner's draw, managed or not (unknown counts as 0 W): what a reading that takes
+        the miners out of it must take out."""
+        return (self.miner_consumption_sum_w or 0.0) + (self.unmanaged_miners_w or 0.0)
 
 
 @dataclass

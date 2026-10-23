@@ -60,6 +60,7 @@ from .config_flow import (
     CONF_TEMP_TARGET,
     CONF_TEMP_TOLERANCE,
     CONF_TRANSITION_STEPS,
+    CONF_UNMANAGED_MINERS,
     DEFAULT_OPENROUTER_MODEL,
 )
 from .const import (
@@ -400,19 +401,31 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
             grid_net_w=grid_net_w,
         )
 
-    async def _async_read_miners(self) -> list[MinerSnapshot]:
-        """Read every miner configured in hass-miner (one config entry per miner)."""
+    async def _async_read_miners(self) -> tuple[list[MinerSnapshot], float | None]:
+        """Read every miner configured in hass-miner (one config entry per miner) that the
+        integration manages, and the summed draw of those it leaves alone (None: none reads).
+
+        An unmanaged miner (Configure -> Managed miners) is house load: only its power is read,
+        and a change on it settles nothing, so it never holds up the managed ones."""
         dr = device_registry.async_get(self.hass)
         er = entity_registry.async_get(self.hass)
         snapshots: list[MinerSnapshot] = []
+        unmanaged = set(self._entry.options.get(CONF_UNMANAGED_MINERS) or [])
+        unmanaged_w: float | None = None
 
         for hm_entry in self.hass.config_entries.async_entries(HASS_MINER_PLATFORM):
             if hm_entry.disabled_by is not None:
                 continue
             miner_ip: str = hm_entry.data.get("ip", "")
-            miner_id = miner_ip or hm_entry.entry_id
+            miner_id = miner_id_of(hm_entry)
             entities = entity_registry.async_entries_for_config_entry(er, hm_entry.entry_id)
             power_entry = _find_entity(entities, "sensor", _UID_POWER)
+            if miner_id in unmanaged:
+                if power_entry is not None and (
+                    w := _parse_power_w(self.hass.states.get(power_entry.entity_id))
+                ) is not None:
+                    unmanaged_w = (unmanaged_w or 0.0) + w
+                continue
 
             # hass-miner entries can accumulate empty duplicate devices, so take
             # the name from the device that actually owns the miner's entities.
@@ -485,7 +498,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
                 self.controller.note_change(snapshot, stopping=False, restarting=was_running)
             snapshots.append(snapshot)
 
-        return snapshots
+        return snapshots, unmanaged_w
 
     def _minutes_since_limit_change(
         self, miner_id: str, limit_w: float | None
@@ -641,7 +654,8 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
         while there is some import (a throttled inverter shows the load, not the sun)."""
         production = None
         if since_change is None and energy.grid_net_w is not None and energy.grid_net_w < 0:
-            production = energy.grid_net_w + (energy.miner_consumption_sum_w or 0.0)
+            # Every miner's draw, the unmanaged too: a faulty one dropping out isn't the sun.
+            production = energy.grid_net_w + energy.every_miner_w
         setting = dt_util.parse_datetime(str(sun.attributes.get("next_setting") or "")) if sun else None
         self.transition.update(
             time.monotonic(),
@@ -1127,7 +1141,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
 
     async def _async_update_data(self) -> CoordinatorSnapshot:
         energy = await self._async_read_energy()
-        miners = await self._async_read_miners()
+        miners, unmanaged_w = await self._async_read_miners()
         try:
             await self.controller.async_check_pending({m.miner_id: m for m in miners})
         except Exception:  # noqa: BLE001 - the decision and safety must still run
@@ -1135,6 +1149,7 @@ class SolarMinerCoordinator(DataUpdateCoordinator[CoordinatorSnapshot]):
 
         miner_sum = self._sum_miner_power_w(miners)
         energy.miner_consumption_sum_w = miner_sum
+        energy.unmanaged_miners_w = unmanaged_w
 
         if self._entry.options.get(CONF_MOCK_CONSUMPTION_ENABLED, False):
             if miner_sum is not None:

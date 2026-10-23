@@ -365,6 +365,18 @@ def test_after_the_grace_an_estimated_shortfall_steps_down() -> None:
     assert decision.summary.startswith("Solar-follow: import 770 W")
 
 
+def test_the_estimate_counts_the_unmanaged_miners_draw() -> None:
+    # The same farm with a 600 W miner the owner left out: it still draws, so the import is
+    # 600 W higher, and the trace's parts add up to it.
+    decision = _decide(
+        _lost(_three(), pv=3600.0, unmanaged_miners_w=600.0), meter_lost_minutes=6, base_load_w=500
+    )
+
+    assert any(
+        "estimated import 1,370 W" in line and "unmanaged miners 600 W" in line for line in decision.trace
+    ), decision.trace
+
+
 def test_an_estimate_never_starts_or_steps_up() -> None:
     # With zero export PV equals the load, so the estimate can't show spare sun.
     miners = [_miner("a", limit=1100.0), _miner("b", stopped=True)]
@@ -503,7 +515,7 @@ def test_too_warm_at_the_lowest_step_is_left_to_the_miner() -> None:
 def test_no_miners() -> None:
     decision = _decide(_metered(INSIDE, miners=[]))
 
-    assert decision.summary == "No miners found"
+    assert decision.summary == "No miners to manage"
     assert decision.plans == {}
 
 

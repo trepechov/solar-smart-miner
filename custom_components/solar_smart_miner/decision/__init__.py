@@ -151,8 +151,8 @@ def _run(ctx: Context) -> Decision:
         f"Power steps per change during sunrise and sunset: {ctx.transition_steps}",
     ]
     if not snapshot.miners:
-        ctx.trace.append("No hass-miner miners found — nothing to decide.")
-        return ctx.done("No miners found")
+        ctx.trace.append("No miners to manage (none in hass-miner, or all left out) — nothing to decide.")
+        return ctx.done("No miners to manage")
 
     # A stopped miner is still ours to start again; only unreachable ones are skipped.
     ctx.candidates = [m for m in snapshot.miners if m.is_available or m.is_stopped]

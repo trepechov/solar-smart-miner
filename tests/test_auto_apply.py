@@ -45,11 +45,11 @@ def clock(monkeypatch):
     return now
 
 
-def _coordinator(hass, mode: str = CONTROL_MODE_AUTO) -> SolarMinerCoordinator:
+def _coordinator(hass, mode: str = CONTROL_MODE_AUTO, **options) -> SolarMinerCoordinator:
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={CONF_SOLAR_ENTITY: SOLAR, CONF_GRID_ENTITY: GRID, CONF_BATTERY_ENTITY: None},
-        options={CONF_CONTROL_MODE: mode, CONF_POWER_STEPS: STEPS},
+        options={CONF_CONTROL_MODE: mode, CONF_POWER_STEPS: STEPS, **options},
     )
     entry.add_to_hass(hass)
     coordinator = SolarMinerCoordinator(hass, entry)
@@ -100,6 +100,43 @@ async def test_automatic_applies_the_proposal_in_the_same_cycle(hass, add_hass_m
     # Logged with the readings that produced the plan, not the previous cycle's (there is none).
     assert line["rule_summary"] == snapshot.decision.summary
     assert line["before"]["limit_w"] == 900
+
+
+async def test_automatic_never_commands_an_unmanaged_miner(hass, add_hass_miner, clock) -> None:
+    miners = _surplus_two_miners(hass, add_hass_miner)
+    calls = async_mock_service(hass, "number", "set_value")
+    switches = async_mock_service(hass, "switch", "turn_off")
+    coordinator = _coordinator(hass, unmanaged_miners=["192.168.1.10"])
+
+    for _ in range(3):
+        await coordinator._async_update_data()
+        clock[0] += 600
+
+    left_out = miners["Brod1"]["power_limit"].entity_id
+    assert calls and all(c.data["entity_id"] != left_out for c in calls)
+    assert not switches
+    assert {line["miner_id"] for line in coordinator.lines} == {"192.168.1.11"}
+
+
+async def test_apply_all_sends_nothing_to_an_unmanaged_miner(hass, add_hass_miner, clock) -> None:
+    miners = _surplus_two_miners(hass, add_hass_miner)
+    calls = async_mock_service(hass, "number", "set_value")
+    coordinator = _coordinator(hass, CONTROL_MODE_MANUAL, unmanaged_miners=["192.168.1.10"])
+    coordinator.data = await coordinator._async_update_data()
+    coordinator.async_refresh = coordinator.async_request_refresh = _noop_refresh(coordinator)
+
+    results = await coordinator.async_apply_all()
+
+    assert set(results) == {"192.168.1.11"}
+    assert all(c.data["entity_id"] != miners["Brod1"]["power_limit"].entity_id for c in calls)
+
+
+def _noop_refresh(coordinator):
+    async def _refresh():
+        coordinator.data = await coordinator._async_update_data()
+        coordinator.last_update_success = True
+
+    return _refresh
 
 
 async def test_manual_mode_applies_nothing_on_its_own(hass, add_hass_miner, clock) -> None:
