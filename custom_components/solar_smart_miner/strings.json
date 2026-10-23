@@ -50,13 +50,14 @@
         "title": "Solar Smart Miner — Options",
         "menu_options": {
           "edit_sensors": "Sensors",
+          "edit_managed_miners": "Managed miners",
           "edit_miners": "Miner stop method",
           "edit_farm": "Farm",
           "edit_ai": "AI (OpenRouter)",
           "edit_telegram": "Telegram",
           "edit_settings": "Settings"
         },
-        "description": "Miners are picked up automatically from hass-miner. Saving any section reloads the integration — no restart required."
+        "description": "Miners are picked up automatically from hass-miner; leave one out under Managed miners. Saving any section reloads the integration — no restart required."
       },
       "edit_settings": {
         "title": "Solar Smart Miner — Edit Settings",
@@ -150,6 +151,13 @@
           "openrouter_api_key": "Stored hidden. Clear it to turn the AI off.",
           "openrouter_model": "Free models are listed; you can also type any OpenRouter model id. 'openrouter/free' picks an available free model for you.",
           "ai_interval": "Default 60 s, minimum 10 s. Free models allow only a limited number of requests per day, so a short interval may need a paid model."
+        }
+      },
+      "edit_managed_miners": {
+        "title": "Solar Smart Miner — Managed miners",
+        "description": "Tick the miners the integration manages. An unticked miner is left as it is: no plans, no commands, and it is outside the safety rules too (the low-voltage stop never picks it). Its power counts as part of the house load. A miner added to hass-miner later is managed until you untick it.",
+        "data": {
+          "managed": "Managed miners"
         }
       },
       "edit_miners": {

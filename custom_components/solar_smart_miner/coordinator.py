@@ -223,15 +223,22 @@ def _is_reduction(miner: MinerSnapshot, plan: MinerPlan) -> bool:
     )
 
 
+def miner_id_of(hm_entry: ConfigEntry) -> str:
+    """A miner's id: its IP, or the hass-miner entry id without one. One definition, for the
+    reading, the relays and the managed miners."""
+    return hm_entry.data.get("ip", "") or hm_entry.entry_id
+
+
 def miner_display_name(hass: HomeAssistant) -> list[tuple[str, str]]:
-    """(miner id, name) for every enabled hass-miner entry, named like the controller does."""
+    """(miner id, name) for every enabled hass-miner entry, managed or not, named like the
+    controller does."""
     dr = device_registry.async_get(hass)
     er = entity_registry.async_get(hass)
     result = []
     for hm_entry in hass.config_entries.async_entries(HASS_MINER_PLATFORM):
         if hm_entry.disabled_by is not None:
             continue
-        miner_id = hm_entry.data.get("ip", "") or hm_entry.entry_id
+        miner_id = miner_id_of(hm_entry)
         entities = entity_registry.async_entries_for_config_entry(er, hm_entry.entry_id)
         power_entry = _find_entity(entities, "sensor", _UID_POWER)
         device = (

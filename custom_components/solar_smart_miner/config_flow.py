@@ -1,7 +1,7 @@
 """Config flow for Solar Smart Miner.
 
-Miners are not configured here: the coordinator manages every miner set up in
-hass-miner automatically.
+Miners are not set up here: the coordinator manages every miner set up in hass-miner,
+except those left out under Configure -> Managed miners (CONF_UNMANAGED_MINERS).
 """
 from __future__ import annotations
 
@@ -124,6 +124,10 @@ CONF_VOLTAGE_DEBOUNCE = "voltage_debounce_s"
 CONF_MINER_RELAYS = "miner_relays"  # options: {miner id (its IP): relay switch entity id}
 CONF_MINER = "miner"  # form field: which miner the relay below belongs to
 CONF_RELAY_ENTITY = "relay_entity"
+# options: [miner id] the integration leaves alone. Stored as the miners left out, so a miner
+# added to hass-miner later is managed at once (owner, 2026-10-23).
+CONF_UNMANAGED_MINERS = "unmanaged_miners"
+CONF_MANAGED = "managed"  # form field: the miners ticked as managed
 
 # Routes to whichever free model is up, so it survives free models being rotated out.
 DEFAULT_OPENROUTER_MODEL = "openrouter/free"
@@ -617,7 +621,7 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
         return self.async_show_menu(
             step_id="init",
             menu_options=[
-                "edit_sensors", "edit_miners", "edit_farm", "edit_ai", "edit_telegram", "edit_settings"
+                "edit_sensors", "edit_managed_miners", "edit_miners", "edit_farm", "edit_ai", "edit_telegram", "edit_settings"
             ],
         )
 
@@ -687,6 +691,49 @@ class SolarSmartMinerOptionsFlow(OptionsFlow):
             SelectOptionDict(value=miner_id, label=name)
             for miner_id, name in miner_display_name(self.hass)
         ]
+
+    async def async_step_edit_managed_miners(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Which miners the integration manages: every one is, until the owner unticks it."""
+        from .coordinator import miner_id_of
+
+        choices = self._miner_choices()
+        listed = [c["value"] for c in choices]
+        unmanaged = set(self._pending_options.get(CONF_UNMANAGED_MINERS) or [])
+
+        if user_input is not None:
+            ticked = set(user_input.get(CONF_MANAGED) or [])
+            # A disabled hass-miner entry isn't listed: keep it unmanaged, or it would come back
+            # managed once enabled. Only ids with no hass-miner entry at all are dropped.
+            disabled = {
+                miner_id_of(e)
+                for e in self.hass.config_entries.async_entries(HASS_MINER_PLATFORM)
+                if e.disabled_by is not None
+            }
+            self._pending_options[CONF_UNMANAGED_MINERS] = [
+                *(mid for mid in listed if mid not in ticked),
+                *sorted(unmanaged & disabled),
+            ]
+            return self.async_create_entry(data=self._pending_options)
+
+        return self.async_show_form(
+            step_id="edit_managed_miners",
+            data_schema=vol.Schema(
+                {
+                    # suggested_value, not default: clearing every box must save as none
+                    # managed, not be filled back in with all of them.
+                    vol.Optional(
+                        CONF_MANAGED,
+                        description={"suggested_value": [m for m in listed if m not in unmanaged]},
+                    ): SelectSelector(
+                        SelectSelectorConfig(
+                            options=choices, multiple=True, mode=SelectSelectorMode.LIST
+                        )
+                    ),
+                }
+            ),
+        )
 
     async def async_step_edit_miners(
         self, user_input: dict[str, Any] | None = None

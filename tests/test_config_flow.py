@@ -1023,6 +1023,106 @@ async def test_miners_step_clears_a_relay_and_shows_the_current_ones(hass, add_h
     assert entry.options[CONF_MINER_RELAYS] == {}
 
 
+async def _open_managed_step(hass, entry):
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert "edit_managed_miners" in result["menu_options"]
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "edit_managed_miners"}
+    )
+    assert result["step_id"] == "edit_managed_miners"
+    return result
+
+
+def _ticked(form) -> list[str]:
+    from custom_components.solar_smart_miner.config_flow import CONF_MANAGED
+
+    key = next(k for k in form["data_schema"].schema if k == CONF_MANAGED)
+    return key.description["suggested_value"]
+
+
+async def test_managed_miners_lists_every_miner_ticked_and_stores_the_unticked(hass, add_hass_miner) -> None:
+    from custom_components.solar_smart_miner.config_flow import (
+        CONF_MANAGED,
+        CONF_MINER_RELAYS,
+        CONF_UNMANAGED_MINERS,
+    )
+
+    for n in (1, 2, 3):
+        add_hass_miner(f"192.168.1.10{n}", name=f"Brod{n}")
+    entry = _make_entry(hass)
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, CONF_MINER_RELAYS: {"192.168.1.101": "switch.r1"}}
+    )
+
+    form = await _open_managed_step(hass, entry)
+    choices = form["data_schema"].schema[CONF_MANAGED].config["options"]
+    assert [c["label"] for c in choices] == ["Brod1", "Brod2", "Brod3"]
+    assert _ticked(form) == ["192.168.1.101", "192.168.1.102", "192.168.1.103"]
+
+    result = await hass.config_entries.options.async_configure(
+        form["flow_id"], {CONF_MANAGED: ["192.168.1.101", "192.168.1.103"]}
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_UNMANAGED_MINERS] == ["192.168.1.102"]
+    # Everything else in the options is kept.
+    assert entry.options[CONF_MINER_RELAYS] == {"192.168.1.101": "switch.r1"}
+    assert entry.options[CONF_PROFILE] == DEFAULT_PROFILE
+
+
+async def test_managed_miners_ticks_one_again_and_drops_a_removed_one(hass, add_hass_miner) -> None:
+    from custom_components.solar_smart_miner.config_flow import CONF_MANAGED, CONF_UNMANAGED_MINERS
+
+    add_hass_miner("192.168.1.101", name="Brod1")
+    add_hass_miner("192.168.1.102", name="Brod2")
+    entry = _make_entry(hass)
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, CONF_UNMANAGED_MINERS: ["192.168.1.102", "192.168.1.199"]}
+    )
+
+    form = await _open_managed_step(hass, entry)
+    assert _ticked(form) == ["192.168.1.101"]
+
+    await hass.config_entries.options.async_configure(
+        form["flow_id"], {CONF_MANAGED: ["192.168.1.101", "192.168.1.102"]}
+    )
+
+    assert entry.options[CONF_UNMANAGED_MINERS] == []  # .199 is no longer in hass-miner
+
+
+async def test_managed_miners_keeps_a_disabled_miner_unmanaged(hass, add_hass_miner) -> None:
+    from homeassistant.config_entries import ConfigEntryDisabler
+
+    from custom_components.solar_smart_miner.config_flow import CONF_MANAGED, CONF_UNMANAGED_MINERS
+
+    add_hass_miner("192.168.1.101", name="Brod1")
+    off = add_hass_miner("192.168.1.102", name="Brod2")["entry"]
+    await hass.config_entries.async_set_disabled_by(off.entry_id, ConfigEntryDisabler.USER)
+    entry = _make_entry(hass)
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, CONF_UNMANAGED_MINERS: ["192.168.1.102"]}
+    )
+
+    form = await _open_managed_step(hass, entry)
+    await hass.config_entries.options.async_configure(form["flow_id"], {CONF_MANAGED: ["192.168.1.101"]})
+
+    assert entry.options[CONF_UNMANAGED_MINERS] == ["192.168.1.102"]
+
+
+async def test_managed_miners_with_nothing_ticked_leaves_every_miner_out(hass, add_hass_miner) -> None:
+    from custom_components.solar_smart_miner.config_flow import CONF_UNMANAGED_MINERS
+
+    add_hass_miner("192.168.1.101", name="Brod1")
+    add_hass_miner("192.168.1.102", name="Brod2")
+    entry = _make_entry(hass)
+
+    form = await _open_managed_step(hass, entry)
+    # The frontend leaves a cleared multi-select out; it must not read as "all managed".
+    await hass.config_entries.options.async_configure(form["flow_id"], {})
+
+    assert entry.options[CONF_UNMANAGED_MINERS] == ["192.168.1.101", "192.168.1.102"]
+
+
 async def test_options_flow_refuses_an_import_maximum_not_above_the_minimum(hass) -> None:
     entry = MockConfigEntry(domain=DOMAIN, data=dict(_make_entry(hass).data), options={})
     entry.add_to_hass(hass)
